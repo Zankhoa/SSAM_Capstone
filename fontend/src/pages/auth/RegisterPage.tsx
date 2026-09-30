@@ -12,7 +12,6 @@ import { PasswordStrengthMeter } from "@/components/ui/PasswordStrengthMeter";
 import { GoogleAuthButton } from "@/components/ui/GoogleAuthButton";
 import {
   DocumentIcon,
-  GithubIcon,
   LockIcon,
   MailIcon,
   UserIcon,
@@ -125,7 +124,7 @@ export function RegisterPage() {
         </button> */}
       </div>
 
-      <div className="my-5 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.14em] text-gray-400">
+      <div className="my-5 flex items-center gap-3 text-xs text-gray-400">
         <div className="h-px flex-1 bg-gray-200" />
         HOẶC ĐĂNG KÝ BẰNG EMAIL
         <div className="h-px flex-1 bg-gray-200" />

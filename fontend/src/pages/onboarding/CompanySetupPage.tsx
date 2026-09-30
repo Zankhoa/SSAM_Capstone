@@ -14,7 +14,6 @@ import {
   BuildingIcon,
   MailIcon,
   PhoneIcon,
-  UserIcon,
 } from "@/components/ui/icons";
 
 // Slug này thành `Companies.code` (subdomain) nên phải ổn định với tiếng Việt: bỏ dấu tổ hợp (U+0300–U+036F)
@@ -29,7 +28,6 @@ const slugify = (value: string) =>
     .replace(/(^-|-$)/g, "");
 
 export const companySetupSchema = z.object({
-  adminFullName: z.string().min(1, "Vui lòng nhập họ và tên"),
   adminPhone: z
     .string()
     .min(1, "Vui lòng nhập số điện thoại")
@@ -61,7 +59,6 @@ export function CompanySetupPage() {
   } = useForm<FormValues>({
     resolver: zodResolver(companySetupSchema),
     defaultValues: {
-      adminFullName: user?.fullName ?? "",
       domainAutoJoinEnabled: false,
       emailDomain: user?.email.split("@")[1] ?? "",
     },
@@ -129,12 +126,6 @@ export function CompanySetupPage() {
             1. Thông tin người quản trị
           </legend>
           <div className="mt-2 grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <TextField
-              label="Họ và tên"
-              icon={<UserIcon className="h-4 w-4" />}
-              error={errors.adminFullName?.message}
-              {...register("adminFullName")}
-            />
             <TextField
               label="Email công việc"
               icon={<MailIcon className="h-4 w-4" />}

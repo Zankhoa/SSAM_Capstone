@@ -17,7 +17,7 @@ export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
       <div className="w-full">
         {label && (
           <div className="mb-1.5 flex items-baseline justify-between gap-3">
-            <label htmlFor={inputId} className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-gray-600">
+            <label htmlFor={inputId} className="text-sm font-medium text-gray-700">
               {label}
             </label>
             {hint && <span className="text-xs text-gray-400">{hint}</span>}

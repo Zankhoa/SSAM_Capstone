@@ -79,7 +79,6 @@ describe('resetPasswordSchema', () => {
 
 describe('companySetupSchema (ảnh Figma #4 + field bổ sung)', () => {
   const validInput = {
-    adminFullName: 'Sarah Lin',
     adminPhone: '+84912345678',
     name: 'Acme Fintech Corp',
     taxCode: '0109876543',

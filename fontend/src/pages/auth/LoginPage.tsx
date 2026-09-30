@@ -16,7 +16,6 @@ import {
   DocumentIcon,
   LockIcon,
   MailIcon,
-  ShieldIcon,
 } from "@/components/ui/icons";
 
 export const loginSchema = z.object({
@@ -40,9 +39,17 @@ export function LoginPage() {
   const [serverError, setServerError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   // ResetPasswordPage điều hướng về đây kèm state này — trước đó không ai đọc nên người dùng không biết đã đổi xong.
-  const resetSuccess =
-    (location.state as { resetSuccess?: boolean } | null)?.resetSuccess ===
-    true;
+  const locationState = location.state as
+    | { resetSuccess?: boolean; from?: string }
+    | null;
+  const resetSuccess = locationState?.resetSuccess === true;
+  // `from` do ProtectedRoute đặt (đường dẫn nội bộ). Chỉ nhận path tuyệt đối cùng origin để không thành open-redirect.
+  const returnTo =
+    typeof locationState?.from === "string" &&
+    locationState.from.startsWith("/") &&
+    !locationState.from.startsWith("//")
+      ? locationState.from
+      : null;
 
   const {
     register,
@@ -53,7 +60,8 @@ export function LoginPage() {
   const goAfterAuth = async () => {
     const me = await refreshMe();
     const hasOnboarded = me.companies.length > 0 || me.workspaces.length > 0;
-    navigate(hasOnboarded ? "/" : "/onboarding/account-type");
+    // Chưa onboard thì luôn về onboarding, bất kể trước đó định vào đâu.
+    navigate(hasOnboarded ? (returnTo ?? "/") : "/onboarding/account-type");
   };
 
   const onSubmit = async (values: FormValues) => {
@@ -124,7 +132,7 @@ export function LoginPage() {
         </button> */}
       </div>
 
-      <div className="my-5 flex items-center gap-3 font-mono text-[10px] uppercase tracking-[0.14em] text-gray-400">
+      <div className="my-5 flex items-center gap-3 text-xs text-gray-400">
         <div className="h-px flex-1 bg-gray-200" />
         HOẶC ĐĂNG NHẬP BẰNG EMAIL
         <div className="h-px flex-1 bg-gray-200" />
@@ -158,7 +166,7 @@ export function LoginPage() {
             {/* Cùng kiểu với label bên trong TextField (không dùng prop label vì cần chèn link "Quên mật khẩu?" cạnh nhãn) */}
             <label
               htmlFor="password"
-              className="font-mono text-[11px] font-medium uppercase tracking-[0.12em] text-gray-600"
+              className="text-sm font-medium text-gray-700"
             >
               Mật khẩu
             </label>

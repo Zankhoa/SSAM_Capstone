@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { GoogleOAuthProvider } from '@react-oauth/google'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { ProtectedRoute } from '@/components/layout/ProtectedRoute'
+import { GuestRoute } from '@/components/layout/GuestRoute'
 import { FullPageSpinner } from '@/components/ui/Spinner'
 import { LandingPage } from '@/pages/LandingPage'
 import { RegisterPage } from '@/pages/auth/RegisterPage'
@@ -38,8 +39,22 @@ function AppRoutes() {
     <Routes>
       <Route path="/" element={<RootRoute />} />
 
-      <Route path="/register" element={<RegisterPage />} />
-      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/register"
+        element={
+          <GuestRoute>
+            <RegisterPage />
+          </GuestRoute>
+        }
+      />
+      <Route
+        path="/login"
+        element={
+          <GuestRoute>
+            <LoginPage />
+          </GuestRoute>
+        }
+      />
       <Route path="/verify-email" element={<VerifyEmailPage />} />
       <Route path="/verify-email/pending" element={<VerifyEmailPendingPage />} />
       <Route path="/forgot-password" element={<ForgotPasswordPage />} />

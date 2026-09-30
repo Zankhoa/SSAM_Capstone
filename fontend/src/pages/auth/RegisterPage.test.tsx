@@ -14,11 +14,11 @@ vi.mock('@/api/authApi', () => ({
   },
 }))
 
-async function fillValidFormExcept(user: ReturnType<typeof userEvent.setup>, skip?: 'password' | 'email' | 'agree') {
+// Form đăng ký hiện chỉ còn 3 trường (checkbox điều khoản đã bỏ), nên không còn bước "đồng ý".
+async function fillValidFormExcept(user: ReturnType<typeof userEvent.setup>, skip?: 'password' | 'email') {
   await user.type(screen.getByLabelText(/họ và tên/i), 'Sarah Lin')
-  if (skip !== 'email') await user.type(screen.getByLabelText(/email công việc/i), 'sarah@fintechcorp.com')
+  if (skip !== 'email') await user.type(screen.getByLabelText(/^email$/i), 'sarah@fintechcorp.com')
   if (skip !== 'password') await user.type(screen.getByLabelText(/mật khẩu/i), 'FintechOps#2025')
-  if (skip !== 'agree') await user.click(screen.getByRole('checkbox'))
 }
 
 describe('RegisterPage', () => {
@@ -34,7 +34,7 @@ describe('RegisterPage', () => {
   it('hiện đủ 3 trường bắt buộc: họ tên, email, mật khẩu', () => {
     renderWithProviders(<RegisterPage />)
     expect(screen.getByLabelText(/họ và tên/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/email công việc/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/^email$/i)).toBeInTheDocument()
     expect(screen.getByLabelText(/mật khẩu/i)).toBeInTheDocument()
   })
 
@@ -43,9 +43,8 @@ describe('RegisterPage', () => {
     renderWithProviders(<RegisterPage />)
 
     await user.type(screen.getByLabelText(/họ và tên/i), 'Sarah Lin')
-    await user.type(screen.getByLabelText(/email công việc/i), 'sarah@fintechcorp.com')
+    await user.type(screen.getByLabelText(/^email$/i), 'sarah@fintechcorp.com')
     await user.type(screen.getByLabelText(/mật khẩu/i), 'Password123')
-    await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('button', { name: /tạo tài khoản/i }))
 
     expect(await screen.findByText(/mật khẩu chưa đạt/i)).toBeInTheDocument()
@@ -57,23 +56,11 @@ describe('RegisterPage', () => {
     renderWithProviders(<RegisterPage />)
 
     await user.type(screen.getByLabelText(/họ và tên/i), 'Sarah Lin')
-    await user.type(screen.getByLabelText(/email công việc/i), 'not-an-email')
+    await user.type(screen.getByLabelText(/^email$/i), 'not-an-email')
     await user.type(screen.getByLabelText(/mật khẩu/i), 'FintechOps#2025')
-    await user.click(screen.getByRole('checkbox'))
     await user.click(screen.getByRole('button', { name: /tạo tài khoản/i }))
 
     expect(await screen.findByText(/email không hợp lệ/i)).toBeInTheDocument()
-    expect(authApi.register).not.toHaveBeenCalled()
-  })
-
-  it('báo lỗi khi chưa đồng ý điều khoản', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<RegisterPage />)
-
-    await fillValidFormExcept(user, 'agree')
-    await user.click(screen.getByRole('button', { name: /tạo tài khoản/i }))
-
-    expect(await screen.findByText(/bạn cần đồng ý điều khoản/i)).toBeInTheDocument()
     expect(authApi.register).not.toHaveBeenCalled()
   })
 
