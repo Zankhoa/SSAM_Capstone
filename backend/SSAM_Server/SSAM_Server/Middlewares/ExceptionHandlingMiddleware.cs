@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text.Json;
-using Microsoft.AspNetCore.Mvc;
+using SSAM.Application.Common.Exceptions;
+using SSAM.Application.Common.Models;
 
 namespace SSAM_Server.Middlewares;
 
@@ -21,26 +22,25 @@ public class ExceptionHandlingMiddleware
         {
             await _next(context);
         }
+        catch (AppException ex)
+        {
+            _logger.LogWarning("AppException [{Code}]: {Message}", ex.Code, ex.Message);
+            context.Response.ContentType = "application/json";
+            context.Response.StatusCode = ex.StatusCode;
+
+            var errorResponse = new ErrorResponseDto(ex.Code, ex.Message, ex.Errors);
+            var responseJson = JsonSerializer.Serialize(errorResponse);
+            await context.Response.WriteAsync(responseJson);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "An unhandled exception occurred: {Message}", ex.Message);
-            await HandleExceptionAsync(context, ex);
+            context.Response.ContentType = "application/json";
+            context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
+
+            var errorResponse = new ErrorResponseDto("INTERNAL_SERVER_ERROR", "Đã xảy ra lỗi trên hệ thống.");
+            var responseJson = JsonSerializer.Serialize(errorResponse);
+            await context.Response.WriteAsync(responseJson);
         }
-    }
-
-    private static async Task HandleExceptionAsync(HttpContext context, Exception exception)
-    {
-        context.Response.ContentType = "application/json";
-        context.Response.StatusCode = (int)HttpStatusCode.InternalServerError;
-
-        var problemDetails = new ProblemDetails
-        {
-            Status = context.Response.StatusCode,
-            Title = "An error occurred while processing your request.",
-            Detail = exception.Message
-        };
-
-        var responseJson = JsonSerializer.Serialize(problemDetails);
-        await context.Response.WriteAsync(responseJson);
     }
 }

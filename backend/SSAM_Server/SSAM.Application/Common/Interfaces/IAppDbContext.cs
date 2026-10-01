@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SSAM.Domain.Entities.Companies;
 using SSAM.Domain.Entities.Identity;
+using SSAM.Domain.Entities.Workspaces;
 
 namespace SSAM.Application.Common.Interfaces;
 
@@ -16,6 +17,11 @@ public interface IAppDbContext
     DbSet<EmailVerificationToken> EmailVerificationTokens { get; }
     DbSet<PasswordResetToken> PasswordResetTokens { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
+    
+    // Onboarding & Workspaces
+    DbSet<Workspace> Workspaces { get; }
+    DbSet<WorkspaceMember> WorkspaceMembers { get; }
+    DbSet<MembershipRequest> MembershipRequests { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

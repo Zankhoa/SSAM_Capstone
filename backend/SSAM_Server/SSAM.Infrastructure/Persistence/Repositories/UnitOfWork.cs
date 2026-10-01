@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore.Storage;
 using SSAM.Application.Common.Interfaces.Repositories;
 using SSAM.Domain.Entities.Companies;
 using SSAM.Domain.Entities.Identity;
+using SSAM.Domain.Entities.Workspaces;
 
 namespace SSAM.Infrastructure.Persistence.Repositories;
 
@@ -22,6 +23,9 @@ public class UnitOfWork : IUnitOfWork
     private IGenericRepository<EmailVerificationToken>? _emailVerificationTokens;
     private IGenericRepository<PasswordResetToken>? _passwordResetTokens;
     private IGenericRepository<RefreshToken>? _refreshTokens;
+    private IGenericRepository<Workspace>? _workspaces;
+    private IGenericRepository<WorkspaceMember>? _workspaceMembers;
+    private IGenericRepository<MembershipRequest>? _membershipRequests;
 
     public UnitOfWork(AppDbContext context)
     {
@@ -44,6 +48,9 @@ public class UnitOfWork : IUnitOfWork
     public IGenericRepository<EmailVerificationToken> EmailVerificationTokens => _emailVerificationTokens ??= Repository<EmailVerificationToken>();
     public IGenericRepository<PasswordResetToken> PasswordResetTokens => _passwordResetTokens ??= Repository<PasswordResetToken>();
     public IGenericRepository<RefreshToken> RefreshTokens => _refreshTokens ??= Repository<RefreshToken>();
+    public IGenericRepository<Workspace> Workspaces => _workspaces ??= Repository<Workspace>();
+    public IGenericRepository<WorkspaceMember> WorkspaceMembers => _workspaceMembers ??= Repository<WorkspaceMember>();
+    public IGenericRepository<MembershipRequest> MembershipRequests => _membershipRequests ??= Repository<MembershipRequest>();
 
     public async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {

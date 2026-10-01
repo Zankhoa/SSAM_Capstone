@@ -1,5 +1,6 @@
 using SSAM.Domain.Entities.Companies;
 using SSAM.Domain.Entities.Identity;
+using SSAM.Domain.Entities.Workspaces;
 
 namespace SSAM.Application.Common.Interfaces.Repositories;
 
@@ -17,6 +18,9 @@ public interface IUnitOfWork : IDisposable
     IGenericRepository<EmailVerificationToken> EmailVerificationTokens { get; }
     IGenericRepository<PasswordResetToken> PasswordResetTokens { get; }
     IGenericRepository<RefreshToken> RefreshTokens { get; }
+    IGenericRepository<Workspace> Workspaces { get; }
+    IGenericRepository<WorkspaceMember> WorkspaceMembers { get; }
+    IGenericRepository<MembershipRequest> MembershipRequests { get; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
     Task BeginTransactionAsync(CancellationToken cancellationToken = default);
