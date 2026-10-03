@@ -14,15 +14,21 @@ public class AuthService : IAuthService
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
+    private readonly IEmailSender _emailSender;
+    private readonly IGoogleTokenValidator _googleTokenValidator;
 
     public AuthService(
         IUnitOfWork unitOfWork,
         IPasswordHasher _passwordHasher,
-        IJwtTokenGenerator jwtTokenGenerator)
+        IJwtTokenGenerator jwtTokenGenerator,
+        IEmailSender emailSender,
+        IGoogleTokenValidator googleTokenValidator)
     {
         _unitOfWork = unitOfWork;
         this._passwordHasher = _passwordHasher;
         _jwtTokenGenerator = jwtTokenGenerator;
+        _emailSender = emailSender;
+        _googleTokenValidator = googleTokenValidator;
     }
 
     public async Task<RegisterResponseDto> RegisterAsync(RegisterRequestDto request, CancellationToken cancellationToken = default)
@@ -88,6 +94,8 @@ public class AuthService : IAuthService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+            await _emailSender.SendEmailVerificationAsync(account.Email, token, cancellationToken);
 
             return new RegisterResponseDto
             {
@@ -191,12 +199,17 @@ public class AuthService : IAuthService
                 "The Google ID token is invalid.");
         }
 
-        // In production, the Google ID token should be verified
-        // using GoogleJsonWebSignature.ValidateAsync().
-        // This is currently a mock implementation for demonstration purposes.
-        var email = "google.user@example.com";
-        var fullName = "Google User";
-        var googleSub = "google_sub_12345";
+        var googlePayload = await _googleTokenValidator.ValidateAsync(request.IdToken, cancellationToken);
+        if (googlePayload == null)
+        {
+            throw AppException.BadRequest(
+                "TOKEN_INVALID",
+                "The Google ID token is invalid.");
+        }
+
+        var email = googlePayload.Email;
+        var fullName = googlePayload.FullName;
+        var googleSub = googlePayload.Subject;
 
         var isNewAccount = false;
 
@@ -579,6 +592,8 @@ public class AuthService : IAuthService
                 cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            await _emailSender.SendEmailVerificationAsync(account.Email, token, cancellationToken);
         }
     }
 
@@ -607,6 +622,8 @@ public class AuthService : IAuthService
                 cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            await _emailSender.SendPasswordResetAsync(account.Email, token, cancellationToken);
         }
     }
 

@@ -4,6 +4,8 @@ using Microsoft.Extensions.DependencyInjection;
 using SSAM.Application.Common.Interfaces;
 using SSAM.Application.Common.Interfaces.Repositories;
 using SSAM.Application.Common.Interfaces.Security;
+using SSAM.Application.Common.Interfaces.Services;
+using SSAM.Infrastructure.Email;
 using SSAM.Infrastructure.Persistence;
 using SSAM.Infrastructure.Persistence.Repositories;
 using SSAM.Infrastructure.Security;
@@ -34,6 +36,17 @@ public static class DependencyInjection
         // Register Security Services
         services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
+        services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
+
+        // Smtp:Host trống (chưa cấu hình user-secrets) → tự rơi về log console thay vì gửi mail thật.
+        if (string.IsNullOrWhiteSpace(configuration["Smtp:Host"]))
+        {
+            services.AddSingleton<IEmailSender, ConsoleEmailSender>();
+        }
+        else
+        {
+            services.AddSingleton<IEmailSender, SmtpEmailSender>();
+        }
 
         return services;
     }
