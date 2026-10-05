@@ -2,9 +2,9 @@ using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SSAM.Application.Common.Exceptions;
-using SSAM.Application.Common.Interfaces.Services;
-using SSAM.Application.DTOs.Companies;
-using SSAM.Application.DTOs.Invitations;
+using SSAM.Application.Features.Companies;
+using SSAM.Application.Features.Companies.DTOs;
+using SSAM.Application.Features.Invitations.DTOs;
 
 namespace SSAM_Server.Controllers;
 

@@ -1,6 +1,6 @@
-using SSAM.Application.DTOs.Workspaces;
+using SSAM.Application.Features.Workspaces.DTOs;
 
-namespace SSAM.Application.Common.Interfaces.Services;
+namespace SSAM.Application.Features.Workspaces;
 
 public interface IWorkspaceService
 {

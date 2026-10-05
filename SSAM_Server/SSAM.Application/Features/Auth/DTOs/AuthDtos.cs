@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace SSAM.Application.DTOs.Auth;
+namespace SSAM.Application.Features.Auth.DTOs;
 
 public class UserDto
 {

@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace SSAM.Application.DTOs.Companies;
+namespace SSAM.Application.Features.Companies.DTOs;
 
 public class CompanyDto
 {

@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace SSAM.Application.DTOs.Workspaces;
+namespace SSAM.Application.Features.Workspaces.DTOs;
 
 public class CreateWorkspaceRequestDto
 {

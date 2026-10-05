@@ -4,14 +4,13 @@ using Microsoft.EntityFrameworkCore;
 using SSAM.Application.Common.Exceptions;
 using SSAM.Application.Common.Interfaces.Repositories;
 using SSAM.Application.Common.Interfaces.Security;
-using SSAM.Application.Common.Interfaces.Services;
-using SSAM.Application.DTOs.Companies;
-using SSAM.Application.DTOs.Invitations;
+using SSAM.Application.Features.Companies.DTOs;
+using SSAM.Application.Features.Invitations.DTOs;
 using SSAM.Domain.Entities.Companies;
 using SSAM.Domain.Entities.Identity;
 using SSAM.Domain.Entities.Workspaces;
 
-namespace SSAM.Application.Services;
+namespace SSAM.Application.Features.Companies;
 
 public class CompanyService : ICompanyService
 {

@@ -8,6 +8,10 @@ using SSAM.Infrastructure.Persistence;
 using SSAM.Infrastructure.Persistence.Repositories;
 using SSAM.Infrastructure.Security;
 
+using SSAM.Application.Features.Emails;
+using SSAM.Infrastructure.Configuration;
+using SSAM.Infrastructure.Services;
+
 namespace SSAM.Infrastructure;
 
 public static class DependencyInjection
@@ -34,6 +38,11 @@ public static class DependencyInjection
         // Register Security Services
         services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
         services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
+        services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
+
+        // Register Email Service
+        services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
+        services.AddScoped<IEmailService, SmtpEmailService>();
 
         return services;
     }

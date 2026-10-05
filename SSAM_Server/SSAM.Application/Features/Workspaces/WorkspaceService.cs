@@ -1,10 +1,9 @@
 using SSAM.Application.Common.Exceptions;
 using SSAM.Application.Common.Interfaces.Repositories;
-using SSAM.Application.Common.Interfaces.Services;
-using SSAM.Application.DTOs.Workspaces;
+using SSAM.Application.Features.Workspaces.DTOs;
 using SSAM.Domain.Entities.Workspaces;
 
-namespace SSAM.Application.Services;
+namespace SSAM.Application.Features.Workspaces;
 
 public class WorkspaceService : IWorkspaceService
 {

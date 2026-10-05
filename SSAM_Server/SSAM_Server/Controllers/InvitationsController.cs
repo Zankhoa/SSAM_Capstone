@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
-using SSAM.Application.Common.Interfaces.Services;
-using SSAM.Application.DTOs.Invitations;
+using SSAM.Application.Features.Companies;
+using SSAM.Application.Features.Invitations.DTOs;
 
 namespace SSAM_Server.Controllers;
 

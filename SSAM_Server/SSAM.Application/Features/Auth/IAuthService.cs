@@ -1,8 +1,8 @@
-using SSAM.Application.DTOs.Auth;
+using SSAM.Application.Features.Auth.DTOs;
 
-namespace SSAM.Application.Common.Interfaces.Services;
+namespace SSAM.Application.Features.Auth;
 
-public interface IAuthService
+public interface IAuthService 
 {
     Task<RegisterResponseDto> RegisterAsync(RegisterRequestDto request, CancellationToken cancellationToken = default);
     Task<AuthSessionDto> LoginAsync(LoginRequestDto request, string? ipAddress, string? userAgent, CancellationToken cancellationToken = default);

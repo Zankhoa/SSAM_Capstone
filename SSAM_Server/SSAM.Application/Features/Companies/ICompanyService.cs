@@ -1,7 +1,7 @@
-using SSAM.Application.DTOs.Companies;
-using SSAM.Application.DTOs.Invitations;
+using SSAM.Application.Features.Companies.DTOs;
+using SSAM.Application.Features.Invitations.DTOs;
 
-namespace SSAM.Application.Common.Interfaces.Services;
+namespace SSAM.Application.Features.Companies;
 
 public interface ICompanyService
 {

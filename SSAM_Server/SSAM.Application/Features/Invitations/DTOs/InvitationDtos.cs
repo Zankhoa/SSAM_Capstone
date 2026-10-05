@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace SSAM.Application.DTOs.Invitations;
+namespace SSAM.Application.Features.Invitations.DTOs;
 
 public class CreateInvitationRequestDto
 {

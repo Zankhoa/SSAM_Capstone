@@ -3,26 +3,32 @@ using Microsoft.EntityFrameworkCore;
 using SSAM.Application.Common.Exceptions;
 using SSAM.Application.Common.Interfaces.Repositories;
 using SSAM.Application.Common.Interfaces.Security;
-using SSAM.Application.Common.Interfaces.Services;
-using SSAM.Application.DTOs.Auth;
+using SSAM.Application.Features.Auth.DTOs;
+using SSAM.Application.Features.Emails;
 using SSAM.Domain.Entities.Identity;
 
-namespace SSAM.Application.Services;
+namespace SSAM.Application.Features.Auth;
 
 public class AuthService : IAuthService
 {
     private readonly IUnitOfWork _unitOfWork;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
+    private readonly IEmailService _emailService;
+    private readonly IGoogleTokenValidator _googleTokenValidator;
 
     public AuthService(
         IUnitOfWork unitOfWork,
-        IPasswordHasher _passwordHasher,
-        IJwtTokenGenerator jwtTokenGenerator)
+        IPasswordHasher passwordHasher,
+        IJwtTokenGenerator jwtTokenGenerator,
+        IEmailService emailService,
+        IGoogleTokenValidator googleTokenValidator)
     {
         _unitOfWork = unitOfWork;
-        this._passwordHasher = _passwordHasher;
+        _passwordHasher = passwordHasher;
         _jwtTokenGenerator = jwtTokenGenerator;
+        _emailService = emailService;
+        _googleTokenValidator = googleTokenValidator;
     }
 
     public async Task<RegisterResponseDto> RegisterAsync(RegisterRequestDto request, CancellationToken cancellationToken = default)
@@ -88,6 +94,8 @@ public class AuthService : IAuthService
             await _unitOfWork.SaveChangesAsync(cancellationToken);
 
             await _unitOfWork.CommitTransactionAsync(cancellationToken);
+
+            await _emailService.SendVerificationEmailAsync(request.Email, request.FullName, token, cancellationToken);
 
             return new RegisterResponseDto
             {
@@ -191,12 +199,17 @@ public class AuthService : IAuthService
                 "The Google ID token is invalid.");
         }
 
-        // In production, the Google ID token should be verified
-        // using GoogleJsonWebSignature.ValidateAsync().
-        // This is currently a mock implementation for demonstration purposes.
-        var email = "google.user@example.com";
-        var fullName = "Google User";
-        var googleSub = "google_sub_12345";
+        var googlePayload = await _googleTokenValidator.ValidateAsync(request.IdToken, cancellationToken);
+        if (googlePayload == null)
+        {
+            throw AppException.BadRequest(
+                "TOKEN_INVALID",
+                "The Google ID token is invalid.");
+        }
+
+        var email = googlePayload.Email;
+        var fullName = googlePayload.FullName;
+        var googleSub = googlePayload.Subject;
 
         var isNewAccount = false;
 
@@ -579,6 +592,9 @@ public class AuthService : IAuthService
                 cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var user = await _unitOfWork.Users.FirstOrDefaultAsync(u => u.AccountId == account.Id, cancellationToken);
+            await _emailService.SendVerificationEmailAsync(account.Email, user?.FullName ?? account.Email, token, cancellationToken);
         }
     }
 
@@ -607,6 +623,9 @@ public class AuthService : IAuthService
                 cancellationToken);
 
             await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+            var user = await _unitOfWork.Users.FirstOrDefaultAsync(u => u.AccountId == account.Id, cancellationToken);
+            await _emailService.SendPasswordResetEmailAsync(account.Email, user?.FullName ?? account.Email, token, cancellationToken);
         }
     }
 
