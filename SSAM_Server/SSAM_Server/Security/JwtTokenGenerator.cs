@@ -9,13 +9,6 @@ using SSAM_Server.Models;
 
 namespace SSAM_Server.Security;
 
-public interface IJwtTokenGenerator
-{
-    (string Token, int ExpiresIn) GenerateAccessToken(Account account, User user, IEnumerable<string>? roles = null);
-    string GenerateRefreshToken();
-    string HashRefreshToken(string refreshToken);
-}
-
 public class JwtTokenGenerator : IJwtTokenGenerator
 {
     private readonly JwtSettings _settings;

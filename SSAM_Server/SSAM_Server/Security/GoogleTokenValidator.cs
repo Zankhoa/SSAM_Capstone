@@ -3,13 +3,6 @@ using SSAM_Server.Security;
 
 namespace SSAM_Server.Security;
 
-public record GoogleTokenPayload(string Subject, string Email, string FullName, bool EmailVerified);
-
-public interface IGoogleTokenValidator
-{
-    Task<GoogleTokenPayload?> ValidateAsync(string idToken, CancellationToken cancellationToken = default);
-}
-
 public class GoogleTokenValidator : IGoogleTokenValidator
 {
     private readonly IConfiguration _configuration;

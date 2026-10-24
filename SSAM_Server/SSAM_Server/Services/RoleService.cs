@@ -7,16 +7,6 @@ using SSAM_Server.Security;
 
 namespace SSAM_Server.Services;
 
-public interface IRoleService
-{
-    Task<ServiceResult<ItemsDto<RoleDto>>> ListRolesAsync(long companyId, string? scope, bool includeInactive, CancellationToken ct = default);
-    Task<ServiceResult<RoleDto>> GetRoleAsync(long companyId, long roleId, CancellationToken ct = default);
-    Task<ServiceResult<ItemsDto<RoleMemberDto>>> GetRoleMembersAsync(long companyId, long roleId, CancellationToken ct = default);
-    Task<ServiceResult<RoleDto>> CreateRoleAsync(long companyId, CreateRoleRequestDto request, CancellationToken ct = default);
-    Task<ServiceResult<RoleDto>> UpdateRoleAsync(long companyId, long roleId, UpdateRoleRequestDto request, CancellationToken ct = default);
-    Task<ServiceResult<RoleDto>> UpdateRoleStatusAsync(long companyId, long roleId, UpdateRoleStatusRequestDto request, CancellationToken ct = default);
-}
-
 public class RoleService : IRoleService
 {
     private readonly IRoleRepository _roleRepository;

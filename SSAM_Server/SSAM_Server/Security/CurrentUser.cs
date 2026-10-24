@@ -2,12 +2,6 @@ using System.Security.Claims;
 
 namespace SSAM_Server.Security;
 
-public interface ICurrentUser
-{
-    long? UserIdOrNull { get; }
-    long UserId { get; }
-}
-
 public sealed class CurrentUser : ICurrentUser
 {
     private readonly IHttpContextAccessor _accessor;

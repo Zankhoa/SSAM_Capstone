@@ -74,7 +74,7 @@ public class AppDbContext : DbContext
             await using var transaction = await Database.BeginTransactionAsync(ct);
             var result = await work(ct);
 
-            if (result is IServiceResult { IsSuccess: false })
+            if (result is ServiceResult { IsSuccess: false })
             {
                 await transaction.RollbackAsync(ct);
                 return result;
