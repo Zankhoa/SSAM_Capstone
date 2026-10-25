@@ -436,7 +436,7 @@ public class ProjectRepository : IProjectRepository
         {
             ProjectId = project.Id,
             SdlcMethod = project.SdlcMethod,
-            PhasesEditable = project.SdlcMethod == SdlcMethods.Custom,
+            PhasesEditable = true,
             Phases = phaseDtos
         };
     }

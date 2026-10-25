@@ -329,8 +329,9 @@ public class ProjectService : IProjectService
         if ((request.Name != null || request.DescriptionSpecified) && !access.Permissions.Contains(PermissionKeys.ProjectUpdate))
             return ServiceResult<ProjectDto>.ForbiddenPermission(PermissionKeys.ProjectUpdate);
 
-        if (request.AiEnabled.HasValue && !access.Permissions.Contains(PermissionKeys.ProjectAiToggle))
-            return ServiceResult<ProjectDto>.ForbiddenPermission(PermissionKeys.ProjectAiToggle);
+        // Bật/tắt tiện ích AI đã được gộp vào project.update ("Chỉnh sửa cấu hình Project & Bật/tắt tiện ích AI").
+        if (request.AiEnabled.HasValue && !access.Permissions.Contains(PermissionKeys.ProjectUpdate))
+            return ServiceResult<ProjectDto>.ForbiddenPermission(PermissionKeys.ProjectUpdate);
 
         var tracked = await _projectRepository.GetByIdAsync(projectId, ct);
         if (tracked == null)
@@ -436,7 +437,7 @@ public class ProjectService : IProjectService
         if (userId == null)
             return ServiceResult<ItemsDto<ProjectMemberDto>>.Unauthorized("Your session is invalid or has expired.");
 
-        var auth = await _permissionService.RequireProjectAsync(userId.Value, projectId, PermissionKeys.ProjectMemberView, ct);
+        var auth = await _permissionService.RequireProjectAsync(userId.Value, projectId, PermissionKeys.ProjectView, ct);
         if (!auth.IsSuccess)
             return ServiceResult<ItemsDto<ProjectMemberDto>>.FromError(auth);
 
@@ -662,9 +663,6 @@ public class ProjectService : IProjectService
         if (!writable.IsSuccess)
             return ServiceResult<PhaseDto>.FromError(writable);
 
-        if (access.Project.SdlcMethod != SdlcMethods.Custom)
-            return ServiceResult<PhaseDto>.Forbidden("FORBIDDEN", "Bạn không có quyền thực hiện thao tác này. (phase cố định theo mẫu SDLC)");
-
         var name = (request.Name ?? string.Empty).Trim();
         var existingPhases = await _projectRepository.ListPhasesByProjectAsync(projectId, ct);
 
@@ -773,7 +771,7 @@ public class ProjectService : IProjectService
         if (phase == null)
             return ServiceResult<WorkflowDto>.NotFound("Không tìm thấy dữ liệu.");
 
-        var editable = access.Project.SdlcMethod == SdlcMethods.Custom;
+        var editable = true;
         if (!editable && (request.Name != null || request.Position.HasValue || request.IsActive.HasValue))
             return ServiceResult<WorkflowDto>.Forbidden("FORBIDDEN", "Bạn không có quyền thực hiện thao tác này. (phase cố định theo mẫu SDLC)");
 

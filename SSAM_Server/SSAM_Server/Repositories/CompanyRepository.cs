@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Companies;
@@ -40,31 +40,31 @@ public class CompanyRepository : ICompanyRepository
                 PermissionKeys.AllTenantKeys),
             (CompanyRoleCodes.Member, "Member", RoleScopes.Tenant,
                 "Thành viên cơ bản của công ty, mặc định khi được mời.",
-                new[] { PermissionKeys.UserView }),
+                new[] { PermissionKeys.CompanyView, PermissionKeys.RoleView }),
             (CompanyRoleCodes.WorkspaceAdmin, "Workspace Admin", RoleScopes.Workspace,
                 "Quản trị workspace và mọi dự án bên trong. Gán cho người tạo workspace.",
                 PermissionKeys.AllWorkspaceKeys),
             (CompanyRoleCodes.ProjectInitiator, "Project Initiator", RoleScopes.Workspace,
                 "Được khởi tạo dự án mới trong workspace (actor \"Project Initiator\" của SRS).",
-                new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectCreate, PermissionKeys.ProjectViewAll }),
+                new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectCreate, PermissionKeys.ProjectInheritAccess }),
             (CompanyRoleCodes.WorkspaceMember, "Workspace Member", RoleScopes.Workspace,
                 "Thành viên mặc định khi được thêm vào workspace.",
-                new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectViewAll }),
+                new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectInheritAccess }),
             (CompanyRoleCodes.ProjectManager, "Project Manager", RoleScopes.Project,
                 "Khởi tạo Sprint, cấu hình Phase SDLC, duyệt thành viên dự án. Gán cho người tạo dự án.",
                 PermissionKeys.AllProjectKeys),
             (CompanyRoleCodes.TechLead, "Tech Lead", RoleScopes.Project,
                 "Dẫn dắt kỹ thuật, duyệt code review.",
-                new[] { PermissionKeys.ProjectMemberView }),
+                new[] { PermissionKeys.ProjectView }),
             (CompanyRoleCodes.Ba, "Business Analyst", RoleScopes.Project,
                 "Soạn thảo đặc tả SRS, quản lý khối yêu cầu và backlog.",
-                new[] { PermissionKeys.ProjectMemberView }),
+                new[] { PermissionKeys.ProjectView }),
             (CompanyRoleCodes.Developer, "Developer", RoleScopes.Project,
                 "Lập trình, nhận issue, chuyển trạng thái theo luồng kỹ thuật.",
-                new[] { PermissionKeys.ProjectMemberView }),
+                new[] { PermissionKeys.ProjectView }),
             (CompanyRoleCodes.Qa, "QA / Tester", RoleScopes.Project,
                 "Kiểm thử, xác nhận Definition of Done.",
-                new[] { PermissionKeys.ProjectMemberView })
+                new[] { PermissionKeys.ProjectView })
         };
 
         var roles = specs.Select(s => new CompanyRole

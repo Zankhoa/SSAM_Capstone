@@ -68,7 +68,7 @@ public static class SdlcTemplateCatalog
             Method = SdlcMethods.Scrum,
             Name = "Agile Scrum",
             Description = "Sprints cố định 2 tuần, quản trị Product Backlog, Sprint Planning, Daily Standup & Retrospective.",
-            PhasesEditable = false,
+            PhasesEditable = true,
             Phases =
             [
                 new TemplatePhaseDto
@@ -123,7 +123,7 @@ public static class SdlcTemplateCatalog
             Method = SdlcMethods.Kanban,
             Name = "Kanban",
             Description = "Continuous flow, giới hạn công việc đang làm (WIP limits), tối ưu hoá Lead & Cycle Time.",
-            PhasesEditable = false,
+            PhasesEditable = true,
             Phases =
             [
                 new TemplatePhaseDto

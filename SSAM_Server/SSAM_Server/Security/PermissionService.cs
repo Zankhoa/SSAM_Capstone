@@ -1,4 +1,4 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
@@ -120,7 +120,7 @@ public class PermissionService : IPermissionService
         {
             return new WorkspaceAccessContext(
                 ws,
-                new HashSet<string>(new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectViewAll }, StringComparer.Ordinal),
+                new HashSet<string>(new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectInheritAccess }, StringComparer.Ordinal),
                 null);
         }
 
@@ -194,12 +194,12 @@ public class PermissionService : IPermissionService
             return new ProjectAccessContext(project, project.Workspace, perms, myRoleRef);
         }
 
-        if (wsAccess.Permissions.Contains(PermissionKeys.ProjectViewAll))
+        if (wsAccess.Permissions.Contains(PermissionKeys.ProjectInheritAccess))
         {
             return new ProjectAccessContext(
                 project,
                 project.Workspace,
-                new HashSet<string>(new[] { PermissionKeys.ProjectMemberView }, StringComparer.Ordinal),
+                new HashSet<string>(new[] { PermissionKeys.ProjectView }, StringComparer.Ordinal),
                 null);
         }
 

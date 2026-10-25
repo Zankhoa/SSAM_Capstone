@@ -593,248 +593,520 @@ namespace SSAM_Server.Data.Migrations
                     b.HasData(
                         new
                         {
-                            Id = 1L,
-                            Code = "company.update",
-                            Description = "Sửa tên, mã số thuế, địa chỉ, logo của công ty.",
-                            GroupName = "Công ty",
+                            Id = 22L,
+                            Code = "company.view",
+                            GroupName = "1. Quản lý Tổ chức",
                             IsActive = true,
-                            IsSensitive = true,
-                            Name = "Cập nhật thông tin công ty",
+                            IsSensitive = false,
+                            Name = "Xem thông tin chung của Tổ chức",
                             Scope = "TENANT",
                             SortOrder = 1
                         },
                         new
                         {
-                            Id = 2L,
-                            Code = "user.view",
-                            Description = "Xem hồ sơ và trạng thái của mọi tài khoản trong công ty.",
-                            GroupName = "Người dùng",
+                            Id = 1L,
+                            Code = "company.update",
+                            GroupName = "1. Quản lý Tổ chức",
                             IsActive = true,
-                            IsSensitive = false,
-                            Name = "Xem danh sách người dùng",
+                            IsSensitive = true,
+                            Name = "Cập nhật hồ sơ thông tin tổ chức",
                             Scope = "TENANT",
                             SortOrder = 2
                         },
                         new
                         {
-                            Id = 3L,
-                            Code = "user.invite",
-                            Description = "Gửi email mời tham gia công ty.",
-                            GroupName = "Người dùng",
+                            Id = 2L,
+                            Code = "user.view",
+                            GroupName = "2. Quản lý Người dùng",
                             IsActive = true,
                             IsSensitive = false,
-                            Name = "Mời người dùng vào công ty",
+                            Name = "Xem danh sách người dùng trong Tổ chức",
                             Scope = "TENANT",
                             SortOrder = 3
                         },
                         new
                         {
-                            Id = 4L,
-                            Code = "user.assign_role",
-                            Description = "Gán / thu hồi role cấp công ty.",
-                            GroupName = "Người dùng",
+                            Id = 3L,
+                            Code = "user.invite",
+                            GroupName = "2. Quản lý Người dùng",
                             IsActive = true,
-                            IsSensitive = true,
-                            Name = "Đổi role cấp công ty của người dùng",
+                            IsSensitive = false,
+                            Name = "Mời, tạo mới & nhập người dùng hàng loạt",
                             Scope = "TENANT",
                             SortOrder = 4
                         },
                         new
                         {
-                            Id = 5L,
-                            Code = "user.deactivate",
-                            Description = "Khoá đăng nhập của nhân viên đã nghỉ.",
-                            GroupName = "Người dùng",
+                            Id = 23L,
+                            Code = "user.update",
+                            GroupName = "2. Quản lý Người dùng",
                             IsActive = true,
-                            IsSensitive = true,
-                            Name = "Vô hiệu hoá / kích hoạt tài khoản",
+                            IsSensitive = false,
+                            Name = "Cập nhật thông tin người dùng",
                             Scope = "TENANT",
                             SortOrder = 5
                         },
                         new
                         {
-                            Id = 6L,
-                            Code = "role.view",
-                            Description = "Xem role và ma trận quyền của công ty.",
-                            GroupName = "Role & Phân quyền",
+                            Id = 5L,
+                            Code = "user.deactivate",
+                            GroupName = "2. Quản lý Người dùng",
                             IsActive = true,
-                            IsSensitive = false,
-                            Name = "Xem danh mục role",
+                            IsSensitive = true,
+                            Name = "Vô hiệu hóa / Kích hoạt lại tài khoản",
                             Scope = "TENANT",
                             SortOrder = 6
                         },
                         new
                         {
-                            Id = 7L,
-                            Code = "role.manage",
-                            Description = "Định nghĩa role mới và chọn quyền cho từng role.",
-                            GroupName = "Role & Phân quyền",
+                            Id = 6L,
+                            Code = "role.view",
+                            GroupName = "3. Quản lý Role & Quyền",
                             IsActive = true,
-                            IsSensitive = true,
-                            Name = "Tạo / sửa / bật-tắt role và quyền của role",
+                            IsSensitive = false,
+                            Name = "Xem danh mục Role & Ma trận phân quyền",
                             Scope = "TENANT",
                             SortOrder = 7
                         },
                         new
                         {
-                            Id = 8L,
-                            Code = "workspace.create",
-                            Description = "Khởi tạo không gian làm việc mới trong công ty.",
-                            GroupName = "Workspace",
+                            Id = 7L,
+                            Code = "role.manage",
+                            GroupName = "3. Quản lý Role & Quyền",
                             IsActive = true,
-                            IsSensitive = false,
-                            Name = "Tạo workspace mới",
+                            IsSensitive = true,
+                            Name = "Tạo, chỉnh sửa, vô hiệu hóa & xóa Role",
                             Scope = "TENANT",
                             SortOrder = 8
                         },
                         new
                         {
-                            Id = 9L,
-                            Code = "workspace.view_all",
-                            Description = "Thấy cả workspace mình không phải thành viên (chỉ xem).",
-                            GroupName = "Workspace",
+                            Id = 4L,
+                            Code = "user.assign_role",
+                            GroupName = "3. Quản lý Role & Quyền",
                             IsActive = true,
-                            IsSensitive = false,
-                            Name = "Xem mọi workspace trong công ty",
+                            IsSensitive = true,
+                            Name = "Gán Role cấp Tổ chức & Cấp quyền bổ sung",
                             Scope = "TENANT",
                             SortOrder = 9
                         },
                         new
                         {
-                            Id = 10L,
-                            Code = "workspace.update",
-                            GroupName = "Workspace",
+                            Id = 8L,
+                            Code = "workspace.create",
+                            GroupName = "4. Quản trị Workspace",
                             IsActive = true,
                             IsSensitive = false,
-                            Name = "Sửa tên / mã / mô tả workspace",
-                            Scope = "WORKSPACE",
+                            Name = "Khởi tạo Workspace mới trong Tổ chức",
+                            Scope = "TENANT",
                             SortOrder = 10
                         },
                         new
                         {
-                            Id = 11L,
-                            Code = "workspace.archive",
-                            Description = "Chuyển toàn bộ dữ liệu workspace sang chỉ đọc.",
-                            GroupName = "Workspace",
+                            Id = 9L,
+                            Code = "workspace.view_all",
+                            GroupName = "4. Quản trị Workspace",
                             IsActive = true,
-                            IsSensitive = true,
-                            Name = "Lưu trữ / khôi phục workspace",
-                            Scope = "WORKSPACE",
+                            IsSensitive = false,
+                            Name = "Xem danh sách toàn bộ Workspace & Chỉ định Workspace Admin",
+                            Scope = "TENANT",
                             SortOrder = 11
                         },
                         new
                         {
-                            Id = 12L,
-                            Code = "workspace.member.view",
-                            GroupName = "Thành viên",
+                            Id = 24L,
+                            Code = "audit.view",
+                            GroupName = "5. Kiểm soát nhật kí hoạt động",
                             IsActive = true,
-                            IsSensitive = false,
-                            Name = "Xem thành viên workspace",
-                            Scope = "WORKSPACE",
+                            IsSensitive = true,
+                            Name = "Xem và xuất Nhật ký Kiểm toán (Company Audit Logs)",
+                            Scope = "TENANT",
                             SortOrder = 12
                         },
                         new
                         {
-                            Id = 13L,
-                            Code = "workspace.member.manage",
-                            GroupName = "Thành viên",
+                            Id = 25L,
+                            Code = "workspace.view",
+                            GroupName = "1. Quản lý Workspace",
                             IsActive = true,
-                            IsSensitive = true,
-                            Name = "Thêm / gỡ / đổi role thành viên workspace",
+                            IsSensitive = false,
+                            Name = "Xem thông tin & Báo cáo tổng quan Workspace",
                             Scope = "WORKSPACE",
                             SortOrder = 13
                         },
                         new
                         {
-                            Id = 14L,
-                            Code = "project.create",
-                            Description = "Vai trò \"Project Initiator\" trong SRS.",
-                            GroupName = "Dự án",
+                            Id = 10L,
+                            Code = "workspace.update",
+                            GroupName = "1. Quản lý Workspace",
                             IsActive = true,
                             IsSensitive = false,
-                            Name = "Tạo dự án trong workspace",
+                            Name = "Chỉnh sửa thông tin cấu hình Workspace",
                             Scope = "WORKSPACE",
                             SortOrder = 14
                         },
                         new
                         {
-                            Id = 15L,
-                            Code = "project.view_all",
-                            GroupName = "Dự án",
+                            Id = 11L,
+                            Code = "workspace.archive",
+                            GroupName = "1. Quản lý Workspace",
                             IsActive = true,
-                            IsSensitive = false,
-                            Name = "Xem mọi dự án trong workspace",
+                            IsSensitive = true,
+                            Name = "Lưu trữ (Archive) Workspace (Chuyển sang chỉ đọc)",
                             Scope = "WORKSPACE",
                             SortOrder = 15
                         },
                         new
                         {
-                            Id = 16L,
-                            Code = "project.update",
-                            GroupName = "Dự án",
+                            Id = 12L,
+                            Code = "workspace.member.view",
+                            GroupName = "2. Thành viên & Quyền Workspace",
                             IsActive = true,
                             IsSensitive = false,
-                            Name = "Sửa tên / mô tả dự án",
-                            Scope = "PROJECT",
+                            Name = "Xem danh sách thành viên trong Workspace",
+                            Scope = "WORKSPACE",
                             SortOrder = 16
+                        },
+                        new
+                        {
+                            Id = 13L,
+                            Code = "workspace.member.manage",
+                            GroupName = "2. Thành viên & Quyền Workspace",
+                            IsActive = true,
+                            IsSensitive = true,
+                            Name = "Thêm / Loại bỏ thành viên khỏi Workspace",
+                            Scope = "WORKSPACE",
+                            SortOrder = 17
+                        },
+                        new
+                        {
+                            Id = 26L,
+                            Code = "workspace.member.assign_role",
+                            GroupName = "2. Thành viên & Quyền Workspace",
+                            IsActive = true,
+                            IsSensitive = true,
+                            Name = "Gán Role & Cấp quyền bổ sung trong Workspace",
+                            Scope = "WORKSPACE",
+                            SortOrder = 18
+                        },
+                        new
+                        {
+                            Id = 14L,
+                            Code = "project.create",
+                            GroupName = "3. Khởi tạo Project",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Tạo Project mới bên trong Workspace",
+                            Scope = "WORKSPACE",
+                            SortOrder = 19
+                        },
+                        new
+                        {
+                            Id = 15L,
+                            Code = "project.inherit_access",
+                            GroupName = "3. Khởi tạo Project",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Kế thừa quyền truy cập xuống mọi Project thuộc Workspace",
+                            Scope = "WORKSPACE",
+                            SortOrder = 20
+                        },
+                        new
+                        {
+                            Id = 19L,
+                            Code = "project.view",
+                            GroupName = "1. Quản lý Project",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Xem thông tin chung & Tiến độ Project",
+                            Scope = "PROJECT",
+                            SortOrder = 21
+                        },
+                        new
+                        {
+                            Id = 16L,
+                            Code = "project.update",
+                            GroupName = "1. Quản lý Project",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Chỉnh sửa cấu hình Project & Bật/tắt tiện ích AI",
+                            Scope = "PROJECT",
+                            SortOrder = 22
                         },
                         new
                         {
                             Id = 17L,
                             Code = "project.archive",
-                            Description = "Đóng băng mọi tài liệu / issue sang chỉ đọc.",
-                            GroupName = "Dự án",
+                            GroupName = "1. Quản lý Project",
                             IsActive = true,
                             IsSensitive = true,
-                            Name = "Lưu trữ / khôi phục dự án",
+                            Name = "Lưu trữ (Archive) Project",
                             Scope = "PROJECT",
-                            SortOrder = 17
-                        },
-                        new
-                        {
-                            Id = 18L,
-                            Code = "project.ai.toggle",
-                            Description = "Cho phép dùng AI sinh tài liệu / testcase trong dự án.",
-                            GroupName = "Dự án",
-                            IsActive = true,
-                            IsSensitive = true,
-                            Name = "Bật / tắt module AI (BA/QA)",
-                            Scope = "PROJECT",
-                            SortOrder = 18
-                        },
-                        new
-                        {
-                            Id = 19L,
-                            Code = "project.member.view",
-                            GroupName = "Thành viên dự án",
-                            IsActive = true,
-                            IsSensitive = false,
-                            Name = "Xem thành viên dự án",
-                            Scope = "PROJECT",
-                            SortOrder = 19
+                            SortOrder = 23
                         },
                         new
                         {
                             Id = 20L,
                             Code = "project.member.manage",
-                            GroupName = "Thành viên dự án",
+                            GroupName = "1. Quản lý Project",
                             IsActive = true,
                             IsSensitive = true,
-                            Name = "Thêm / gỡ / đổi role thành viên dự án",
+                            Name = "Quản lý thành viên, gán Role & cấp quyền bổ sung trong Project",
                             Scope = "PROJECT",
-                            SortOrder = 20
+                            SortOrder = 24
+                        },
+                        new
+                        {
+                            Id = 27L,
+                            Code = "project.workflow.view",
+                            GroupName = "2. Quản lý Phase & Quy trình",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Xem cấu trúc Phase & Trạng thái quy trình",
+                            Scope = "PROJECT",
+                            SortOrder = 25
                         },
                         new
                         {
                             Id = 21L,
                             Code = "project.workflow.manage",
-                            Description = "Thêm / sửa phase, trạng thái và transition rule (UC-44~50).",
-                            GroupName = "Workflow",
+                            GroupName = "2. Quản lý Phase & Quy trình",
                             IsActive = true,
                             IsSensitive = true,
-                            Name = "Cấu hình phase, trạng thái, luồng chuyển",
+                            Name = "Tạo, chỉnh sửa, sắp xếp Phase & Trạng thái (Workflow Status)",
                             Scope = "PROJECT",
-                            SortOrder = 21
+                            SortOrder = 26
+                        },
+                        new
+                        {
+                            Id = 28L,
+                            Code = "project.workflow.transition.manage",
+                            GroupName = "2. Quản lý Phase & Quy trình",
+                            IsActive = true,
+                            IsSensitive = true,
+                            Name = "Cấu hình Quy tắc chuyển bước (Transition Matrix)",
+                            Scope = "PROJECT",
+                            SortOrder = 27
+                        },
+                        new
+                        {
+                            Id = 29L,
+                            Code = "issue.view",
+                            GroupName = "3. Quản lý Issue & Công việc",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Xem danh sách Issue & Bảng Kanban",
+                            Scope = "PROJECT",
+                            SortOrder = 28
+                        },
+                        new
+                        {
+                            Id = 30L,
+                            Code = "issue.create",
+                            GroupName = "3. Quản lý Issue & Công việc",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Tạo mới Issue (Task / Bug)",
+                            Scope = "PROJECT",
+                            SortOrder = 29
+                        },
+                        new
+                        {
+                            Id = 31L,
+                            Code = "issue.update",
+                            GroupName = "3. Quản lý Issue & Công việc",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Chỉnh sửa nội dung Issue & Liên kết Tài liệu",
+                            Scope = "PROJECT",
+                            SortOrder = 30
+                        },
+                        new
+                        {
+                            Id = 32L,
+                            Code = "issue.assign",
+                            GroupName = "3. Quản lý Issue & Công việc",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Giao việc / Chuyển giao công việc (Assign / Re-assign)",
+                            Scope = "PROJECT",
+                            SortOrder = 31
+                        },
+                        new
+                        {
+                            Id = 33L,
+                            Code = "issue.change_status",
+                            GroupName = "3. Quản lý Issue & Công việc",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Thay đổi trạng thái Issue",
+                            Scope = "PROJECT",
+                            SortOrder = 32
+                        },
+                        new
+                        {
+                            Id = 34L,
+                            Code = "issue.delete",
+                            GroupName = "3. Quản lý Issue & Công việc",
+                            IsActive = true,
+                            IsSensitive = true,
+                            Name = "Xóa Issue",
+                            Scope = "PROJECT",
+                            SortOrder = 33
+                        },
+                        new
+                        {
+                            Id = 35L,
+                            Code = "document.view",
+                            GroupName = "4. Tài liệu Đặc tả",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Xem và đọc Tài liệu Đặc tả & Lịch sử phiên bản",
+                            Scope = "PROJECT",
+                            SortOrder = 34
+                        },
+                        new
+                        {
+                            Id = 36L,
+                            Code = "document.edit",
+                            GroupName = "4. Tài liệu Đặc tả",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Tạo tài liệu mới & Soạn thảo tài liệu yêu cầu",
+                            Scope = "PROJECT",
+                            SortOrder = 35
+                        },
+                        new
+                        {
+                            Id = 37L,
+                            Code = "document.approve",
+                            GroupName = "4. Tài liệu Đặc tả",
+                            IsActive = true,
+                            IsSensitive = true,
+                            Name = "Phê duyệt / Từ chối Tài liệu",
+                            Scope = "PROJECT",
+                            SortOrder = 36
+                        },
+                        new
+                        {
+                            Id = 38L,
+                            Code = "document.revise",
+                            GroupName = "4. Tài liệu Đặc tả",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Tạo phiên bản sửa đổi mới từ Baseline & Xuất tài liệu",
+                            Scope = "PROJECT",
+                            SortOrder = 37
+                        },
+                        new
+                        {
+                            Id = 39L,
+                            Code = "document.delete",
+                            GroupName = "4. Tài liệu Đặc tả",
+                            IsActive = true,
+                            IsSensitive = true,
+                            Name = "Xóa Tài liệu",
+                            Scope = "PROJECT",
+                            SortOrder = 38
+                        },
+                        new
+                        {
+                            Id = 40L,
+                            Code = "figma.create",
+                            GroupName = "5. UX/UI",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Insert link Figma UI",
+                            Scope = "PROJECT",
+                            SortOrder = 39
+                        },
+                        new
+                        {
+                            Id = 41L,
+                            Code = "figma.update",
+                            GroupName = "5. UX/UI",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Cập nhật link Figma UI",
+                            Scope = "PROJECT",
+                            SortOrder = 40
+                        },
+                        new
+                        {
+                            Id = 42L,
+                            Code = "figma.archive",
+                            GroupName = "5. UX/UI",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Xóa / Archive link Figma UI",
+                            Scope = "PROJECT",
+                            SortOrder = 41
+                        },
+                        new
+                        {
+                            Id = 43L,
+                            Code = "testcase.view",
+                            GroupName = "6. Kiểm thử & Truy xuất",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Xem Kịch bản Kiểm thử (Test Case) & Ma trận Truy xuất",
+                            Scope = "PROJECT",
+                            SortOrder = 42
+                        },
+                        new
+                        {
+                            Id = 44L,
+                            Code = "testcase.manage",
+                            GroupName = "6. Kiểm thử & Truy xuất",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Tạo, cập nhật, phê duyệt Test Case & Quản lý liên kết truy xuất",
+                            Scope = "PROJECT",
+                            SortOrder = 43
+                        },
+                        new
+                        {
+                            Id = 45L,
+                            Code = "comment.view",
+                            GroupName = "7. Bình luận & Cộng tác",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Xem bình luận trên Issue, Tài liệu và Test Case",
+                            Scope = "PROJECT",
+                            SortOrder = 44
+                        },
+                        new
+                        {
+                            Id = 46L,
+                            Code = "comment.write",
+                            GroupName = "7. Bình luận & Cộng tác",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Viết bình luận, nhắc tên @mention & Đánh dấu giải quyết (Resolve)",
+                            Scope = "PROJECT",
+                            SortOrder = 45
+                        },
+                        new
+                        {
+                            Id = 47L,
+                            Code = "activity.view",
+                            GroupName = "8. Lịch sử & Tiến độ",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Xem Dòng lịch sử hoạt động dự án (Activity Stream) & Báo cáo tiến độ",
+                            Scope = "PROJECT",
+                            SortOrder = 46
+                        },
+                        new
+                        {
+                            Id = 48L,
+                            Code = "ai.use",
+                            GroupName = "9. Hỗ trợ AI (Tùy chọn)",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Sử dụng AI gợi ý nháp Yêu cầu / Test Case",
+                            Scope = "PROJECT",
+                            SortOrder = 47
                         });
                 });
 
