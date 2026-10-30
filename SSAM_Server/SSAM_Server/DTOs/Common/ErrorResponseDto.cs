@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SSAM_Server.Security;
 
 namespace SSAM_Server.DTOs.Common;
 
@@ -22,6 +23,10 @@ public class ErrorResponseDto
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? WorkflowIssues { get; set; }
 
+    [JsonPropertyName("current")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? Current { get; set; }
+
     [JsonPropertyName("traceId")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TraceId { get; set; }
@@ -34,7 +39,8 @@ public class ErrorResponseDto
         Dictionary<string, string[]>? errors = null,
         string? traceId = null,
         string? requiredPermission = null,
-        object? workflowIssues = null)
+        object? workflowIssues = null,
+        object? current = null)
     {
         Code = code;
         Message = message;
@@ -42,7 +48,20 @@ public class ErrorResponseDto
         TraceId = traceId;
         RequiredPermission = requiredPermission;
         WorkflowIssues = workflowIssues;
+        Current = current;
     }
+}
+
+public class VersionConflictCurrentDto
+{
+    [JsonPropertyName("rowVersion")]
+    public int RowVersion { get; set; }
+
+    [JsonPropertyName("updatedAt")]
+    public string UpdatedAt { get; set; } = string.Empty;
+
+    [JsonPropertyName("updatedBy")]
+    public UserLiteDto UpdatedBy { get; set; } = new();
 }
 
 public class ItemsDto<T>
@@ -86,6 +105,9 @@ public class RoleRefDto
 
     [JsonPropertyName("scope")]
     public string Scope { get; set; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = RoleKinds.Other;
 }
 
 public class UserRefDto
@@ -101,4 +123,13 @@ public class UserRefDto
 
     [JsonPropertyName("avatarUrl")]
     public string? AvatarUrl { get; set; }
+}
+
+public class UserLiteDto
+{
+    [JsonPropertyName("userId")]
+    public long UserId { get; set; }
+
+    [JsonPropertyName("fullName")]
+    public string FullName { get; set; } = string.Empty;
 }

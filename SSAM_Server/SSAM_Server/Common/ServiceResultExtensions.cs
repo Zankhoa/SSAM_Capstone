@@ -17,7 +17,8 @@ public static class ServiceResultExtensions
                     result.Errors,
                     controller.HttpContext.TraceIdentifier,
                     result.RequiredPermission,
-                    result.WorkflowIssues));
+                    result.WorkflowIssues,
+                    result.Current));
         }
 
         return result.StatusCode switch
@@ -40,7 +41,8 @@ public static class ServiceResultExtensions
                     result.Errors,
                     controller.HttpContext.TraceIdentifier,
                     result.RequiredPermission,
-                    result.WorkflowIssues));
+                    result.WorkflowIssues,
+                    result.Current));
         }
 
         return controller.StatusCode(result.StatusCode, result.Data);

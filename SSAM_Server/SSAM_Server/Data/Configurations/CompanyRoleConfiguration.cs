@@ -12,6 +12,7 @@ public class CompanyRoleConfiguration : IEntityTypeConfiguration<CompanyRole>
         builder.ToTable("CompanyRoles", t =>
         {
             t.HasCheckConstraint("CK_CompanyRoles_Scope", "[scope] IN ('TENANT', 'WORKSPACE', 'PROJECT')");
+            t.HasCheckConstraint("CK_CompanyRoles_Kind", "[kind] IN ('BA', 'DESIGNER', 'QA', 'DEV', 'PM', 'OTHER')");
         });
 
         builder.HasKey(cr => cr.Id);
@@ -37,6 +38,13 @@ public class CompanyRoleConfiguration : IEntityTypeConfiguration<CompanyRole>
             .HasColumnName("scope")
             .HasMaxLength(20)
             .HasDefaultValue(RoleScopes.Tenant)
+            .IsRequired();
+
+        builder.Property(cr => cr.Kind)
+            .HasColumnName("kind")
+            .HasColumnType("varchar(10)")
+            .HasMaxLength(10)
+            .HasDefaultValue(RoleKinds.Other)
             .IsRequired();
 
         builder.Property(cr => cr.Description)

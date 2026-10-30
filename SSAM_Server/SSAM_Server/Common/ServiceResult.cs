@@ -46,8 +46,21 @@ public class ServiceResult : ServiceResultDto
     public static ServiceResult NotFound(string message = "Not Found") =>
         Failure(StatusCodes.Status404NotFound, "NOT_FOUND", message);
 
-    public static ServiceResult Conflict(string code, string message) =>
-        Failure(StatusCodes.Status409Conflict, code, message);
+    public static ServiceResult NotFound(string code, string message) =>
+        Failure(StatusCodes.Status404NotFound, code, message);
+
+    public static ServiceResult Conflict(string code, string message, Dictionary<string, string[]>? errors = null) =>
+        Failure(StatusCodes.Status409Conflict, code, message, errors);
+
+    public static ServiceResult VersionConflict(object current, string message = "Người khác vừa lưu trang này.") =>
+        new()
+        {
+            IsSuccess = false,
+            StatusCode = StatusCodes.Status409Conflict,
+            ErrorCode = "VERSION_CONFLICT",
+            ErrorMessage = message,
+            Current = current
+        };
 
     public static ServiceResult Failure(int statusCode, string code, string message, Dictionary<string, string[]>? errors = null) =>
         new()

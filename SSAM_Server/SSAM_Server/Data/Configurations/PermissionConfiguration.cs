@@ -107,26 +107,28 @@ public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
             P(32, PermissionKeys.IssueAssign, "Giao việc / Chuyển giao công việc (Assign / Re-assign)", "3. Quản lý Issue & Công việc", RoleScopes.Project, false, 31),
             P(33, PermissionKeys.IssueChangeStatus, "Thay đổi trạng thái Issue", "3. Quản lý Issue & Công việc", RoleScopes.Project, false, 32),
             P(34, PermissionKeys.IssueDelete, "Xóa Issue", "3. Quản lý Issue & Công việc", RoleScopes.Project, true, 33),
+            P(49, PermissionKeys.SprintManage, "Tạo, bắt đầu & hoàn tất Sprint", "3. Quản lý Issue & Công việc", RoleScopes.Project, false, 34),
             // 4. Tài liệu Đặc tả
-            P(35, PermissionKeys.DocumentView, "Xem và đọc Tài liệu Đặc tả & Lịch sử phiên bản", "4. Tài liệu Đặc tả", RoleScopes.Project, false, 34),
-            P(36, PermissionKeys.DocumentEdit, "Tạo tài liệu mới & Soạn thảo tài liệu yêu cầu", "4. Tài liệu Đặc tả", RoleScopes.Project, false, 35),
-            P(37, PermissionKeys.DocumentApprove, "Phê duyệt / Từ chối Tài liệu", "4. Tài liệu Đặc tả", RoleScopes.Project, true, 36),
-            P(38, PermissionKeys.DocumentRevise, "Tạo phiên bản sửa đổi mới từ Baseline & Xuất tài liệu", "4. Tài liệu Đặc tả", RoleScopes.Project, false, 37),
-            P(39, PermissionKeys.DocumentDelete, "Xóa Tài liệu", "4. Tài liệu Đặc tả", RoleScopes.Project, true, 38),
+            P(35, PermissionKeys.DocumentView, "Xem và đọc Tài liệu Đặc tả & Lịch sử phiên bản", "4. Tài liệu Đặc tả", RoleScopes.Project, false, 35),
+            P(36, PermissionKeys.DocumentEdit, "Tạo tài liệu mới & Soạn thảo tài liệu yêu cầu", "4. Tài liệu Đặc tả", RoleScopes.Project, false, 36),
+            P(37, PermissionKeys.DocumentApprove, "Phê duyệt / Từ chối Tài liệu", "4. Tài liệu Đặc tả", RoleScopes.Project, true, 37),
+            P(38, PermissionKeys.DocumentRevise, "Tạo phiên bản sửa đổi mới từ Baseline & Xuất tài liệu", "4. Tài liệu Đặc tả", RoleScopes.Project, false, 38),
+            P(39, PermissionKeys.DocumentDelete, "Xóa Tài liệu", "4. Tài liệu Đặc tả", RoleScopes.Project, true, 39),
             // 5. UX/UI
-            P(40, PermissionKeys.FigmaCreate, "Insert link Figma UI", "5. UX/UI", RoleScopes.Project, false, 39),
-            P(41, PermissionKeys.FigmaUpdate, "Cập nhật link Figma UI", "5. UX/UI", RoleScopes.Project, false, 40),
-            P(42, PermissionKeys.FigmaArchive, "Xóa / Archive link Figma UI", "5. UX/UI", RoleScopes.Project, false, 41),
+            P(40, PermissionKeys.FigmaCreate, "Insert link Figma UI", "5. UX/UI", RoleScopes.Project, false, 40),
+            P(41, PermissionKeys.FigmaUpdate, "Cập nhật link Figma UI", "5. UX/UI", RoleScopes.Project, false, 41),
+            P(42, PermissionKeys.FigmaArchive, "Xóa / Archive link Figma UI", "5. UX/UI", RoleScopes.Project, false, 42),
             // 6. Kiểm thử & Truy xuất
-            P(43, PermissionKeys.TestCaseView, "Xem Kịch bản Kiểm thử (Test Case) & Ma trận Truy xuất", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 42),
-            P(44, PermissionKeys.TestCaseManage, "Tạo, cập nhật, phê duyệt Test Case & Quản lý liên kết truy xuất", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 43),
+            P(43, PermissionKeys.TestCaseView, "Xem Kịch bản Kiểm thử (Test Case) & Ma trận Truy xuất", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 43),
+            P(44, PermissionKeys.TestCaseManage, "Tạo, cập nhật, phê duyệt Test Case & Quản lý liên kết truy xuất", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 44),
+            P(50, PermissionKeys.TestCaseExecute, "Chạy Test Case & ghi kết quả (Đạt / Lỗi / Chặn)", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 45),
             // 7. Bình luận & Cộng tác
-            P(45, PermissionKeys.CommentView, "Xem bình luận trên Issue, Tài liệu và Test Case", "7. Bình luận & Cộng tác", RoleScopes.Project, false, 44),
-            P(46, PermissionKeys.CommentWrite, "Viết bình luận, nhắc tên @mention & Đánh dấu giải quyết (Resolve)", "7. Bình luận & Cộng tác", RoleScopes.Project, false, 45),
+            P(45, PermissionKeys.CommentView, "Xem bình luận trên Issue, Tài liệu và Test Case", "7. Bình luận & Cộng tác", RoleScopes.Project, false, 46),
+            P(46, PermissionKeys.CommentWrite, "Viết bình luận, nhắc tên @mention & Đánh dấu giải quyết (Resolve)", "7. Bình luận & Cộng tác", RoleScopes.Project, false, 47),
             // 8. Lịch sử & Tiến độ
-            P(47, PermissionKeys.ActivityView, "Xem Dòng lịch sử hoạt động dự án (Activity Stream) & Báo cáo tiến độ", "8. Lịch sử & Tiến độ", RoleScopes.Project, false, 46),
+            P(47, PermissionKeys.ActivityView, "Xem Dòng lịch sử hoạt động dự án (Activity Stream) & Báo cáo tiến độ", "8. Lịch sử & Tiến độ", RoleScopes.Project, false, 48),
             // 9. Hỗ trợ AI (Tùy chọn)
-            P(48, PermissionKeys.AiUse, "Sử dụng AI gợi ý nháp Yêu cầu / Test Case", "9. Hỗ trợ AI (Tùy chọn)", RoleScopes.Project, false, 47)
+            P(48, PermissionKeys.AiUse, "Sử dụng AI gợi ý nháp Yêu cầu / Test Case", "9. Hỗ trợ AI (Tùy chọn)", RoleScopes.Project, false, 49)
         );
     }
 

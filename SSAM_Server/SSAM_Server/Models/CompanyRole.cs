@@ -17,6 +17,7 @@ public static class CompanyRoleCodes
     public const string ProjectManager = "PROJECT_MANAGER";
     public const string TechLead = "TECH_LEAD";
     public const string Ba = "BA";
+    public const string Designer = "DESIGNER";
     public const string Developer = "DEVELOPER";
     public const string Qa = "QA";
 
@@ -33,6 +34,7 @@ public class CompanyRole : IHasUpdatedAt
     public string Name { get; set; } = string.Empty;
     public string? Code { get; set; }
     public string Scope { get; set; } = RoleScopes.Tenant;
+    public string Kind { get; set; } = RoleKinds.Other;
     public string? Description { get; set; }
     public bool IsSystem { get; set; } = false;
     public bool IsActive { get; set; } = true;

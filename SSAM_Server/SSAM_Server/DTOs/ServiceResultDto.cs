@@ -9,6 +9,7 @@ public class ServiceResultDto
     public Dictionary<string, string[]>? Errors { get; set; }
     public string? RequiredPermission { get; set; }
     public object? WorkflowIssues { get; set; }
+    public object? Current { get; set; }
 }
 
 public class ServiceResultDto<T> : ServiceResultDto

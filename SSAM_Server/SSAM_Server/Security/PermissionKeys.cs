@@ -10,6 +10,19 @@ public static class RoleScopes
         scope is Tenant or Workspace or Project;
 }
 
+public static class RoleKinds
+{
+    public const string Ba = "BA";
+    public const string Designer = "DESIGNER";
+    public const string Qa = "QA";
+    public const string Dev = "DEV";
+    public const string Pm = "PM";
+    public const string Other = "OTHER";
+
+    public static bool IsValid(string? kind) =>
+        kind is Ba or Designer or Qa or Dev or Pm or Other;
+}
+
 public static class PermissionKeys
 {
     // TENANT scope - Phạm vi Quản trị Tổ chức (12)
@@ -36,7 +49,7 @@ public static class PermissionKeys
     public const string ProjectCreate = "project.create";
     public const string ProjectInheritAccess = "project.inherit_access";
 
-    // PROJECT scope - Phạm vi Thực thi dự án (27)
+    // PROJECT scope - Phạm vi Thực thi dự án (29)
     // 1. Quản lý Project
     public const string ProjectView = "project.view";
     public const string ProjectUpdate = "project.update";
@@ -53,6 +66,7 @@ public static class PermissionKeys
     public const string IssueAssign = "issue.assign";
     public const string IssueChangeStatus = "issue.change_status";
     public const string IssueDelete = "issue.delete";
+    public const string SprintManage = "sprint.manage";
     // 4. Tài liệu Đặc tả
     public const string DocumentView = "document.view";
     public const string DocumentEdit = "document.edit";
@@ -66,6 +80,7 @@ public static class PermissionKeys
     // 6. Kiểm thử & Truy xuất
     public const string TestCaseView = "testcase.view";
     public const string TestCaseManage = "testcase.manage";
+    public const string TestCaseExecute = "testcase.execute";
     // 7. Bình luận & Cộng tác
     public const string CommentView = "comment.view";
     public const string CommentWrite = "comment.write";
@@ -117,6 +132,7 @@ public static class PermissionKeys
         IssueAssign,
         IssueChangeStatus,
         IssueDelete,
+        SprintManage,
         DocumentView,
         DocumentEdit,
         DocumentApprove,
@@ -127,6 +143,7 @@ public static class PermissionKeys
         FigmaArchive,
         TestCaseView,
         TestCaseManage,
+        TestCaseExecute,
         CommentView,
         CommentWrite,
         ActivityView,

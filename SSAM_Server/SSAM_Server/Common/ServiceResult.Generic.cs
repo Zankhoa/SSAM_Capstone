@@ -21,7 +21,8 @@ public class ServiceResult<T> : ServiceResult
             ErrorMessage = error.ErrorMessage,
             Errors = error.Errors,
             RequiredPermission = error.RequiredPermission,
-            WorkflowIssues = error.WorkflowIssues
+            WorkflowIssues = error.WorkflowIssues,
+            Current = error.Current
         };
 
     public new static ServiceResult<T> Validation(Dictionary<string, string[]> errors, string message = "Data Validation Error") =>
@@ -45,8 +46,14 @@ public class ServiceResult<T> : ServiceResult
     public new static ServiceResult<T> NotFound(string message = "Not Found") =>
         Failure(StatusCodes.Status404NotFound, "NOT_FOUND", message);
 
-    public new static ServiceResult<T> Conflict(string code, string message) =>
-        Failure(StatusCodes.Status409Conflict, code, message);
+    public new static ServiceResult<T> NotFound(string code, string message) =>
+        Failure(StatusCodes.Status404NotFound, code, message);
+
+    public new static ServiceResult<T> Conflict(string code, string message, Dictionary<string, string[]>? errors = null) =>
+        Failure(StatusCodes.Status409Conflict, code, message, errors);
+
+    public new static ServiceResult<T> VersionConflict(object current, string message = "Người khác vừa lưu trang này.") =>
+        FromError(ServiceResult.VersionConflict(current, message));
 
     public new static ServiceResult<T> Failure(int statusCode, string code, string message, Dictionary<string, string[]>? errors = null) =>
         new()
