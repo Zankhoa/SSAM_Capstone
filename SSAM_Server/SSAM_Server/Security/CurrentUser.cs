@@ -21,4 +21,5 @@ public sealed class CurrentUser : ICurrentUser
     }
 
     public long UserId => UserIdOrNull ?? 0;
+    public bool IsAuthenticated => UserIdOrNull.HasValue;
 }

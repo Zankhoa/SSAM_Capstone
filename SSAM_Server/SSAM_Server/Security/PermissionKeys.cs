@@ -89,6 +89,20 @@ public static class PermissionKeys
     // 9. Hỗ trợ AI
     public const string AiUse = "ai.use";
 
+    // Aliases for Module A/C/D service checks mapped to the 49-permission catalog
+    public const string DocumentCreate = DocumentEdit;
+    public const string DocumentUpdate = DocumentEdit;
+    public const string DocumentComment = CommentWrite;
+    public const string IssueTransition = IssueChangeStatus;
+    public const string IssueComment = CommentWrite;
+    public const string TestcaseView = TestCaseView;
+    public const string TestcaseCreate = TestCaseManage;
+    public const string TestcaseUpdate = TestCaseManage;
+    public const string TestcaseDelete = TestCaseManage;
+    public const string TestcaseExecute = TestCaseExecute;
+    public const string WorkspaceSettingsManage = WorkspaceUpdate;
+    public const string CompanyRolesManage = RoleManage;
+
     public static readonly string[] AllTenantKeys =
     [
         CompanyView,
