@@ -34,7 +34,12 @@ public class GoogleTokenValidator : IGoogleTokenValidator
         }
         catch (InvalidJwtException ex)
         {
-            _logger.LogWarning(ex, "Google ID token không hợp lệ.");
+            _logger.LogWarning(ex, "Google ID token không hợp lệ: {Message}", ex.Message);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Lỗi xác thực Google ID token: {Message}", ex.Message);
             return null;
         }
     }
