@@ -123,9 +123,10 @@ public class DocumentsController : ControllerBase
     [HttpPost("documents/{documentId:long}/revisions")]
     public async Task<IActionResult> CreateRevision(
         long documentId,
+        [FromBody] CreateRevisionRequest? request,
         CancellationToken ct)
     {
-        var result = await _documents.CreateRevisionAsync(documentId, ct);
+        var result = await _documents.CreateRevisionAsync(documentId, request, ct);
         return result.ToActionResult(this);
     }
 
@@ -147,6 +148,27 @@ public class DocumentsController : ControllerBase
         CancellationToken ct)
     {
         var result = await _documents.GetDocumentRequirementsAsync(documentId, versionId, ct);
+        return result.ToActionResult(this);
+    }
+
+    // #12b PATCH /requirements/{requirementId}
+    [HttpPatch("requirements/{requirementId:long}")]
+    public async Task<IActionResult> UpdateRequirement(
+        long requirementId,
+        [FromBody] UpdateRequirementRequest request,
+        CancellationToken ct)
+    {
+        var result = await _documents.UpdateRequirementAsync(requirementId, request, ct);
+        return result.ToActionResult(this);
+    }
+
+    // #13a POST /requirements/{requirementId}/confirm-fresh
+    [HttpPost("requirements/{requirementId:long}/confirm-fresh")]
+    public async Task<IActionResult> ConfirmRequirementFreshById(
+        long requirementId,
+        CancellationToken ct)
+    {
+        var result = await _documents.ConfirmRequirementFreshByIdAsync(requirementId, ct);
         return result.ToActionResult(this);
     }
 
@@ -217,8 +239,9 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
-    // #19 POST /projects/{projectId}/documents/generator/normalize
+    // #19 POST /projects/{projectId}/documents/generator/normalize (and alias document-generation/normalize)
     [HttpPost("projects/{projectId:long}/documents/generator/normalize")]
+    [HttpPost("projects/{projectId:long}/document-generation/normalize")]
     public async Task<IActionResult> NormalizeNotes(
         long projectId,
         [FromBody] NormalizeNotesRequest request,
@@ -228,8 +251,9 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
-    // #20 POST /projects/{projectId}/documents/generator/extract
+    // #20 POST /projects/{projectId}/documents/generator/extract (and alias document-generation/extract)
     [HttpPost("projects/{projectId:long}/documents/generator/extract")]
+    [HttpPost("projects/{projectId:long}/document-generation/extract")]
     public async Task<IActionResult> ExtractRequirements(
         long projectId,
         [FromBody] ExtractRequirementsRequest request,
@@ -239,8 +263,9 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
-    // #21 POST /projects/{projectId}/documents/generator/create
+    // #21 POST /projects/{projectId}/documents/generator/create (and alias document-generation/create)
     [HttpPost("projects/{projectId:long}/documents/generator/create")]
+    [HttpPost("projects/{projectId:long}/document-generation/create")]
     public async Task<IActionResult> GenerateDocument(
         long projectId,
         [FromBody] GenerateDocumentRequest request,
@@ -250,8 +275,9 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
-    // #22 POST /projects/{projectId}/diagrams/generate
+    // #22 POST /projects/{projectId}/diagrams/generate (and alias document-ai/diagram)
     [HttpPost("projects/{projectId:long}/diagrams/generate")]
+    [HttpPost("projects/{projectId:long}/document-ai/diagram")]
     public async Task<IActionResult> GenerateDiagram(
         long projectId,
         [FromBody] GenerateDiagramRequest request,

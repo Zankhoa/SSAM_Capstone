@@ -69,6 +69,12 @@ public class DocumentVersionSummaryDto
     [JsonPropertyName("status")]
     public string Status { get; set; } = string.Empty;
 
+    [JsonPropertyName("author")]
+    public UserRefDto Author { get; set; } = new();
+
+    [JsonPropertyName("createdAt")]
+    public string CreatedAt { get; set; } = string.Empty;
+
     [JsonPropertyName("updatedAt")]
     public string UpdatedAt { get; set; } = string.Empty;
 
@@ -86,6 +92,9 @@ public class DocumentVersionSummaryDto
 
     [JsonPropertyName("reviewNote")]
     public string? ReviewNote { get; set; }
+
+    [JsonPropertyName("changeSummary")]
+    public string? ChangeSummary { get; set; }
 }
 
 public class DocumentVersionDto
@@ -105,6 +114,9 @@ public class DocumentVersionDto
     [JsonPropertyName("subtitle")]
     public string? Subtitle { get; set; }
 
+    [JsonPropertyName("changeSummary")]
+    public string? ChangeSummary => ReviewNote ?? Subtitle;
+
     [JsonPropertyName("content")]
     public JsonElement Content { get; set; }
 
@@ -113,6 +125,9 @@ public class DocumentVersionDto
 
     [JsonPropertyName("rowVersion")]
     public int RowVersion { get; set; }
+
+    [JsonPropertyName("createdAt")]
+    public string CreatedAt { get; set; } = string.Empty;
 
     [JsonPropertyName("updatedAt")]
     public string UpdatedAt { get; set; } = string.Empty;
@@ -169,6 +184,15 @@ public class DocumentDetailDto
     public DocumentPermissionsDto Can { get; set; } = new();
 }
 
+public class AcceptanceCriterionDto
+{
+    [JsonPropertyName("text")]
+    public string Text { get; set; } = string.Empty;
+
+    [JsonPropertyName("checked")]
+    public bool Checked { get; set; } = true;
+}
+
 public class RequirementItemDto
 {
     [JsonPropertyName("requirementId")]
@@ -183,11 +207,23 @@ public class RequirementItemDto
     [JsonPropertyName("reqUid")]
     public string ReqUid { get; set; } = string.Empty;
 
+    [JsonPropertyName("reqKey")]
+    public string ReqKey { get; set; } = string.Empty;
+
     [JsonPropertyName("anchorId")]
     public string AnchorId { get; set; } = string.Empty;
 
     [JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("priority")]
+    public string Priority { get; set; } = "MEDIUM";
+
+    [JsonPropertyName("freshness")]
+    public string Freshness { get; set; } = "FRESH";
+
+    [JsonPropertyName("changedSinceBaseline")]
+    public bool ChangedSinceBaseline { get; set; }
 
     [JsonPropertyName("bodyPreview")]
     public string BodyPreview { get; set; } = string.Empty;
@@ -196,7 +232,7 @@ public class RequirementItemDto
     public int BodyLength { get; set; }
 
     [JsonPropertyName("acceptanceCriteria")]
-    public List<string> AcceptanceCriteria { get; set; } = new();
+    public List<AcceptanceCriterionDto> AcceptanceCriteria { get; set; } = new();
 
     [JsonPropertyName("hasTable")]
     public bool HasTable { get; set; }
@@ -349,19 +385,54 @@ public class DocumentActivityDto
     public string CreatedAt { get; set; } = string.Empty;
 }
 
+public class StringOrLinesJsonConverter : JsonConverter<string>
+{
+    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+            return reader.GetString() ?? string.Empty;
+
+        if (reader.TokenType == JsonTokenType.StartArray)
+        {
+            var items = new List<string>();
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+            {
+                if (reader.TokenType == JsonTokenType.String)
+                {
+                    var s = reader.GetString();
+                    if (!string.IsNullOrWhiteSpace(s))
+                        items.Add(s.Trim());
+                }
+            }
+            return string.Join("\n", items);
+        }
+
+        return string.Empty;
+    }
+
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value ?? string.Empty);
+    }
+}
+
 public class NormalizedFieldsDto
 {
     [JsonPropertyName("scope")]
+    [JsonConverter(typeof(StringOrLinesJsonConverter))]
     public string Scope { get; set; } = string.Empty;
 
     [JsonPropertyName("actors")]
-    public List<string> Actors { get; set; } = new();
+    [JsonConverter(typeof(StringOrLinesJsonConverter))]
+    public string Actors { get; set; } = string.Empty;
 
     [JsonPropertyName("mainFlows")]
-    public List<string> MainFlows { get; set; } = new();
+    [JsonConverter(typeof(StringOrLinesJsonConverter))]
+    public string MainFlows { get; set; } = string.Empty;
 
     [JsonPropertyName("businessRules")]
-    public List<string> BusinessRules { get; set; } = new();
+    [JsonConverter(typeof(StringOrLinesJsonConverter))]
+    public string BusinessRules { get; set; } = string.Empty;
 }
 
 public class ExtractedRequirementDto
@@ -375,8 +446,14 @@ public class ExtractedRequirementDto
     [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
 
+    [JsonPropertyName("priority")]
+    public string Priority { get; set; } = "MEDIUM";
+
     [JsonPropertyName("acceptanceCriteria")]
     public List<string> AcceptanceCriteria { get; set; } = new();
+
+    [JsonPropertyName("sourceLines")]
+    public List<int> SourceLines { get; set; } = new();
 }
 
 public class GeneratedItemDto
@@ -384,14 +461,23 @@ public class GeneratedItemDto
     [JsonPropertyName("reqUid")]
     public string ReqUid { get; set; } = string.Empty;
 
+    [JsonPropertyName("tempId")]
+    public string TempId => ReqUid;
+
     [JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
 
     [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
 
+    [JsonPropertyName("priority")]
+    public string Priority { get; set; } = "MEDIUM";
+
     [JsonPropertyName("acceptanceCriteria")]
     public List<string> AcceptanceCriteria { get; set; } = new();
+
+    [JsonPropertyName("sourceLines")]
+    public List<int> SourceLines { get; set; } = new();
 }
 
 public class DocumentGenerationDto
@@ -418,10 +504,10 @@ public class DiagramProposalDto
     public string Mermaid { get; set; } = string.Empty;
 
     [JsonPropertyName("kind")]
-    public string Kind { get; set; } = "FLOW";
+    public string Kind { get; set; } = "flowchart";
 
     [JsonPropertyName("notes")]
-    public string Notes { get; set; } = string.Empty;
+    public List<string> Notes { get; set; } = new();
 }
 
 // --- Request DTOs ---
@@ -442,6 +528,12 @@ public class CreateDocumentNodeRequest
 
     [JsonPropertyName("subtitle")]
     public string? Subtitle { get; set; }
+
+    [JsonPropertyName("templateId")]
+    public string? TemplateId { get; set; }
+
+    [JsonPropertyName("content")]
+    public JsonElement? Content { get; set; }
 }
 
 public class UpdateDocumentNodeRequest
@@ -588,4 +680,19 @@ public class GenerateDiagramRequest
 
     [JsonPropertyName("anchorId")]
     public string? AnchorId { get; set; }
+}
+
+public class CreateRevisionRequest
+{
+    [JsonPropertyName("bump")]
+    public string? Bump { get; set; }
+
+    [JsonPropertyName("changeSummary")]
+    public string? ChangeSummary { get; set; }
+}
+
+public class UpdateRequirementRequest
+{
+    [JsonPropertyName("priority")]
+    public string Priority { get; set; } = "MEDIUM";
 }

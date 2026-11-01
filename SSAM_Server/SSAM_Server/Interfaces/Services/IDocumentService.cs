@@ -15,9 +15,11 @@ public interface IDocumentService
     Task<ServiceResult<DocumentDetailDto>> SubmitVersionAsync(long documentId, long versionId, CancellationToken ct = default);
     Task<ServiceResult<DocumentDetailDto>> ApproveVersionAsync(long documentId, long versionId, ApproveDocumentRequest request, CancellationToken ct = default);
     Task<ServiceResult<DocumentDetailDto>> RequestChangesAsync(long documentId, long versionId, RequestChangesRequest request, CancellationToken ct = default);
-    Task<ServiceResult<DocumentDetailDto>> CreateRevisionAsync(long documentId, CancellationToken ct = default);
+    Task<ServiceResult<DocumentDetailDto>> CreateRevisionAsync(long documentId, CreateRevisionRequest? request = null, CancellationToken ct = default);
     Task<ServiceResult<DocumentGenerationDto>> GetDocumentGenerationAsync(long documentId, CancellationToken ct = default);
     Task<ServiceResult<ItemsDto<RequirementItemDto>>> GetDocumentRequirementsAsync(long documentId, long? versionId, CancellationToken ct = default);
+    Task<ServiceResult<RequirementItemDto>> UpdateRequirementAsync(long requirementId, UpdateRequirementRequest request, CancellationToken ct = default);
+    Task<ServiceResult<RequirementItemDto>> ConfirmRequirementFreshByIdAsync(long requirementId, CancellationToken ct = default);
     Task<ServiceResult> ConfirmRequirementFreshAsync(long documentId, string reqUid, CancellationToken ct = default);
     Task<ServiceResult<DocumentDiffDto>> GetDocumentDiffAsync(long documentId, long fromVersionId, long toVersionId, CancellationToken ct = default);
     Task<ServiceResult<ItemsDto<DocumentCommentDto>>> GetDocumentCommentsAsync(long documentId, long? versionId, bool includeResolved, CancellationToken ct = default);

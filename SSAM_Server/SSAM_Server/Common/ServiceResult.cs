@@ -5,11 +5,20 @@ namespace SSAM_Server.Common;
 public class ServiceResult : ServiceResultDto
 {
     public static ServiceResult Ok() => new() { IsSuccess = true, StatusCode = StatusCodes.Status200OK };
+    public static ServiceResult Success() => Ok();
     public static ServiceResult NoContent() => new() { IsSuccess = true, StatusCode = StatusCodes.Status204NoContent };
     public static ServiceResult Accepted() => new() { IsSuccess = true, StatusCode = StatusCodes.Status202Accepted };
 
+    public ServiceResult<T> Cast<T>() => ServiceResult<T>.FromError(this);
+
     public static ServiceResult Validation(Dictionary<string, string[]> errors, string message = "Data Validation Error") =>
         Failure(StatusCodes.Status400BadRequest, "VALIDATION_ERROR", message, errors);
+
+    public static ServiceResult ValidationFailure(Dictionary<string, string[]> errors, string message = "Data Validation Error") =>
+        Validation(errors, message);
+
+    public static ServiceResult PermissionDenied(string requiredPermission, string? message = null) =>
+        ForbiddenPermission(requiredPermission, message);
 
     public static ServiceResult BadRequest(string code, string message) =>
         Failure(StatusCodes.Status400BadRequest, code, message);

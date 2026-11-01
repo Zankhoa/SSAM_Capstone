@@ -9,8 +9,16 @@ public class ServiceResult<T> : ServiceResult
     public static ServiceResult<T> Ok(T data) =>
         new() { IsSuccess = true, StatusCode = StatusCodes.Status200OK, Data = data };
 
+    public static ServiceResult<T> Success(T data) => Ok(data);
+
     public static ServiceResult<T> Created(T data) =>
         new() { IsSuccess = true, StatusCode = StatusCodes.Status201Created, Data = data };
+
+    public new static ServiceResult<T> ValidationFailure(Dictionary<string, string[]> errors, string message = "Data Validation Error") =>
+        Validation(errors, message);
+
+    public static ServiceResult<T> VersionConflict(string message, object current) =>
+        FromError(ServiceResult.VersionConflict(current, message));
 
     public static ServiceResult<T> FromError(ServiceResultDto error) =>
         new()

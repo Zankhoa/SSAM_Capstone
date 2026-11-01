@@ -11,6 +11,7 @@ public static class DocumentNodeKinds
 
 public static class DocumentTypes
 {
+    public const string Urd = "URD";
     public const string Brd = "BRD";
     public const string Srs = "SRS";
     public const string Adr = "ADR";
@@ -19,7 +20,7 @@ public static class DocumentTypes
     public const string Other = "OTHER";
 
     public static bool IsValid(string? docType) =>
-        docType is Brd or Srs or Adr or UiSpec or TestPlan or Other;
+        docType is Urd or Brd or Srs or Adr or UiSpec or TestPlan or Other;
 }
 
 public static class DocumentVersionStatuses
