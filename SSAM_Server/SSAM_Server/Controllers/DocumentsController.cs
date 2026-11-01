@@ -206,8 +206,9 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
-    // #18 GET /documents/{documentId}/activities
+    // #18 GET /documents/{documentId}/activities (and alias /activity)
     [HttpGet("documents/{documentId:long}/activities")]
+    [HttpGet("documents/{documentId:long}/activity")]
     public async Task<IActionResult> GetDocumentActivities(
         long documentId,
         CancellationToken ct)
