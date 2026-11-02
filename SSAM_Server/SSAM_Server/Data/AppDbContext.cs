@@ -38,6 +38,35 @@ public class AppDbContext : DbContext
     public DbSet<WorkflowStatus> WorkflowStatuses => Set<WorkflowStatus>();
     public DbSet<WorkflowTransition> WorkflowTransitions => Set<WorkflowTransition>();
     public DbSet<WorkflowTransitionRole> WorkflowTransitionRoles => Set<WorkflowTransitionRole>();
+    public DbSet<ProjectSequence> ProjectSequences => Set<ProjectSequence>();
+
+    // Module A — Documents & Requirements
+    public DbSet<DocumentNode> DocumentNodes => Set<DocumentNode>();
+    public DbSet<DocumentVersion> DocumentVersions => Set<DocumentVersion>();
+    public DbSet<RequirementItem> RequirementItems => Set<RequirementItem>();
+    public DbSet<DocumentComment> DocumentComments => Set<DocumentComment>();
+    public DbSet<DocumentCommentMention> DocumentCommentMentions => Set<DocumentCommentMention>();
+    public DbSet<DocumentActivity> DocumentActivities => Set<DocumentActivity>();
+    public DbSet<DocumentGeneration> DocumentGenerations => Set<DocumentGeneration>();
+
+    // Module C — Kanban, Issues & Sprints
+    public DbSet<Sprint> Sprints => Set<Sprint>();
+    public DbSet<Issue> Issues => Set<Issue>();
+    public DbSet<IssueRequirementLink> IssueRequirementLinks => Set<IssueRequirementLink>();
+    public DbSet<BoardWipLimit> BoardWipLimits => Set<BoardWipLimit>();
+    public DbSet<IssueComment> IssueComments => Set<IssueComment>();
+    public DbSet<IssueCommentMention> IssueCommentMentions => Set<IssueCommentMention>();
+    public DbSet<IssueActivity> IssueActivities => Set<IssueActivity>();
+
+    // Module D — Test Cases & Test Runs
+    public DbSet<TestFolder> TestFolders => Set<TestFolder>();
+    public DbSet<TestCase> TestCases => Set<TestCase>();
+    public DbSet<TestCaseRequirementLink> TestCaseRequirementLinks => Set<TestCaseRequirementLink>();
+    public DbSet<TestCaseIssueLink> TestCaseIssueLinks => Set<TestCaseIssueLink>();
+    public DbSet<TestCycle> TestCycles => Set<TestCycle>();
+    public DbSet<TestRun> TestRuns => Set<TestRun>();
+    public DbSet<TestRunDefect> TestRunDefects => Set<TestRunDefect>();
+    public DbSet<TestRunHistory> TestRunHistory => Set<TestRunHistory>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -67,9 +96,14 @@ public class AppDbContext : DbContext
         }
 
         var strategy = Database.CreateExecutionStrategy();
+        var isRetry = false;
         return await strategy.ExecuteAsync(async ct =>
         {
-            ChangeTracker.Clear();
+            if (isRetry)
+            {
+                ChangeTracker.Clear();
+            }
+            isRetry = true;
 
             await using var transaction = await Database.BeginTransactionAsync(ct);
             var result = await work(ct);
@@ -77,6 +111,7 @@ public class AppDbContext : DbContext
             if (result is ServiceResult { IsSuccess: false })
             {
                 await transaction.RollbackAsync(ct);
+                ChangeTracker.Clear();
                 return result;
             }
 
@@ -92,6 +127,54 @@ public class AppDbContext : DbContext
             await work(ct);
             return null;
         }, cancellationToken);
+    }
+
+    public async Task<int> NextSequenceValueAsync(long projectId, string scope, CancellationToken ct = default)
+    {
+        var seq = await ProjectSequences
+            .FirstOrDefaultAsync(ps => ps.ProjectId == projectId && ps.Scope == scope, ct);
+        if (seq == null)
+        {
+            seq = new ProjectSequence
+            {
+                ProjectId = projectId,
+                Scope = scope,
+                LastValue = 1
+            };
+            await ProjectSequences.AddAsync(seq, ct);
+            await SaveChangesAsync(ct);
+            return 1;
+        }
+
+        seq.LastValue += 1;
+        await SaveChangesAsync(ct);
+        return seq.LastValue;
+    }
+
+    public async Task<string> AllocateDocumentCodeAsync(long projectId, string docType, CancellationToken ct = default)
+    {
+        var scope = SequenceScopes.ForDocType(docType);
+        var n = await NextSequenceValueAsync(projectId, scope, ct);
+        var prefix = docType == DocumentTypes.Other ? "DOC" : docType;
+        return $"{prefix}-{n:D2}";
+    }
+
+    public async Task<string> AllocateIssueKeyAsync(long projectId, string projectKey, CancellationToken ct = default)
+    {
+        var n = await NextSequenceValueAsync(projectId, SequenceScopes.Issue, ct);
+        return $"{projectKey}-{n}";
+    }
+
+    public async Task<string> AllocateTestCaseKeyAsync(long projectId, CancellationToken ct = default)
+    {
+        var n = await NextSequenceValueAsync(projectId, SequenceScopes.TestCase, ct);
+        return $"TC-{n}";
+    }
+
+    public async Task<string> AllocateReqUidAsync(long projectId, CancellationToken ct = default)
+    {
+        var n = await NextSequenceValueAsync(projectId, SequenceScopes.Req, ct);
+        return $"REQ-{n:D3}";
     }
 
     private void TouchUpdatedAt()

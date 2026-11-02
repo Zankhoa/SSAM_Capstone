@@ -867,6 +867,30 @@ public class ProjectService : IProjectService
                 return ServiceResult<PhaseDto>.NotFound("Không tìm thấy dữ liệu.");
         }
 
+        var keepStatusIds = statuses
+            .Where(s => s.StatusId.HasValue)
+            .Select(s => s.StatusId!.Value)
+            .ToHashSet();
+        var removedStatusIds = existingStatuses
+            .Where(s => !keepStatusIds.Contains(s.Id))
+            .Select(s => s.Id)
+            .ToList();
+
+        if (removedStatusIds.Count > 0)
+        {
+            var inUseIds = await _projectRepository.GetStatusIdsWithIssuesAsync(removedStatusIds, ct);
+            if (inUseIds.Count > 0)
+            {
+                return ServiceResult<PhaseDto>.Conflict(
+                    "STATUS_IN_USE",
+                    "Không thể xoá trạng thái đang có công việc.",
+                    new Dictionary<string, string[]>
+                    {
+                        ["statuses"] = inUseIds.Select(id => id.ToString()).ToArray()
+                    });
+            }
+        }
+
         var companyId = access.Workspace.CompanyId!.Value;
         var roleCheck = await ValidateTransitionRolesAsync(companyId, transitions, ct);
         if (!roleCheck.IsSuccess)

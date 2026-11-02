@@ -40,6 +40,9 @@ public class RoleDto
     [JsonPropertyName("scope")]
     public string Scope { get; set; } = string.Empty;
 
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = "OTHER";
+
     [JsonPropertyName("isSystem")]
     public bool IsSystem { get; set; }
 
@@ -116,6 +119,9 @@ public class CreateRoleRequestDto
     [JsonPropertyName("scope")]
     public string Scope { get; set; } = string.Empty;
 
+    [JsonPropertyName("kind")]
+    public string? Kind { get; set; }
+
     [JsonPropertyName("permissionKeys")]
     public List<string>? PermissionKeys { get; set; }
 }
@@ -126,6 +132,9 @@ public class UpdateRoleRequestDto
 
     [JsonPropertyName("name")]
     public string? Name { get; set; }
+
+    [JsonPropertyName("kind")]
+    public string? Kind { get; set; }
 
     [JsonPropertyName("description")]
     public string? Description

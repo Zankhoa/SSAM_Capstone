@@ -12,7 +12,7 @@ public class DocumentNodeConfiguration : IEntityTypeConfiguration<DocumentNode>
         {
             t.HasCheckConstraint("CK_DocumentNodes_Kind", "[kind] IN ('FOLDER','PAGE')");
             t.HasCheckConstraint("CK_DocumentNodes_DocType",
-                "([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER'))");
+                "([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('URD','BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER'))");
         });
 
         builder.HasKey(d => d.Id).HasName("PK_DocumentNodes");

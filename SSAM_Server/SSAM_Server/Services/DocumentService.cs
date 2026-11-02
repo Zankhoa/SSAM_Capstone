@@ -177,15 +177,26 @@ public class DocumentService : IDocumentService
         return await _db.ExecuteInTransactionAsync(async innerCt =>
         {
             var code = await _db.AllocateDocumentCodeAsync(projectId, docType!, innerCt);
-            string? sampleReqUid = null;
-            if (docType is DocumentTypes.Brd or DocumentTypes.Srs)
-            {
-                sampleReqUid = await _db.AllocateReqUidAsync(projectId, innerCt);
-            }
+            string normalizedJson;
+            string plainText;
+            List<DocumentContentHelper.ExtractedRequirementNode> extractedReqs;
 
-            var templateJson = DocumentContentHelper.BuildInitialTemplateContentJson(docType!, title, sampleReqUid);
-            using var jsonDoc = JsonDocument.Parse(templateJson);
-            var (normalizedJson, plainText, extractedReqs) = DocumentContentHelper.ProcessContent(jsonDoc.RootElement);
+            if (request.Content.HasValue && request.Content.Value.ValueKind == JsonValueKind.Object)
+            {
+                (normalizedJson, plainText, extractedReqs) = DocumentContentHelper.ProcessContent(request.Content.Value);
+            }
+            else
+            {
+                string? sampleReqUid = null;
+                if (docType is DocumentTypes.Urd or DocumentTypes.Brd or DocumentTypes.Srs)
+                {
+                    sampleReqUid = await _db.AllocateReqUidAsync(projectId, innerCt);
+                }
+
+                var templateJson = DocumentContentHelper.BuildInitialTemplateContentJson(docType!, title, sampleReqUid);
+                using var jsonDoc = JsonDocument.Parse(templateJson);
+                (normalizedJson, plainText, extractedReqs) = DocumentContentHelper.ProcessContent(jsonDoc.RootElement);
+            }
 
             var node = new DocumentNode
             {
@@ -254,8 +265,8 @@ public class DocumentService : IDocumentService
 
             await _db.SaveChangesAsync(innerCt);
 
-            var detailRes = await GetDocumentDetailAsync(node.Id, version.Id, innerCt);
-            return ServiceResult<object>.Created(detailRes.Data!);
+            node.CurrentVersion = version;
+            return ServiceResult<object>.Created(MapNodeDto(node, extractedReqs.Count));
         }, ct);
     }
 
@@ -897,7 +908,7 @@ public class DocumentService : IDocumentService
         return await GetDocumentDetailAsync(documentId, version.Id, ct);
     }
 
-    public async Task<ServiceResult<DocumentDetailDto>> CreateRevisionAsync(long documentId, CancellationToken ct = default)
+    public async Task<ServiceResult<DocumentDetailDto>> CreateRevisionAsync(long documentId, CreateRevisionRequest? request = null, CancellationToken ct = default)
     {
         var node = await _db.DocumentNodes
             .Include(d => d.CurrentVersion)
@@ -919,7 +930,7 @@ public class DocumentService : IDocumentService
                 "Tài liệu đã có bản nháp đang mở. Chỉ tạo được revision mới khi phiên bản hiện hành đã APPROVED.");
         }
 
-        var nextLabel = ComputeNextVersionLabel(currentVer.Label);
+        var nextLabel = ComputeNextVersionLabel(currentVer.Label, request?.Bump);
         var userId = _currentUser.UserId;
         var now = _clock.GetUtcNow().UtcDateTime;
 
@@ -931,6 +942,7 @@ public class DocumentService : IDocumentService
                 Label = nextLabel,
                 Status = DocumentVersionStatuses.Draft,
                 Subtitle = currentVer.Subtitle,
+                ReviewNote = string.IsNullOrWhiteSpace(request?.ChangeSummary) ? null : request.ChangeSummary.Trim(),
                 Content = currentVer.Content,
                 ContentText = currentVer.ContentText,
                 BaseVersionId = currentVer.Id,
@@ -1039,10 +1051,10 @@ public class DocumentService : IDocumentService
         if (!targetVersionId.HasValue)
             return ServiceResult<ItemsDto<RequirementItemDto>>.Success(new ItemsDto<RequirementItemDto>());
 
-        var versionExists = await _db.DocumentVersions
+        var version = await _db.DocumentVersions
             .AsNoTracking()
-            .AnyAsync(v => v.Id == targetVersionId.Value && v.DocumentId == documentId, ct);
-        if (!versionExists)
+            .FirstOrDefaultAsync(v => v.Id == targetVersionId.Value && v.DocumentId == documentId, ct);
+        if (version == null)
             return ServiceResult<ItemsDto<RequirementItemDto>>.NotFound("VERSION_NOT_FOUND", "Document version not found.");
 
         var reqs = await _db.RequirementItems
@@ -1051,8 +1063,121 @@ public class DocumentService : IDocumentService
             .OrderBy(r => r.SortOrder)
             .ToListAsync(ct);
 
-        return ServiceResult<ItemsDto<RequirementItemDto>>.Success(
-            new ItemsDto<RequirementItemDto>(reqs.Select(MapRequirementDto)));
+        var baselineHashes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (node.BaselineVersionId.HasValue && node.BaselineVersionId.Value != targetVersionId.Value)
+        {
+            var baseReqs = await _db.RequirementItems
+                .AsNoTracking()
+                .Where(r => r.VersionId == node.BaselineVersionId.Value)
+                .ToListAsync(ct);
+            foreach (var br in baseReqs)
+                baselineHashes[br.ReqUid] = br.ContentHash;
+        }
+
+        var staleUids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var issueStale = await _db.IssueRequirementLinks
+            .AsNoTracking()
+            .Where(l => l.DocumentId == documentId && l.ChangedVersionLabel != null)
+            .Select(l => l.ReqUid)
+            .ToListAsync(ct);
+        foreach (var u in issueStale) staleUids.Add(u);
+
+        var tcStale = await _db.TestCaseRequirementLinks
+            .AsNoTracking()
+            .Where(l => l.DocumentId == documentId && l.ChangedVersionLabel != null)
+            .Select(l => l.ReqUid)
+            .ToListAsync(ct);
+        foreach (var u in tcStale) staleUids.Add(u);
+
+        var priorities = ExtractPrioritiesFromContent(version.Content);
+
+        var dtos = reqs.Select((r, idx) =>
+        {
+            var dto = MapRequirementDto(r, idx);
+            if (priorities.TryGetValue(r.ReqUid, out var prio))
+                dto.Priority = prio;
+            if (staleUids.Contains(r.ReqUid))
+                dto.Freshness = "STALE";
+            if (node.BaselineVersionId.HasValue && node.BaselineVersionId.Value != targetVersionId.Value)
+            {
+                dto.ChangedSinceBaseline = !baselineHashes.TryGetValue(r.ReqUid, out var bh) ||
+                                           !string.Equals(bh, r.ContentHash, StringComparison.OrdinalIgnoreCase);
+            }
+            return dto;
+        }).ToList();
+
+        return ServiceResult<ItemsDto<RequirementItemDto>>.Success(new ItemsDto<RequirementItemDto>(dtos));
+    }
+
+    public async Task<ServiceResult<RequirementItemDto>> UpdateRequirementAsync(
+        long requirementId,
+        UpdateRequirementRequest request,
+        CancellationToken ct = default)
+    {
+        var req = await _db.RequirementItems
+            .Include(r => r.Document)
+            .Include(r => r.Version)
+            .FirstOrDefaultAsync(r => r.Id == requirementId && !r.Document.IsDeleted, ct);
+        if (req == null)
+            return ServiceResult<RequirementItemDto>.NotFound("REQUIREMENT_NOT_FOUND", "Requirement not found.");
+
+        var auth = await EnsureProjectPermissionAsync(req.Document.ProjectId, PermissionKeys.DocumentUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<RequirementItemDto>();
+
+        var prio = (request?.Priority ?? "MEDIUM").Trim().ToUpperInvariant();
+        if (prio is not ("HIGH" or "MEDIUM" or "LOW")) prio = "MEDIUM";
+
+        try
+        {
+            var root = System.Text.Json.Nodes.JsonNode.Parse(req.Version.Content) as System.Text.Json.Nodes.JsonObject;
+            if (root?["content"] is System.Text.Json.Nodes.JsonArray blocks)
+            {
+                foreach (var b in blocks)
+                {
+                    if (b is System.Text.Json.Nodes.JsonObject obj &&
+                        obj["type"]?.GetValue<string>() == "heading" &&
+                        obj["attrs"] is System.Text.Json.Nodes.JsonObject attrs)
+                    {
+                        var uid = attrs["reqUid"]?.GetValue<string>();
+                        var aid = attrs["id"]?.GetValue<string>() ?? attrs["anchorId"]?.GetValue<string>();
+                        if (string.Equals(uid, req.ReqUid, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(aid, req.AnchorId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            attrs["priority"] = prio;
+                        }
+                    }
+                }
+                req.Version.Content = root.ToJsonString();
+                _db.DocumentVersions.Update(req.Version);
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+        catch
+        {
+            // Ignore content parse errors
+        }
+
+        var dto = MapRequirementDto(req);
+        dto.Priority = prio;
+        return ServiceResult<RequirementItemDto>.Success(dto);
+    }
+
+    public async Task<ServiceResult<RequirementItemDto>> ConfirmRequirementFreshByIdAsync(
+        long requirementId,
+        CancellationToken ct = default)
+    {
+        var req = await _db.RequirementItems
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == requirementId, ct);
+        if (req == null)
+            return ServiceResult<RequirementItemDto>.NotFound("REQUIREMENT_NOT_FOUND", "Requirement not found.");
+
+        var res = await ConfirmRequirementFreshAsync(req.DocumentId, req.ReqUid, ct);
+        if (!res.IsSuccess) return res.Cast<RequirementItemDto>();
+
+        var dto = MapRequirementDto(req);
+        dto.Freshness = "FRESH";
+        return ServiceResult<RequirementItemDto>.Success(dto);
     }
 
     public async Task<ServiceResult> ConfirmRequirementFreshAsync(long documentId, string reqUid, CancellationToken ct = default)
@@ -1284,12 +1409,20 @@ public class DocumentService : IDocumentService
             .Where(c => c.ParentId == null && (includeResolved || c.ResolvedAt == null))
             .ToList();
 
+        var activeRootIds = roots.Select(r => r.Id).ToHashSet();
+
         var repliesByParent = allComments
-            .Where(c => c.ParentId.HasValue)
+            .Where(c => c.ParentId.HasValue && activeRootIds.Contains(c.ParentId.Value))
             .GroupBy(c => c.ParentId!.Value)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        var dtos = roots.Select(r => MapCommentDto(r, repliesByParent.GetValueOrDefault(r.Id) ?? new List<DocumentComment>())).ToList();
+        var dtos = allComments
+            .Where(c => (c.ParentId == null && activeRootIds.Contains(c.Id)) ||
+                        (c.ParentId.HasValue && activeRootIds.Contains(c.ParentId.Value)))
+            .Select(c => MapCommentDto(
+                c,
+                c.ParentId == null ? (repliesByParent.GetValueOrDefault(c.Id) ?? new List<DocumentComment>()) : new List<DocumentComment>()))
+            .ToList();
         return ServiceResult<ItemsDto<DocumentCommentDto>>.Success(new ItemsDto<DocumentCommentDto>(dtos));
     }
 
@@ -1738,16 +1871,51 @@ public class DocumentService : IDocumentService
         return visited;
     }
 
-    private static string ComputeNextVersionLabel(string currentLabel)
+    private static string ComputeNextVersionLabel(string currentLabel, string? bump = null)
     {
-        var parts = (currentLabel ?? "1.0").Split('.');
+        var raw = (currentLabel ?? "1.0").TrimStart('v', 'V');
+        var parts = raw.Split('.');
         if (parts.Length == 2 &&
             int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var major) &&
             int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var minor))
         {
+            if (string.Equals(bump, "MAJOR", StringComparison.OrdinalIgnoreCase))
+                return $"{major + 1}.0";
             return $"{major}.{minor + 1}";
         }
         return "1.1";
+    }
+
+    private static Dictionary<string, string> ExtractPrioritiesFromContent(string? contentJson)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(contentJson)) return map;
+        try
+        {
+            var root = System.Text.Json.Nodes.JsonNode.Parse(contentJson) as System.Text.Json.Nodes.JsonObject;
+            if (root?["content"] is System.Text.Json.Nodes.JsonArray blocks)
+            {
+                foreach (var b in blocks)
+                {
+                    if (b is System.Text.Json.Nodes.JsonObject obj &&
+                        obj["type"]?.GetValue<string>() == "heading" &&
+                        obj["attrs"] is System.Text.Json.Nodes.JsonObject attrs)
+                    {
+                        var uid = attrs["reqUid"]?.GetValue<string>();
+                        var prio = attrs["priority"]?.GetValue<string>()?.ToUpperInvariant();
+                        if (!string.IsNullOrWhiteSpace(uid) && prio is "HIGH" or "MEDIUM" or "LOW")
+                        {
+                            map[uid] = prio;
+                        }
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ignore malformed JSON
+        }
+        return map;
     }
 
     private static DocumentNodeDto MapNodeDto(DocumentNode n, int reqCount)
@@ -1784,12 +1952,15 @@ public class DocumentService : IDocumentService
             VersionId = v.Id,
             Label = v.Label,
             Status = v.Status,
+            Author = v.Author != null ? MapUserRef(v.Author) : MapUserRef(v.UpdatedBy),
+            CreatedAt = FormatUtc(v.CreatedAt),
             UpdatedAt = FormatUtc(v.UpdatedAt),
             UpdatedBy = MapUserRef(v.UpdatedBy),
             SubmittedAt = v.SubmittedAt.HasValue ? FormatUtc(v.SubmittedAt.Value) : null,
             ReviewedBy = v.ReviewedBy != null ? MapUserRef(v.ReviewedBy) : null,
             ReviewedAt = v.ReviewedAt.HasValue ? FormatUtc(v.ReviewedAt.Value) : null,
-            ReviewNote = v.ReviewNote
+            ReviewNote = v.ReviewNote,
+            ChangeSummary = v.ReviewNote ?? v.Subtitle
         };
     }
 
@@ -1817,6 +1988,7 @@ public class DocumentService : IDocumentService
             Content = contentEl,
             BaseVersionId = v.BaseVersionId,
             RowVersion = v.RowVersion,
+            CreatedAt = FormatUtc(v.CreatedAt),
             UpdatedAt = FormatUtc(v.UpdatedAt),
             UpdatedBy = MapUserRef(v.UpdatedBy),
             Author = MapUserRef(v.Author),
@@ -1828,19 +2000,29 @@ public class DocumentService : IDocumentService
         };
     }
 
-    private static RequirementItemDto MapRequirementDto(RequirementItem r)
+    private static RequirementItemDto MapRequirementDto(RequirementItem r, int index = -1)
     {
+        var acStrings = SafeDeserialize<List<string>>(r.AcceptanceCriteria) ?? new List<string>();
+        var acDtos = acStrings.Select(s => new AcceptanceCriterionDto { Text = s, Checked = true }).ToList();
+        var reqKey = r.ReqUid.StartsWith("REQ-", StringComparison.OrdinalIgnoreCase) && r.ReqUid.Length <= 8
+            ? r.ReqUid.ToUpperInvariant()
+            : $"REQ-{(index >= 0 ? index + 1 : r.SortOrder + 1):D2}";
+
         return new RequirementItemDto
         {
             RequirementId = r.Id,
             DocumentId = r.DocumentId,
             VersionId = r.VersionId,
             ReqUid = r.ReqUid,
+            ReqKey = reqKey,
             AnchorId = r.AnchorId,
             Title = r.Title,
+            Priority = "MEDIUM",
+            Freshness = "FRESH",
+            ChangedSinceBaseline = false,
             BodyPreview = r.BodyPreview,
             BodyLength = r.BodyLength,
-            AcceptanceCriteria = SafeDeserialize<List<string>>(r.AcceptanceCriteria) ?? new List<string>(),
+            AcceptanceCriteria = acDtos,
             HasTable = r.HasTable,
             HasDiagram = r.HasDiagram,
             HasFigma = r.HasFigma,
