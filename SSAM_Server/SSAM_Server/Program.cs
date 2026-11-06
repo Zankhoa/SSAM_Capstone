@@ -15,6 +15,7 @@ using SSAM_Server.Middlewares;
 using SSAM_Server.Repositories;
 using SSAM_Server.Security;
 using SSAM_Server.Services;
+using SSAM_Server.Configurations;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -218,6 +219,14 @@ builder.Services.AddAuthorization();
 // ---- Health checks
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>("database", tags: new[] { "ready" });
+
+// ---- AI Service
+// 1. Bind configuration section
+builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
+// 2. Register HTTP Client (if making direct REST calls later)
+builder.Services.AddHttpClient("AiClient");
+// 3. Register the AI service interface
+builder.Services.AddScoped<IAiService, GeminiAiService>();
 
 var app = builder.Build();
 
