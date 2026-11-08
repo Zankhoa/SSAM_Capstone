@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using SSAM_Server;
@@ -60,6 +61,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
         b.MigrationsAssembly(typeof(AppDbContext).Assembly.FullName);
         b.EnableRetryOnFailure(maxRetryCount: 3, maxRetryDelay: TimeSpan.FromSeconds(5), errorNumbersToAdd: null);
     });
+    options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
 });
 
 // ---- Options
@@ -95,6 +97,10 @@ builder.Services.AddScoped<IInvitationService, InvitationService>();
 builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
 builder.Services.AddScoped<IRoleService, RoleService>();
 builder.Services.AddScoped<IProjectService, ProjectService>();
+builder.Services.AddScoped<IDocumentService, DocumentService>();
+builder.Services.AddScoped<IKanbanService, KanbanService>();
+builder.Services.AddScoped<ITestingService, TestingService>();
+builder.Services.AddScoped<IWorkService, WorkService>();
 
 builder.Services.AddScoped<SmtpEmailService>();
 builder.Services.AddSingleton<EmailQueue>();
@@ -220,6 +226,40 @@ builder.Services.AddHealthChecks()
     .AddDbContextCheck<AppDbContext>("database", tags: new[] { "ready" });
 
 var app = builder.Build();
+
+// Auto-apply EF migrations and ensure idempotent schema adjustments for URD doc_type & wider req_uid / anchor_id
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        logger.LogInformation("Applying database migrations...");
+        await db.Database.MigrateAsync();
+        logger.LogInformation("Database migrations applied successfully.");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "An error occurred while migrating the database.");
+        throw;
+    }
+
+    try
+    {
+        await db.Database.ExecuteSqlRawAsync(@"
+IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_DocumentNodes_DocType')
+BEGIN
+    ALTER TABLE [DocumentNodes] DROP CONSTRAINT [CK_DocumentNodes_DocType];
+END
+ALTER TABLE [DocumentNodes] WITH CHECK ADD CONSTRAINT [CK_DocumentNodes_DocType]
+    CHECK (([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('URD','BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER')));
+");
+    }
+    catch
+    {
+        // Ignore if table doesn't exist yet or constraint already updated
+    }
+}
 
 if (builder.Configuration.GetValue<bool>("ReverseProxy:Enabled"))
 {

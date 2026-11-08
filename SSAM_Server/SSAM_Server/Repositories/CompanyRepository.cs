@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Companies;
@@ -33,38 +33,123 @@ public class CompanyRepository : ICompanyRepository
 
     public async Task SeedSystemRolesAndPermissionsAsync(long companyId, DateTime now, CancellationToken ct = default)
     {
-        var specs = new (string Code, string Name, string Scope, string Description, string[] PermissionCodes)[]
+        var specs = new (string Code, string Name, string Scope, string Kind, string Description, string[] PermissionCodes)[]
         {
-            (CompanyRoleCodes.TenantAdmin, "Tenant Admin", RoleScopes.Tenant,
+            (CompanyRoleCodes.TenantAdmin, "Tenant Admin", RoleScopes.Tenant, RoleKinds.Other,
                 "Toàn quyền cấu hình tổ chức và bảo mật. Gán cho người tạo công ty.",
                 PermissionKeys.AllTenantKeys),
-            (CompanyRoleCodes.Member, "Member", RoleScopes.Tenant,
+            (CompanyRoleCodes.Member, "Member", RoleScopes.Tenant, RoleKinds.Other,
                 "Thành viên cơ bản của công ty, mặc định khi được mời.",
                 new[] { PermissionKeys.CompanyView, PermissionKeys.RoleView }),
-            (CompanyRoleCodes.WorkspaceAdmin, "Workspace Admin", RoleScopes.Workspace,
+            (CompanyRoleCodes.WorkspaceAdmin, "Workspace Admin", RoleScopes.Workspace, RoleKinds.Other,
                 "Quản trị workspace và mọi dự án bên trong. Gán cho người tạo workspace.",
                 PermissionKeys.AllWorkspaceKeys),
-            (CompanyRoleCodes.ProjectInitiator, "Project Initiator", RoleScopes.Workspace,
+            (CompanyRoleCodes.ProjectInitiator, "Project Initiator", RoleScopes.Workspace, RoleKinds.Other,
                 "Được khởi tạo dự án mới trong workspace (actor \"Project Initiator\" của SRS).",
                 new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectCreate, PermissionKeys.ProjectInheritAccess }),
-            (CompanyRoleCodes.WorkspaceMember, "Workspace Member", RoleScopes.Workspace,
+            (CompanyRoleCodes.WorkspaceMember, "Workspace Member", RoleScopes.Workspace, RoleKinds.Other,
                 "Thành viên mặc định khi được thêm vào workspace.",
                 new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectInheritAccess }),
-            (CompanyRoleCodes.ProjectManager, "Project Manager", RoleScopes.Project,
+            (CompanyRoleCodes.ProjectManager, "Project Manager", RoleScopes.Project, RoleKinds.Pm,
                 "Khởi tạo Sprint, cấu hình Phase SDLC, duyệt thành viên dự án. Gán cho người tạo dự án.",
                 PermissionKeys.AllProjectKeys),
-            (CompanyRoleCodes.TechLead, "Tech Lead", RoleScopes.Project,
+            (CompanyRoleCodes.TechLead, "Tech Lead", RoleScopes.Project, RoleKinds.Dev,
                 "Dẫn dắt kỹ thuật, duyệt code review.",
-                new[] { PermissionKeys.ProjectView }),
-            (CompanyRoleCodes.Ba, "Business Analyst", RoleScopes.Project,
+                new[]
+                {
+                    PermissionKeys.ProjectView,
+                    PermissionKeys.ProjectWorkflowView,
+                    PermissionKeys.ProjectWorkflowManage,
+                    PermissionKeys.ProjectWorkflowTransitionManage,
+                    PermissionKeys.IssueView,
+                    PermissionKeys.IssueCreate,
+                    PermissionKeys.IssueUpdate,
+                    PermissionKeys.IssueAssign,
+                    PermissionKeys.IssueChangeStatus,
+                    PermissionKeys.IssueDelete,
+                    PermissionKeys.SprintManage,
+                    PermissionKeys.DocumentView,
+                    PermissionKeys.DocumentApprove,
+                    PermissionKeys.TestCaseView,
+                    PermissionKeys.CommentView,
+                    PermissionKeys.CommentWrite,
+                    PermissionKeys.ActivityView,
+                    PermissionKeys.AiUse
+                }),
+            (CompanyRoleCodes.Ba, "Business Analyst", RoleScopes.Project, RoleKinds.Ba,
                 "Soạn thảo đặc tả SRS, quản lý khối yêu cầu và backlog.",
-                new[] { PermissionKeys.ProjectView }),
-            (CompanyRoleCodes.Developer, "Developer", RoleScopes.Project,
+                new[]
+                {
+                    PermissionKeys.ProjectView,
+                    PermissionKeys.ProjectWorkflowView,
+                    PermissionKeys.IssueView,
+                    PermissionKeys.IssueCreate,
+                    PermissionKeys.IssueUpdate,
+                    PermissionKeys.DocumentView,
+                    PermissionKeys.DocumentEdit,
+                    PermissionKeys.DocumentRevise,
+                    PermissionKeys.DocumentDelete,
+                    PermissionKeys.FigmaCreate,
+                    PermissionKeys.FigmaUpdate,
+                    PermissionKeys.TestCaseView,
+                    PermissionKeys.CommentView,
+                    PermissionKeys.CommentWrite,
+                    PermissionKeys.ActivityView,
+                    PermissionKeys.AiUse
+                }),
+            (CompanyRoleCodes.Designer, "UI/UX Designer", RoleScopes.Project, RoleKinds.Designer,
+                "Thiết kế giao diện, nhúng và quản lý khung Figma trên đặc tả và công việc.",
+                new[]
+                {
+                    PermissionKeys.ProjectView,
+                    PermissionKeys.ProjectWorkflowView,
+                    PermissionKeys.IssueView,
+                    PermissionKeys.IssueUpdate,
+                    PermissionKeys.IssueChangeStatus,
+                    PermissionKeys.DocumentView,
+                    PermissionKeys.FigmaCreate,
+                    PermissionKeys.FigmaUpdate,
+                    PermissionKeys.FigmaArchive,
+                    PermissionKeys.CommentView,
+                    PermissionKeys.CommentWrite,
+                    PermissionKeys.ActivityView
+                }),
+            (CompanyRoleCodes.Developer, "Developer", RoleScopes.Project, RoleKinds.Dev,
                 "Lập trình, nhận issue, chuyển trạng thái theo luồng kỹ thuật.",
-                new[] { PermissionKeys.ProjectView }),
-            (CompanyRoleCodes.Qa, "QA / Tester", RoleScopes.Project,
+                new[]
+                {
+                    PermissionKeys.ProjectView,
+                    PermissionKeys.ProjectWorkflowView,
+                    PermissionKeys.IssueView,
+                    PermissionKeys.IssueCreate,
+                    PermissionKeys.IssueUpdate,
+                    PermissionKeys.IssueChangeStatus,
+                    PermissionKeys.DocumentView,
+                    PermissionKeys.TestCaseView,
+                    PermissionKeys.CommentView,
+                    PermissionKeys.CommentWrite,
+                    PermissionKeys.ActivityView,
+                    PermissionKeys.AiUse
+                }),
+            (CompanyRoleCodes.Qa, "QA / Tester", RoleScopes.Project, RoleKinds.Qa,
                 "Kiểm thử, xác nhận Definition of Done.",
-                new[] { PermissionKeys.ProjectView })
+                new[]
+                {
+                    PermissionKeys.ProjectView,
+                    PermissionKeys.ProjectWorkflowView,
+                    PermissionKeys.IssueView,
+                    PermissionKeys.IssueCreate,
+                    PermissionKeys.IssueUpdate,
+                    PermissionKeys.IssueChangeStatus,
+                    PermissionKeys.DocumentView,
+                    PermissionKeys.TestCaseView,
+                    PermissionKeys.TestCaseManage,
+                    PermissionKeys.TestCaseExecute,
+                    PermissionKeys.CommentView,
+                    PermissionKeys.CommentWrite,
+                    PermissionKeys.ActivityView,
+                    PermissionKeys.AiUse
+                })
         };
 
         var roles = specs.Select(s => new CompanyRole
@@ -73,6 +158,7 @@ public class CompanyRepository : ICompanyRepository
             Code = s.Code,
             Name = s.Name,
             Scope = s.Scope,
+            Kind = s.Kind,
             Description = s.Description,
             IsSystem = true,
             IsActive = true,
@@ -220,7 +306,8 @@ public class CompanyRepository : ICompanyRepository
                     RoleId = cm.Role.Id,
                     Code = cm.Role.Code,
                     Name = cm.Role.Name,
-                    Scope = cm.Role.Scope
+                    Scope = cm.Role.Scope,
+                    Kind = cm.Role.Kind
                 },
                 Status = cm.IsActive ? "ACTIVE" : "DEACTIVATED",
                 WorkspaceCount = _db.WorkspaceMembers.Count(wm =>
@@ -255,7 +342,8 @@ public class CompanyRepository : ICompanyRepository
                     RoleId = cm.Role.Id,
                     Code = cm.Role.Code,
                     Name = cm.Role.Name,
-                    Scope = cm.Role.Scope
+                    Scope = cm.Role.Scope,
+                    Kind = cm.Role.Kind
                 },
                 Status = cm.IsActive ? "ACTIVE" : "DEACTIVATED",
                 WorkspaceCount = _db.WorkspaceMembers.Count(wm =>

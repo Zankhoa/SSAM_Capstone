@@ -263,18 +263,20 @@ public class WorkspaceRepository : IWorkspaceRepository
                     RoleId = wm.Role.Id,
                     Code = wm.Role.Code,
                     Name = wm.Role.Name,
-                    Scope = wm.Role.Scope
+                    Scope = wm.Role.Scope,
+                    Kind = wm.Role.Kind
                 }
-                : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Workspace },
+                : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Workspace, Kind = RoleKinds.Other },
             CompanyRole = companyRole != null
                 ? new RoleRefDto
                 {
                     RoleId = companyRole.Id,
                     Code = companyRole.Code,
                     Name = companyRole.Name,
-                    Scope = companyRole.Scope
+                    Scope = companyRole.Scope,
+                    Kind = companyRole.Kind
                 }
-                : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Tenant },
+                : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Tenant, Kind = RoleKinds.Other },
             JoinedAt = wm.JoinedAt
         };
     }
