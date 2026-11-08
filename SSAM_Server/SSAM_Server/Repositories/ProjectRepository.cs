@@ -162,6 +162,239 @@ public class ProjectRepository : IProjectRepository
     public async Task AddPhaseAsync(ProjectPhase phase, CancellationToken ct = default)
         => await _db.ProjectPhases.AddAsync(phase, ct);
 
+    public async Task AddPhaseLogAsync(ProjectPhaseLog log, CancellationToken ct = default)
+        => await _db.ProjectPhaseLogs.AddAsync(log, ct);
+
+    public async Task<List<PhaseUnmetCriterionDto>> EvaluatePhaseGatesAsync(
+        long projectId,
+        long phaseId,
+        IReadOnlyList<string> exitCriteria,
+        CancellationToken ct = default)
+    {
+        var unmet = new List<PhaseUnmetCriterionDto>();
+        if (exitCriteria.Count == 0)
+            return unmet;
+
+        foreach (var criterion in exitCriteria)
+        {
+            switch (criterion)
+            {
+                case "DOC_APPROVED":
+                {
+                    var approvedCount = await _db.DocumentNodes
+                        .AsNoTracking()
+                        .CountAsync(d => d.ProjectId == projectId &&
+                                         !d.IsDeleted &&
+                                         d.Kind == DocumentNodeKinds.Page &&
+                                         d.BaselineVersionId != null, ct);
+                    if (approvedCount == 0)
+                    {
+                        unmet.Add(new PhaseUnmetCriterionDto
+                        {
+                            Criterion = criterion,
+                            Detail = "Chưa có tài liệu nào được phê duyệt baseline"
+                        });
+                    }
+                    break;
+                }
+                case "REQ_SEGMENTED":
+                {
+                    var docs = await _db.DocumentNodes
+                        .AsNoTracking()
+                        .Where(d => d.ProjectId == projectId && !d.IsDeleted && d.Kind == DocumentNodeKinds.Page)
+                        .Select(d => d.BaselineVersionId ?? d.CurrentVersionId)
+                        .Where(v => v.HasValue)
+                        .Select(v => v!.Value)
+                        .Distinct()
+                        .ToListAsync(ct);
+
+                    var reqCount = docs.Count == 0
+                        ? 0
+                        : await _db.RequirementItems
+                            .AsNoTracking()
+                            .CountAsync(r => docs.Contains(r.VersionId), ct);
+
+                    if (reqCount == 0)
+                    {
+                        unmet.Add(new PhaseUnmetCriterionDto
+                        {
+                            Criterion = criterion,
+                            Detail = "Chưa có khối REQ-* nào trong tài liệu dự án"
+                        });
+                    }
+                    break;
+                }
+                case "REQ_LINKED_ISSUES":
+                {
+                    var docs = await _db.DocumentNodes
+                        .AsNoTracking()
+                        .Where(d => d.ProjectId == projectId && !d.IsDeleted && d.Kind == DocumentNodeKinds.Page)
+                        .Select(d => new { d.Id, VerId = d.BaselineVersionId ?? d.CurrentVersionId })
+                        .Where(x => x.VerId.HasValue)
+                        .ToListAsync(ct);
+
+                    var verIds = docs.Select(x => x.VerId!.Value).Distinct().ToList();
+                    var activeReqs = verIds.Count == 0
+                        ? new List<(long DocId, string ReqUid)>()
+                        : (await _db.RequirementItems
+                            .AsNoTracking()
+                            .Where(r => verIds.Contains(r.VersionId))
+                            .Select(r => new { r.DocumentId, r.ReqUid })
+                            .ToListAsync(ct))
+                            .Select(r => (r.DocumentId, r.ReqUid.ToUpperInvariant()))
+                            .Distinct()
+                            .ToList();
+
+                    if (activeReqs.Count == 0)
+                    {
+                        unmet.Add(new PhaseUnmetCriterionDto
+                        {
+                            Criterion = criterion,
+                            Detail = "Chưa có yêu cầu nào để đối chiếu"
+                        });
+                        break;
+                    }
+
+                    var linkedIssueReqs = await _db.IssueRequirementLinks
+                        .AsNoTracking()
+                        .Where(l => !l.Issue.IsDeleted && l.Issue.ProjectId == projectId)
+                        .Select(l => new { l.DocumentId, l.ReqUid })
+                        .ToListAsync(ct);
+                    var linkedSet = linkedIssueReqs
+                        .Select(l => (l.DocumentId, l.ReqUid.ToUpperInvariant()))
+                        .ToHashSet();
+
+                    var linkedCount = activeReqs.Count(r => linkedSet.Contains(r));
+                    if (linkedCount < activeReqs.Count)
+                    {
+                        unmet.Add(new PhaseUnmetCriterionDto
+                        {
+                            Criterion = criterion,
+                            Detail = $"Còn {activeReqs.Count - linkedCount}/{activeReqs.Count} yêu cầu chưa gắn công việc"
+                        });
+                    }
+                    break;
+                }
+                case "ISSUES_DONE":
+                {
+                    var phaseIssues = await _db.Issues
+                        .AsNoTracking()
+                        .Include(i => i.Status)
+                        .Where(i => i.ProjectId == projectId &&
+                                    !i.IsDeleted &&
+                                    i.ParentId == null &&
+                                    i.Status.PhaseId == phaseId)
+                        .Select(i => new { IsDone = i.Status.Category == StatusCategories.Done })
+                        .ToListAsync(ct);
+
+                    var openCount = phaseIssues.Count(i => !i.IsDone);
+                    if (openCount > 0)
+                    {
+                        unmet.Add(new PhaseUnmetCriterionDto
+                        {
+                            Criterion = criterion,
+                            Detail = $"Còn {openCount}/{phaseIssues.Count} công việc trong giai đoạn chưa hoàn tất"
+                        });
+                    }
+                    break;
+                }
+                case "TESTS_PASSED":
+                {
+                    var activeCases = await _db.TestCases
+                        .AsNoTracking()
+                        .Include(tc => tc.Results)
+                        .Include(tc => tc.RetestFlags)
+                        .Include(tc => tc.Plan)
+                            .ThenInclude(p => p.Environments.Where(e => !e.IsDeleted))
+                        .Where(tc => tc.ProjectId == projectId && tc.Status == TestCaseStatuses.Active)
+                        .ToListAsync(ct);
+
+                    if (activeCases.Count == 0)
+                    {
+                        unmet.Add(new PhaseUnmetCriterionDto
+                        {
+                            Criterion = criterion,
+                            Detail = "Chưa có test case nào trong dự án"
+                        });
+                        break;
+                    }
+
+                    int passed = 0, failed = 0, pending = 0;
+                    foreach (var tc in activeCases)
+                    {
+                        var latestEnv = tc.Plan?.Environments
+                            .Where(e => !e.IsDeleted)
+                            .OrderBy(e => e.Position)
+                            .ThenBy(e => e.Id)
+                            .LastOrDefault();
+
+                        if (latestEnv == null)
+                        {
+                            pending++;
+                            continue;
+                        }
+
+                        var hasFlag = tc.RetestFlags.Any(f => f.EnvId == latestEnv.Id);
+                        var latestRes = tc.Results
+                            .Where(r => r.EnvId == latestEnv.Id)
+                            .OrderByDescending(r => r.At)
+                            .ThenByDescending(r => r.Id)
+                            .FirstOrDefault()?.Result ?? TestResultValues.Untest;
+
+                        var st = hasFlag ? "RETEST" : latestRes;
+                        if (st is TestResultValues.Pass or TestResultValues.Na) passed++;
+                        else if (st == TestResultValues.Fail) failed++;
+                        else pending++;
+                    }
+
+                    if (failed > 0 || pending > 0 || passed == 0)
+                    {
+                        unmet.Add(new PhaseUnmetCriterionDto
+                        {
+                            Criterion = criterion,
+                            Detail = failed > 0
+                                ? $"Còn {failed} test case FAIL cần xử lý"
+                                : $"Còn {pending} test case chưa chạy / cần test lại"
+                        });
+                    }
+                    break;
+                }
+                case "RTM_ZERO_STALE":
+                {
+                    var staleIssues = await _db.IssueRequirementLinks
+                        .AsNoTracking()
+                        .Where(l => !l.Issue.IsDeleted && l.Issue.ProjectId == projectId && l.ChangedVersionLabel != null)
+                        .Select(l => new { l.DocumentId, l.ReqUid })
+                        .ToListAsync(ct);
+
+                    var staleCases = await _db.TestCaseRequirementLinks
+                        .AsNoTracking()
+                        .Where(l => l.TestCase.ProjectId == projectId &&
+                                    l.TestCase.Status == TestCaseStatuses.Active &&
+                                    l.ChangedVersionLabel != null)
+                        .Select(l => new { l.DocumentId, l.ReqUid })
+                        .ToListAsync(ct);
+
+                    var staleSet = new HashSet<(long, string)>();
+                    foreach (var x in staleIssues) staleSet.Add((x.DocumentId, x.ReqUid.ToUpperInvariant()));
+                    foreach (var x in staleCases) staleSet.Add((x.DocumentId, x.ReqUid.ToUpperInvariant()));
+
+                    if (staleSet.Count > 0)
+                    {
+                        unmet.Add(new PhaseUnmetCriterionDto
+                        {
+                            Criterion = criterion,
+                            Detail = $"Còn {staleSet.Count} yêu cầu thay đổi sau baseline chưa đồng bộ"
+                        });
+                    }
+                    break;
+                }
+            }
+        }
+
+        return unmet;
+    }
+
     public Task<List<WorkflowStatus>> ListStatusesByPhaseAsync(long phaseId, CancellationToken ct = default)
         => _db.WorkflowStatuses
             .Where(ws => ws.PhaseId == phaseId)
@@ -394,7 +627,18 @@ public class ProjectRepository : IProjectRepository
     {
         var phase = await _db.ProjectPhases
             .AsNoTracking()
+            .Include(pp => pp.CompletedBy)
             .FirstAsync(pp => pp.Id == phaseId, ct);
+
+        List<string> exitCriteria;
+        try
+        {
+            exitCriteria = System.Text.Json.JsonSerializer.Deserialize<List<string>>(phase.ExitCriteria) ?? new List<string>();
+        }
+        catch
+        {
+            exitCriteria = new List<string>();
+        }
 
         var statuses = await _db.WorkflowStatuses
             .AsNoTracking()
@@ -465,6 +709,19 @@ public class ProjectRepository : IProjectRepository
             Description = phase.Description,
             Position = phase.Position,
             IsActive = phase.IsActive,
+            ExitCriteria = exitCriteria,
+            LifecycleStatus = phase.LifecycleStatus,
+            CompletedAt = phase.CompletedAt,
+            CompletedBy = phase.CompletedBy != null
+                ? new UserRefDto
+                {
+                    UserId = phase.CompletedBy.Id,
+                    FullName = phase.CompletedBy.FullName,
+                    Email = phase.CompletedBy.Email,
+                    AvatarUrl = phase.CompletedBy.AvatarUrl
+                }
+                : null,
+            OverrideReason = phase.OverrideReason,
             Statuses = statuses,
             Transitions = transitionDtos
         };

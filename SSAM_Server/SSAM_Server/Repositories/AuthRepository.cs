@@ -97,12 +97,6 @@ public class AuthRepository : IAuthRepository
 
         var activeCompanyIds = activeCompanyRoles.Keys.ToHashSet();
 
-        var personalWorkspaces = await _db.Workspaces
-            .AsNoTracking()
-            .Where(w => w.CompanyId == null && w.CreatedBy == userId)
-            .OrderBy(w => w.CreatedAt)
-            .ToListAsync(ct);
-
         var memberWorkspaces = await _db.WorkspaceMembers
             .AsNoTracking()
             .Include(wm => wm.Workspace)
@@ -118,20 +112,6 @@ public class AuthRepository : IAuthRepository
             .ToListAsync(ct);
 
         var result = new List<UserWorkspaceDto>();
-
-        foreach (var w in personalWorkspaces)
-        {
-            result.Add(new UserWorkspaceDto
-            {
-                WorkspaceId = w.Id,
-                WorkspaceName = w.Name,
-                Code = w.Code,
-                CompanyId = null,
-                Status = w.IsActive ? "ACTIVE" : "ARCHIVED",
-                Role = null,
-                Permissions = PermissionKeys.AllWorkspaceKeys.ToList()
-            });
-        }
 
         foreach (var wm in memberWorkspaces)
         {
