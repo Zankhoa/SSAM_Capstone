@@ -25,6 +25,7 @@ public interface IProjectRepository
     Task<ProjectPhase?> GetPhaseByIdAsync(long projectId, long phaseId, CancellationToken ct = default);
     Task AddPhaseAsync(ProjectPhase phase, CancellationToken ct = default);
     Task<List<WorkflowStatus>> ListStatusesByPhaseAsync(long phaseId, CancellationToken ct = default);
+    Task<List<long>> GetStatusIdsWithIssuesAsync(IEnumerable<long> statusIds, CancellationToken ct = default);
     Task WritePhaseWorkflowAsync(long projectId, long phaseId, IReadOnlyList<StatusInputDto> statuses, IReadOnlyList<TransitionInputDto> transitions, CancellationToken ct = default);
 
     Task<List<long>> GetActiveProjectRoleIdsAsync(long companyId, CancellationToken ct = default);
