@@ -483,42 +483,31 @@ public class KanbanService : IKanbanService
             })
             .ToList();
 
-        // Collect linked test cases for detail drawer
-        var directLinks = await _db.TestCaseIssueLinks
+        // Collect linked test cases for detail drawer (v2: via TestCases.BugIssueId)
+        var linkedBugCases = await _db.TestCases
             .AsNoTracking()
-            .Include(l => l.TestCase)
-            .Where(l => l.IssueId == issue.Id && !l.TestCase.IsDeleted)
+            .Include(tc => tc.Results)
+            .Include(tc => tc.RetestFlags)
+            .Include(tc => tc.Plan)
+                .ThenInclude(p => p.Environments.Where(e => !e.IsDeleted))
+            .Where(tc => tc.BugIssueId == issue.Id && tc.Status == TestCaseStatuses.Active)
+            .OrderBy(tc => tc.Position)
+            .ThenBy(tc => tc.Id)
             .ToListAsync(ct);
 
-        var linkedTestCases = new Dictionary<long, TestCase>();
-        foreach (var dl in directLinks)
-            linkedTestCases[dl.TestCaseId] = dl.TestCase;
-
-        if (issue.RequirementLinks.Count > 0)
-        {
-            var docIds = issue.RequirementLinks.Select(rl => rl.DocumentId).Distinct().ToList();
-            var reqLinks = await _db.TestCaseRequirementLinks
-                .AsNoTracking()
-                .Include(l => l.TestCase)
-                .Where(l => docIds.Contains(l.DocumentId) && !l.TestCase.IsDeleted)
-                .ToListAsync(ct);
-            foreach (var rl in issue.RequirementLinks)
+        var testCaseDtos = linkedBugCases
+            .Select(tc =>
             {
-                foreach (var tl in reqLinks.Where(l => l.DocumentId == rl.DocumentId && l.ReqUid.Equals(rl.ReqUid, StringComparison.OrdinalIgnoreCase)))
+                var (lastResult, envId, _) = ComputeWorstTestCaseResult(tc);
+                return new IssueLinkedTestCaseDto
                 {
-                    linkedTestCases[tl.TestCaseId] = tl.TestCase;
-                }
-            }
-        }
-
-        var testCaseDtos = linkedTestCases.Values
-            .OrderBy(tc => tc.Id)
-            .Select(tc => new IssueLinkedTestCaseDto
-            {
-                TestCaseId = tc.Id,
-                Key = tc.Key,
-                Title = tc.Title,
-                LastResult = tc.LastResult
+                    TestCaseId = tc.Id,
+                    Key = tc.Code,
+                    Title = tc.Title,
+                    LastResult = lastResult,
+                    PlanId = tc.PlanId,
+                    EnvId = envId
+                };
             })
             .ToList();
 
@@ -1819,28 +1808,21 @@ public class KanbanService : IKanbanService
 
         var reqLookup = reqItems.ToDictionary(r => (r.VersionId, r.ReqUid.ToUpperInvariant()));
 
-        // Test summaries via TestCaseIssueLinks + TestCaseRequirementLinks
-        var directTestLinks = await _db.TestCaseIssueLinks
+        // Test summaries via TestCases.BugIssueId (v2)
+        var bugTestCases = await _db.TestCases
             .AsNoTracking()
-            .Include(l => l.TestCase)
-            .Where(l => issueIds.Contains(l.IssueId) && !l.TestCase.IsDeleted)
+            .Include(tc => tc.Results)
+            .Include(tc => tc.RetestFlags)
+            .Include(tc => tc.Plan)
+                .ThenInclude(p => p.Environments.Where(e => !e.IsDeleted))
+            .Where(tc => tc.BugIssueId.HasValue &&
+                         issueIds.Contains(tc.BugIssueId.Value) &&
+                         tc.Status == TestCaseStatuses.Active)
             .ToListAsync(ct);
 
-        var reqTestLinks = docIds.Count == 0
-            ? new List<TestCaseRequirementLink>()
-            : await _db.TestCaseRequirementLinks
-                .AsNoTracking()
-                .Include(l => l.TestCase)
-                .Where(l => docIds.Contains(l.DocumentId) && !l.TestCase.IsDeleted)
-                .ToListAsync(ct);
-
-        var openRunsNeedRerun = await _db.TestRuns
-            .AsNoTracking()
-            .Include(r => r.Cycle)
-            .Where(r => r.Cycle.ProjectId == projectId && r.Cycle.Status == TestCycleStatuses.Open && r.NeedsRerun)
-            .Select(r => r.TestCaseId)
-            .Distinct()
-            .ToHashSetAsync(ct);
+        var bugCasesByIssue = bugTestCases
+            .GroupBy(tc => tc.BugIssueId!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
         var dtos = new List<IssueSummaryDto>(issues.Count);
         foreach (var i in issues)
@@ -1869,34 +1851,21 @@ public class KanbanService : IKanbanService
                 });
             }
 
-            // Collect linked test cases (via direct link OR shared requirement)
-            var linkedCases = new Dictionary<long, TestCase>();
-            foreach (var dl in directTestLinks.Where(l => l.IssueId == i.Id))
-            {
-                linkedCases[dl.TestCaseId] = dl.TestCase;
-            }
-            foreach (var rl in i.RequirementLinks)
-            {
-                foreach (var tl in reqTestLinks.Where(l => l.DocumentId == rl.DocumentId && l.ReqUid.Equals(rl.ReqUid, StringComparison.OrdinalIgnoreCase)))
-                {
-                    linkedCases[tl.TestCaseId] = tl.TestCase;
-                }
-            }
-
             IssueTestSummaryDto? testSummary = null;
-            if (linkedCases.Count > 0)
+            if (bugCasesByIssue.TryGetValue(i.Id, out var linkedCases) && linkedCases.Count > 0)
             {
                 int pass = 0, fail = 0, blocked = 0, notRun = 0, needsRerun = 0;
-                foreach (var tc in linkedCases.Values)
+                foreach (var tc in linkedCases)
                 {
-                    switch (tc.LastResult)
+                    var (lastResult, _, isRetest) = ComputeWorstTestCaseResult(tc);
+                    switch (lastResult)
                     {
-                        case TestRunResults.Pass: pass++; break;
-                        case TestRunResults.Fail: fail++; break;
-                        case TestRunResults.Blocked: blocked++; break;
+                        case "PASS": pass++; break;
+                        case "FAIL": fail++; break;
+                        case "BLOCKED": blocked++; break;
                         default: notRun++; break;
                     }
-                    if (tc.NeedsReview || openRunsNeedRerun.Contains(tc.Id))
+                    if (isRetest)
                     {
                         needsRerun++;
                     }
@@ -2038,6 +2007,57 @@ public class KanbanService : IKanbanService
         }
 
         return assignedRank;
+    }
+
+    private static (string? LastResult, long? EnvId, bool IsRetest) ComputeWorstTestCaseResult(TestCase tc)
+    {
+        var activeEnvs = tc.Plan?.Environments
+            .Where(e => !e.IsDeleted)
+            .OrderBy(e => e.Position)
+            .ThenBy(e => e.Id)
+            .ToList() ?? new List<TestEnvironment>();
+
+        var testedEnvs = new List<(long EnvId, string Status)>();
+        foreach (var env in activeEnvs)
+        {
+            var hasFlag = tc.RetestFlags.Any(f => f.EnvId == env.Id);
+            var envResults = tc.Results
+                .Where(r => r.EnvId == env.Id)
+                .OrderByDescending(r => r.At)
+                .ThenByDescending(r => r.Id)
+                .ToList();
+
+            var hasNonUntest = envResults.Any(r => r.Result != TestResultValues.Untest);
+            if (!hasFlag && !hasNonUntest)
+                continue;
+
+            var status = hasFlag
+                ? "RETEST"
+                : (envResults.FirstOrDefault()?.Result ?? TestResultValues.Untest);
+            testedEnvs.Add((env.Id, status));
+        }
+
+        if (testedEnvs.Count == 0)
+        {
+            return (null, activeEnvs.FirstOrDefault()?.Id, false);
+        }
+
+        bool anyRetest = testedEnvs.Any(x => x.Status == "RETEST");
+
+        // Priority: FAIL > RETEST / UNTEST > NA > PASS
+        var failHit = testedEnvs.FirstOrDefault(x => x.Status == TestResultValues.Fail);
+        if (failHit.EnvId != 0)
+            return ("FAIL", failHit.EnvId, anyRetest);
+
+        var retestHit = testedEnvs.FirstOrDefault(x => x.Status is "RETEST" or TestResultValues.Untest);
+        if (retestHit.EnvId != 0)
+            return ("NOT_RUN", retestHit.EnvId, anyRetest);
+
+        var naHit = testedEnvs.FirstOrDefault(x => x.Status == TestResultValues.Na);
+        if (naHit.EnvId != 0)
+            return ("BLOCKED", naHit.EnvId, anyRetest);
+
+        return ("PASS", testedEnvs[0].EnvId, anyRetest);
     }
 
     private static string FormatRank(int n) => n.ToString("D8", CultureInfo.InvariantCulture);

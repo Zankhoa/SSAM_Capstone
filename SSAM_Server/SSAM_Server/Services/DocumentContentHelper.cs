@@ -73,6 +73,95 @@ public static partial class DocumentContentHelper
         return (docObj.ToJsonString(), plainText, requirements);
     }
 
+    public static List<DTOs.Documents.DocSectionDto> ExtractDocSections(string? contentJson)
+    {
+        var sections = new List<DTOs.Documents.DocSectionDto>();
+        if (string.IsNullOrWhiteSpace(contentJson))
+            return sections;
+
+        JsonNode? root;
+        try
+        {
+            root = JsonNode.Parse(contentJson);
+        }
+        catch
+        {
+            return sections;
+        }
+
+        if (root is not JsonObject docObj || docObj["content"] is not JsonArray nodes)
+            return sections;
+
+        DTOs.Documents.DocSectionDto? current = null;
+        foreach (var node in nodes)
+        {
+            if (node is not JsonObject obj) continue;
+            if (obj["type"]?.GetValue<string>() != "heading") continue;
+
+            var attrs = obj["attrs"] as JsonObject;
+            var title = ExtractHeadingInlineText(obj).Trim();
+            if (string.IsNullOrEmpty(title)) continue;
+
+            var isReq = false;
+            if (attrs?["req"] is JsonValue reqVal && reqVal.TryGetValue<bool>(out var bReq))
+            {
+                isReq = bReq;
+            }
+
+            if (isReq)
+            {
+                var reqUid = attrs?["reqUid"]?.GetValue<string>()?.Trim();
+                if (current != null && !string.IsNullOrEmpty(reqUid))
+                {
+                    current.ReqUids.Add(reqUid);
+                }
+            }
+            else
+            {
+                var id = attrs?["id"]?.GetValue<string>()?.Trim()
+                         ?? attrs?["anchorId"]?.GetValue<string>()?.Trim();
+                if (!string.IsNullOrEmpty(id))
+                {
+                    var level = 1;
+                    if (attrs?["level"] is JsonValue lvlVal && lvlVal.TryGetValue<int>(out var parsedLvl))
+                    {
+                        level = parsedLvl;
+                    }
+                    current = new DTOs.Documents.DocSectionDto
+                    {
+                        AnchorId = id,
+                        Title = title,
+                        Level = level,
+                        ReqUids = new List<string>()
+                    };
+                    sections.Add(current);
+                }
+            }
+        }
+
+        return sections;
+    }
+
+    private static string ExtractHeadingInlineText(JsonObject headingNode)
+    {
+        if (headingNode["content"] is not JsonArray children || children.Count == 0)
+            return string.Empty;
+
+        var sb = new StringBuilder();
+        foreach (var c in children)
+        {
+            if (c is JsonObject childObj && childObj["text"] is JsonValue tv && tv.TryGetValue<string>(out var s))
+            {
+                sb.Append(s);
+            }
+            else
+            {
+                sb.Append(ExtractPlainText(c));
+            }
+        }
+        return sb.ToString();
+    }
+
     private static void EnsureHeadingAnchorIds(JsonArray nodes)
     {
         foreach (var node in nodes)

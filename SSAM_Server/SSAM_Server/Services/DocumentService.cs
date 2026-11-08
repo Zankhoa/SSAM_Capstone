@@ -713,6 +713,25 @@ public class DocumentService : IDocumentService
             }
         }
 
+        var openCommentsCount = await _db.DocumentComments
+            .CountAsync(c => c.DocumentId == documentId &&
+                             c.VersionId == versionId &&
+                             c.ParentId == null &&
+                             c.ResolvedAt == null, ct);
+        if (openCommentsCount > 0)
+        {
+            return new ServiceResult<DocumentDetailDto>
+            {
+                StatusCode = StatusCodes.Status409Conflict,
+                ErrorCode = "OPEN_COMMENTS",
+                ErrorMessage = $"Còn {openCommentsCount} chuỗi bình luận chưa giải quyết.",
+                Errors = new Dictionary<string, string[]>
+                {
+                    ["openComments"] = new[] { openCommentsCount.ToString() }
+                }
+            };
+        }
+
         var now = _clock.GetUtcNow().UtcDateTime;
 
         return await _db.ExecuteInTransactionAsync(async innerCt =>
@@ -789,10 +808,12 @@ public class DocumentService : IDocumentService
 
             var tcLinks = await _db.TestCaseRequirementLinks
                 .Include(l => l.TestCase)
+                    .ThenInclude(tc => tc.Plan)
                 .Where(l => l.DocumentId == documentId)
                 .ToListAsync(innerCt);
 
-            var affectedTestCaseIds = new HashSet<long>();
+            var docKeyPrefix = !string.IsNullOrWhiteSpace(node.Code) ? node.Code : $"DOC-{node.Id}";
+            var affectedCases = new List<(TestCase Case, string ReqKey)>();
             foreach (var link in tcLinks)
             {
                 var isStale = !newReqByUid.TryGetValue(link.ReqUid, out var newReq) ||
@@ -801,27 +822,79 @@ public class DocumentService : IDocumentService
                 if (isStale)
                 {
                     link.ChangedVersionLabel = version.Label;
-                    if (!link.TestCase.IsDeleted)
+                    if (link.TestCase.Status == TestCaseStatuses.Active &&
+                        link.TestCase.Plan.Status == TestPlanStatuses.Open)
                     {
-                        link.TestCase.NeedsReview = true;
                         link.TestCase.UpdatedAt = now;
-                        affectedTestCaseIds.Add(link.TestCaseId);
+                        affectedCases.Add((link.TestCase, $"{docKeyPrefix}:{link.ReqUid}"));
                     }
                 }
             }
 
-            if (affectedTestCaseIds.Count > 0)
+            if (affectedCases.Count > 0)
             {
-                var runsToRerun = await _db.TestRuns
-                    .Include(r => r.Cycle)
-                    .Where(r => affectedTestCaseIds.Contains(r.TestCaseId) &&
-                                r.Cycle.Status == TestCycleStatuses.Open &&
-                                r.Result != TestRunResults.NotRun)
+                var affectedCaseIds = affectedCases.Select(x => x.Case.Id).Distinct().ToList();
+                var testedPairs = await _db.TestResults
+                    .AsNoTracking()
+                    .Include(r => r.Environment)
+                    .Where(r => affectedCaseIds.Contains(r.TestCaseId) &&
+                                r.Result != TestResultValues.Untest &&
+                                !r.Environment.IsDeleted)
+                    .Select(r => new { r.TestCaseId, r.EnvId })
+                    .Distinct()
                     .ToListAsync(innerCt);
 
-                foreach (var run in runsToRerun)
+                var envsByCase = testedPairs
+                    .GroupBy(p => p.TestCaseId)
+                    .ToDictionary(g => g.Key, g => g.Select(x => x.EnvId).ToList());
+
+                var existingFlags = await _db.TestRetestFlags
+                    .Where(f => affectedCaseIds.Contains(f.TestCaseId))
+                    .ToListAsync(innerCt);
+                var flagMap = existingFlags.ToDictionary(f => (f.TestCaseId, f.EnvId));
+
+                foreach (var (tc, reqKey) in affectedCases)
                 {
-                    run.NeedsRerun = true;
+                    if (!envsByCase.TryGetValue(tc.Id, out var envIds) || envIds.Count == 0)
+                        continue;
+
+                    foreach (var envId in envIds)
+                    {
+                        if (flagMap.TryGetValue((tc.Id, envId), out var existingFlag))
+                        {
+                            existingFlag.Reason = TestRetestReasons.ReqChanged;
+                            existingFlag.ReqKey = reqKey;
+                            existingFlag.BugIssueId = null;
+                            existingFlag.Build = null;
+                            existingFlag.At = now;
+                        }
+                        else
+                        {
+                            var newFlag = new TestRetestFlag
+                            {
+                                TestCaseId = tc.Id,
+                                EnvId = envId,
+                                Reason = TestRetestReasons.ReqChanged,
+                                ReqKey = reqKey,
+                                BugIssueId = null,
+                                Build = null,
+                                At = now
+                            };
+                            _db.TestRetestFlags.Add(newFlag);
+                            flagMap[(tc.Id, envId)] = newFlag;
+                        }
+                    }
+
+                    _db.TestActivities.Add(new TestActivity
+                    {
+                        PlanId = tc.PlanId,
+                        Type = TestActivityTypes.Req,
+                        At = now,
+                        ActorId = null,
+                        ModuleId = tc.ModuleId,
+                        TestCaseId = tc.Id,
+                        Text = $"{reqKey} đổi ở bản {version.Label} → cần test lại"
+                    });
                 }
             }
 
@@ -1033,6 +1106,38 @@ public class DocumentService : IDocumentService
         });
     }
 
+    public async Task<ServiceResult<ItemsDto<DocSectionDto>>> GetDocumentSectionsAsync(
+        long documentId,
+        long? versionId,
+        CancellationToken ct = default)
+    {
+        var node = await _db.DocumentNodes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(d => d.Id == documentId && !d.IsDeleted, ct);
+        if (node == null)
+            return ServiceResult<ItemsDto<DocSectionDto>>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
+
+        var docAuth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
+        if (!docAuth.IsSuccess)
+        {
+            var tcAuth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.TestCaseView, ct);
+            if (!tcAuth.IsSuccess) return docAuth.Cast<ItemsDto<DocSectionDto>>();
+        }
+
+        var targetVersionId = versionId ?? node.BaselineVersionId ?? node.CurrentVersionId;
+        if (!targetVersionId.HasValue)
+            return ServiceResult<ItemsDto<DocSectionDto>>.Success(new ItemsDto<DocSectionDto>());
+
+        var version = await _db.DocumentVersions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(v => v.Id == targetVersionId.Value && v.DocumentId == documentId, ct);
+        if (version == null)
+            return ServiceResult<ItemsDto<DocSectionDto>>.NotFound("VERSION_NOT_FOUND", "Document version not found.");
+
+        var sections = DocumentContentHelper.ExtractDocSections(version.Content);
+        return ServiceResult<ItemsDto<DocSectionDto>>.Success(new ItemsDto<DocSectionDto>(sections));
+    }
+
     public async Task<ServiceResult<ItemsDto<RequirementItemDto>>> GetDocumentRequirementsAsync(
         long documentId,
         long? versionId,
@@ -1224,12 +1329,27 @@ public class DocumentService : IDocumentService
             .Where(l => l.DocumentId == documentId && l.ReqUid == normalizedUid)
             .ToListAsync(ct);
 
+        var clearedCaseIds = new List<long>();
         foreach (var link in tcLinks)
         {
             link.ReqHash = req.ContentHash;
             link.ChangedVersionLabel = null;
-            link.TestCase.NeedsReview = link.TestCase.RequirementLinks.Any(rl => rl.ChangedVersionLabel != null);
             link.TestCase.UpdatedAt = now;
+            if (!link.TestCase.RequirementLinks.Any(rl => rl.ChangedVersionLabel != null))
+            {
+                clearedCaseIds.Add(link.TestCaseId);
+            }
+        }
+
+        if (clearedCaseIds.Count > 0)
+        {
+            var reqFlags = await _db.TestRetestFlags
+                .Where(f => clearedCaseIds.Contains(f.TestCaseId) && f.Reason == TestRetestReasons.ReqChanged)
+                .ToListAsync(ct);
+            if (reqFlags.Count > 0)
+            {
+                _db.TestRetestFlags.RemoveRange(reqFlags);
+            }
         }
 
         _db.DocumentActivities.Add(new DocumentActivity

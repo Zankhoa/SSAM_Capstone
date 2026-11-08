@@ -17,6 +17,7 @@ public interface IDocumentService
     Task<ServiceResult<DocumentDetailDto>> RequestChangesAsync(long documentId, long versionId, RequestChangesRequest request, CancellationToken ct = default);
     Task<ServiceResult<DocumentDetailDto>> CreateRevisionAsync(long documentId, CreateRevisionRequest? request = null, CancellationToken ct = default);
     Task<ServiceResult<DocumentGenerationDto>> GetDocumentGenerationAsync(long documentId, CancellationToken ct = default);
+    Task<ServiceResult<ItemsDto<DocSectionDto>>> GetDocumentSectionsAsync(long documentId, long? versionId, CancellationToken ct = default);
     Task<ServiceResult<ItemsDto<RequirementItemDto>>> GetDocumentRequirementsAsync(long documentId, long? versionId, CancellationToken ct = default);
     Task<ServiceResult<RequirementItemDto>> UpdateRequirementAsync(long requirementId, UpdateRequirementRequest request, CancellationToken ct = default);
     Task<ServiceResult<RequirementItemDto>> ConfirmRequirementFreshByIdAsync(long requirementId, CancellationToken ct = default);

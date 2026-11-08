@@ -140,6 +140,17 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
+    // T10 GET /documents/{documentId}/sections?versionId=
+    [HttpGet("documents/{documentId:long}/sections")]
+    public async Task<IActionResult> GetDocumentSections(
+        long documentId,
+        [FromQuery] long? versionId,
+        CancellationToken ct)
+    {
+        var result = await _documents.GetDocumentSectionsAsync(documentId, versionId, ct);
+        return result.ToActionResult(this);
+    }
+
     // #12 GET /documents/{documentId}/requirements?versionId=
     [HttpGet("documents/{documentId:long}/requirements")]
     public async Task<IActionResult> GetDocumentRequirements(

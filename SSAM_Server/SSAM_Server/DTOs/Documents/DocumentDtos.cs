@@ -250,6 +250,21 @@ public class RequirementItemDto
     public int SortOrder { get; set; }
 }
 
+public class DocSectionDto
+{
+    [JsonPropertyName("anchorId")]
+    public string AnchorId { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("level")]
+    public int Level { get; set; } = 1;
+
+    [JsonPropertyName("reqUids")]
+    public List<string> ReqUids { get; set; } = new();
+}
+
 public class RequirementSnapshotDto
 {
     [JsonPropertyName("title")]
