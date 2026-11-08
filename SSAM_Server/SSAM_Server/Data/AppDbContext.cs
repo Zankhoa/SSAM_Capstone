@@ -35,6 +35,7 @@ public class AppDbContext : DbContext
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<ProjectMember> ProjectMembers => Set<ProjectMember>();
     public DbSet<ProjectPhase> ProjectPhases => Set<ProjectPhase>();
+    public DbSet<ProjectPhaseLog> ProjectPhaseLogs => Set<ProjectPhaseLog>();
     public DbSet<WorkflowStatus> WorkflowStatuses => Set<WorkflowStatus>();
     public DbSet<WorkflowTransition> WorkflowTransitions => Set<WorkflowTransition>();
     public DbSet<WorkflowTransitionRole> WorkflowTransitionRoles => Set<WorkflowTransitionRole>();
@@ -58,15 +59,18 @@ public class AppDbContext : DbContext
     public DbSet<IssueCommentMention> IssueCommentMentions => Set<IssueCommentMention>();
     public DbSet<IssueActivity> IssueActivities => Set<IssueActivity>();
 
-    // Module D — Test Cases & Test Runs
-    public DbSet<TestFolder> TestFolders => Set<TestFolder>();
+    // Module D — Test Cases & Test Plans (v2)
+    public DbSet<TestPlan> TestPlans => Set<TestPlan>();
+    public DbSet<TestEnvironment> TestEnvironments => Set<TestEnvironment>();
+    public DbSet<TestBuild> TestBuilds => Set<TestBuild>();
+    public DbSet<TestModule> TestModules => Set<TestModule>();
+    public DbSet<TestSection> TestSections => Set<TestSection>();
+    public DbSet<TestAssignment> TestAssignments => Set<TestAssignment>();
     public DbSet<TestCase> TestCases => Set<TestCase>();
     public DbSet<TestCaseRequirementLink> TestCaseRequirementLinks => Set<TestCaseRequirementLink>();
-    public DbSet<TestCaseIssueLink> TestCaseIssueLinks => Set<TestCaseIssueLink>();
-    public DbSet<TestCycle> TestCycles => Set<TestCycle>();
-    public DbSet<TestRun> TestRuns => Set<TestRun>();
-    public DbSet<TestRunDefect> TestRunDefects => Set<TestRunDefect>();
-    public DbSet<TestRunHistory> TestRunHistory => Set<TestRunHistory>();
+    public DbSet<TestResult> TestResults => Set<TestResult>();
+    public DbSet<TestRetestFlag> TestRetestFlags => Set<TestRetestFlag>();
+    public DbSet<TestActivity> TestActivities => Set<TestActivity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

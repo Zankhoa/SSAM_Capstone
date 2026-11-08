@@ -121,14 +121,15 @@ public class PermissionConfiguration : IEntityTypeConfiguration<Permission>
             // 6. Kiểm thử & Truy xuất
             P(43, PermissionKeys.TestCaseView, "Xem Kịch bản Kiểm thử (Test Case) & Ma trận Truy xuất", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 43),
             P(44, PermissionKeys.TestCaseManage, "Tạo, cập nhật, phê duyệt Test Case & Quản lý liên kết truy xuất", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 44),
-            P(50, PermissionKeys.TestCaseExecute, "Chạy Test Case & ghi kết quả (Đạt / Lỗi / Chặn)", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 45),
+            P(50, PermissionKeys.TestCaseExecute, "Chạy Test Case, ghi kết quả (Pass / Fail / N/A) & gắn bug có sẵn", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 45),
+            P(51, PermissionKeys.TestCasePlan, "Thiết lập đợt test (môi trường, module), phân công, regression & bàn giao", "6. Kiểm thử & Truy xuất", RoleScopes.Project, false, 46),
             // 7. Bình luận & Cộng tác
-            P(45, PermissionKeys.CommentView, "Xem bình luận trên Issue, Tài liệu và Test Case", "7. Bình luận & Cộng tác", RoleScopes.Project, false, 46),
-            P(46, PermissionKeys.CommentWrite, "Viết bình luận, nhắc tên @mention & Đánh dấu giải quyết (Resolve)", "7. Bình luận & Cộng tác", RoleScopes.Project, false, 47),
+            P(45, PermissionKeys.CommentView, "Xem bình luận trên Issue, Tài liệu và Test Case", "7. Bình luận & Cộng tác", RoleScopes.Project, false, 47),
+            P(46, PermissionKeys.CommentWrite, "Viết bình luận, nhắc tên @mention & Đánh dấu giải quyết (Resolve)", "7. Bình luận & Cộng tác", RoleScopes.Project, false, 48),
             // 8. Lịch sử & Tiến độ
-            P(47, PermissionKeys.ActivityView, "Xem Dòng lịch sử hoạt động dự án (Activity Stream) & Báo cáo tiến độ", "8. Lịch sử & Tiến độ", RoleScopes.Project, false, 48),
+            P(47, PermissionKeys.ActivityView, "Xem Dòng lịch sử hoạt động dự án (Activity Stream) & Báo cáo tiến độ", "8. Lịch sử & Tiến độ", RoleScopes.Project, false, 49),
             // 9. Hỗ trợ AI (Tùy chọn)
-            P(48, PermissionKeys.AiUse, "Sử dụng AI gợi ý nháp Yêu cầu / Test Case", "9. Hỗ trợ AI (Tùy chọn)", RoleScopes.Project, false, 49)
+            P(48, PermissionKeys.AiUse, "Sử dụng AI gợi ý nháp Yêu cầu / Test Case", "9. Hỗ trợ AI (Tùy chọn)", RoleScopes.Project, false, 50)
         );
     }
 

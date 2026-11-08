@@ -638,7 +638,7 @@ namespace SSAM_Server.Data.Migrations
 
                     b.ToTable("DocumentNodes", null, t =>
                         {
-                            t.HasCheckConstraint("CK_DocumentNodes_DocType", "([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER'))");
+                            t.HasCheckConstraint("CK_DocumentNodes_DocType", "([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('URD','BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER'))");
 
                             t.HasCheckConstraint("CK_DocumentNodes_Kind", "[kind] IN ('FOLDER','PAGE')");
                         });
@@ -1871,9 +1871,20 @@ namespace SSAM_Server.Data.Migrations
                             GroupName = "6. Kiểm thử & Truy xuất",
                             IsActive = true,
                             IsSensitive = false,
-                            Name = "Chạy Test Case & ghi kết quả (Đạt / Lỗi / Chặn)",
+                            Name = "Chạy Test Case, ghi kết quả (Pass / Fail / N/A) & gắn bug có sẵn",
                             Scope = "PROJECT",
                             SortOrder = 45
+                        },
+                        new
+                        {
+                            Id = 51L,
+                            Code = "testcase.plan",
+                            GroupName = "6. Kiểm thử & Truy xuất",
+                            IsActive = true,
+                            IsSensitive = false,
+                            Name = "Thiết lập đợt test (môi trường, module), phân công, regression & bàn giao",
+                            Scope = "PROJECT",
+                            SortOrder = 46
                         },
                         new
                         {
@@ -1884,7 +1895,7 @@ namespace SSAM_Server.Data.Migrations
                             IsSensitive = false,
                             Name = "Xem bình luận trên Issue, Tài liệu và Test Case",
                             Scope = "PROJECT",
-                            SortOrder = 46
+                            SortOrder = 47
                         },
                         new
                         {
@@ -1895,7 +1906,7 @@ namespace SSAM_Server.Data.Migrations
                             IsSensitive = false,
                             Name = "Viết bình luận, nhắc tên @mention & Đánh dấu giải quyết (Resolve)",
                             Scope = "PROJECT",
-                            SortOrder = 47
+                            SortOrder = 48
                         },
                         new
                         {
@@ -1906,7 +1917,7 @@ namespace SSAM_Server.Data.Migrations
                             IsSensitive = false,
                             Name = "Xem Dòng lịch sử hoạt động dự án (Activity Stream) & Báo cáo tiến độ",
                             Scope = "PROJECT",
-                            SortOrder = 48
+                            SortOrder = 49
                         },
                         new
                         {
@@ -1917,7 +1928,7 @@ namespace SSAM_Server.Data.Migrations
                             IsSensitive = false,
                             Name = "Sử dụng AI gợi ý nháp Yêu cầu / Test Case",
                             Scope = "PROJECT",
-                            SortOrder = 49
+                            SortOrder = 50
                         });
                 });
 
@@ -2068,6 +2079,14 @@ namespace SSAM_Server.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("completed_at");
+
+                    b.Property<long?>("CompletedById")
+                        .HasColumnType("bigint")
+                        .HasColumnName("completed_by_id");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("datetime2(3)")
@@ -2079,17 +2098,37 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("nvarchar(1000)")
                         .HasColumnName("description");
 
+                    b.Property<string>("ExitCriteria")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("exit_criteria");
+
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
                         .HasDefaultValue(true)
                         .HasColumnName("is_active");
 
+                    b.Property<string>("LifecycleStatus")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("UPCOMING")
+                        .HasColumnName("lifecycle_status");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)")
                         .HasColumnName("name");
+
+                    b.Property<string>("OverrideReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("override_reason");
 
                     b.Property<int>("Position")
                         .HasColumnType("int")
@@ -2107,6 +2146,8 @@ namespace SSAM_Server.Data.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("CompletedById");
+
                     b.HasIndex("ProjectId", "Name")
                         .IsUnique()
                         .HasDatabaseName("UQ_ProjectPhases_Project_Name")
@@ -2115,7 +2156,71 @@ namespace SSAM_Server.Data.Migrations
                     b.HasIndex("ProjectId", "IsActive", "Position")
                         .HasDatabaseName("IX_ProjectPhases_Project_Order");
 
-                    b.ToTable("ProjectPhases", (string)null);
+                    b.ToTable("ProjectPhases", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ProjectPhases_ExitCriteria_Json", "ISJSON([exit_criteria]) = 1");
+
+                            t.HasCheckConstraint("CK_ProjectPhases_Lifecycle", "[lifecycle_status] IN (N'UPCOMING', N'ACTIVE', N'COMPLETED')");
+                        });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.ProjectPhaseLog", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("action");
+
+                    b.Property<long>("ActorId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("actor_id");
+
+                    b.Property<DateTime>("At")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long>("PhaseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("phase_id");
+
+                    b.Property<long>("ProjectId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("UnmetCriteria")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("unmet_criteria");
+
+                    b.HasKey("Id")
+                        .HasName("PK_ProjectPhaseLogs");
+
+                    b.HasIndex("ActorId");
+
+                    b.HasIndex("ProjectId");
+
+                    b.HasIndex("PhaseId", "At")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_ProjectPhaseLogs_Phase");
+
+                    b.ToTable("ProjectPhaseLogs", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ProjectPhaseLogs_Action", "[action] IN (N'COMPLETE', N'OVERRIDE_COMPLETE', N'REOPEN')");
+                        });
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.ProjectSequence", b =>
@@ -2405,6 +2510,170 @@ namespace SSAM_Server.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.TestActivity", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long?>("ActorId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("actor_id");
+
+                    b.Property<DateTime>("At")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long?>("BehalfOfId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("behalf_of_id");
+
+                    b.Property<string>("Build")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("build");
+
+                    b.Property<long?>("EnvId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("env_id");
+
+                    b.Property<string>("FromStatus")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("from_status");
+
+                    b.Property<long?>("ModuleId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("module_id");
+
+                    b.Property<long>("PlanId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("plan_id");
+
+                    b.Property<long?>("TestCaseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("test_case_id");
+
+                    b.Property<string>("Text")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("text");
+
+                    b.Property<string>("ToResult")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("to_result");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TestActivities");
+
+                    b.HasIndex("ActorId");
+
+                    b.HasIndex("BehalfOfId");
+
+                    b.HasIndex("EnvId");
+
+                    b.HasIndex("ModuleId");
+
+                    b.HasIndex("TestCaseId");
+
+                    b.HasIndex("PlanId", "At", "Id")
+                        .IsDescending(false, true, true)
+                        .HasDatabaseName("IX_TestActivities_Plan_At");
+
+                    b.ToTable("TestActivities", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TestActivities_Type", "[type] IN (N'RESULT', N'DEPLOY', N'ASSIGN', N'REQ', N'HANDOVER', N'CASE', N'BUG')");
+                        });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestAssignment", b =>
+                {
+                    b.Property<long>("ModuleId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("module_id");
+
+                    b.Property<long>("EnvId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("env_id");
+
+                    b.Property<long>("AssigneeId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("assignee_id");
+
+                    b.HasKey("ModuleId", "EnvId")
+                        .HasName("PK_TestAssignments");
+
+                    b.HasIndex("AssigneeId")
+                        .HasDatabaseName("IX_TestAssignments_Assignee");
+
+                    b.HasIndex("EnvId");
+
+                    b.ToTable("TestAssignments", (string)null);
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestBuild", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("DeployedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("deployed_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long>("DeployedById")
+                        .HasColumnType("bigint")
+                        .HasColumnName("deployed_by_id");
+
+                    b.Property<long>("EnvId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("env_id");
+
+                    b.Property<string>("FixedIssueIds")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("fixed_issue_ids");
+
+                    b.Property<string>("Version")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TestBuilds");
+
+                    b.HasIndex("DeployedById");
+
+                    b.HasIndex("EnvId", "DeployedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_TestBuilds_Env");
+
+                    b.ToTable("TestBuilds", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TestBuilds_FixedIssues_Json", "ISJSON([fixed_issue_ids]) = 1");
+                        });
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.TestCase", b =>
                 {
                     b.Property<long>("Id")
@@ -2414,52 +2683,75 @@ namespace SSAM_Server.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
 
+                    b.Property<string>("Actual")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("")
+                        .HasColumnName("actual");
+
+                    b.Property<bool>("AiSuggestedReqs")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("ai_suggested_reqs");
+
+                    b.Property<string>("Browser")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasDefaultValue("")
+                        .HasColumnName("browser");
+
+                    b.Property<long?>("BugIssueId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("bug_issue_id");
+
+                    b.Property<string>("Category")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("FUNCTIONAL")
+                        .HasColumnName("category");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
+                        .HasColumnName("code");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
+                        .HasColumnType("datetime2(3)")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
 
                     b.Property<long>("CreatedById")
                         .HasColumnType("bigint")
                         .HasColumnName("created_by_id");
 
-                    b.Property<long?>("FolderId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("folder_id");
-
-                    b.Property<bool>("IsDeleted")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_deleted");
-
-                    b.Property<string>("Key")
+                    b.Property<string>("CustomFields")
                         .IsRequired()
-                        .HasMaxLength(25)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(25)")
-                        .HasColumnName("key");
-
-                    b.Property<string>("LastResult")
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)")
-                        .HasColumnName("last_result");
-
-                    b.Property<DateTime?>("LastRunAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("last_run_at");
-
-                    b.Property<long?>("LastRunById")
-                        .HasColumnType("bigint")
-                        .HasColumnName("last_run_by_id");
-
-                    b.Property<bool>("NeedsReview")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false)
-                        .HasColumnName("needs_review");
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("{}")
+                        .HasColumnName("custom_fields");
+
+                    b.Property<long>("ModuleId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("module_id");
+
+                    b.Property<long>("PlanId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("plan_id");
+
+                    b.Property<int>("Position")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("position");
 
                     b.Property<string>("Preconditions")
                         .IsRequired()
@@ -2470,20 +2762,27 @@ namespace SSAM_Server.Data.Migrations
 
                     b.Property<string>("Priority")
                         .IsRequired()
+                        .ValueGeneratedOnAdd()
                         .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)")
+                        .HasColumnType("nvarchar(10)")
+                        .HasDefaultValue("P1")
                         .HasColumnName("priority");
 
                     b.Property<long>("ProjectId")
                         .HasColumnType("bigint")
                         .HasColumnName("project_id");
 
-                    b.Property<int>("StepCount")
+                    b.Property<long>("SectionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("section_id");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("int")
-                        .HasDefaultValue(0)
-                        .HasColumnName("step_count");
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("ACTIVE")
+                        .HasColumnName("status");
 
                     b.Property<string>("Steps")
                         .IsRequired()
@@ -2494,72 +2793,49 @@ namespace SSAM_Server.Data.Migrations
 
                     b.Property<string>("Title")
                         .IsRequired()
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasDefaultValue("")
                         .HasColumnName("title");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(15)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(15)")
-                        .HasColumnName("type");
 
                     b.Property<DateTime>("UpdatedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
+                        .HasColumnType("datetime2(3)")
                         .HasColumnName("updated_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
 
                     b.HasKey("Id")
                         .HasName("PK_TestCases");
 
+                    b.HasIndex("BugIssueId")
+                        .HasDatabaseName("IX_TestCases_BugIssue")
+                        .HasFilter("[bug_issue_id] IS NOT NULL AND [status] = N'ACTIVE'");
+
                     b.HasIndex("CreatedById");
 
-                    b.HasIndex("FolderId");
+                    b.HasIndex("ModuleId");
 
-                    b.HasIndex("LastRunById");
+                    b.HasIndex("ProjectId");
 
-                    b.HasIndex("ProjectId", "Key")
-                        .IsUnique()
-                        .HasDatabaseName("UQ_TestCases_Project_Key");
+                    b.HasIndex("SectionId");
 
-                    b.HasIndex("ProjectId", "FolderId", "IsDeleted")
-                        .HasDatabaseName("IX_TestCases_Project_Folder");
+                    b.HasIndex("PlanId", "ModuleId", "SectionId", "Position")
+                        .HasDatabaseName("IX_TestCases_Plan_Module")
+                        .HasFilter("[status] = N'ACTIVE'");
 
                     b.ToTable("TestCases", null, t =>
                         {
-                            t.HasCheckConstraint("CK_TestCases_LastResult", "[last_result] IS NULL OR [last_result] IN ('NOT_RUN','PASS','FAIL','BLOCKED')");
+                            t.HasCheckConstraint("CK_TestCases_Category", "[category] IN (N'FUNCTIONAL', N'BOUNDARY', N'NEGATIVE', N'UI', N'SECURITY', N'PERFORMANCE')");
 
-                            t.HasCheckConstraint("CK_TestCases_Priority", "[priority] IN ('HIGH','MEDIUM','LOW')");
+                            t.HasCheckConstraint("CK_TestCases_Custom_Json", "ISJSON([custom_fields]) = 1");
 
-                            t.HasCheckConstraint("CK_TestCases_Type", "[type] IN ('FUNCTIONAL','INTEGRATION','SECURITY','E2E','UNIT','REGRESSION')");
+                            t.HasCheckConstraint("CK_TestCases_Priority", "[priority] IN (N'P0', N'P1', N'P2', N'P3')");
+
+                            t.HasCheckConstraint("CK_TestCases_Status", "[status] IN (N'ACTIVE', N'DELETED')");
+
+                            t.HasCheckConstraint("CK_TestCases_Steps_Json", "ISJSON([steps]) = 1");
                         });
-                });
-
-            modelBuilder.Entity("SSAM_Server.Models.TestCaseIssueLink", b =>
-                {
-                    b.Property<long>("TestCaseId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("test_case_id");
-
-                    b.Property<long>("IssueId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("issue_id");
-
-                    b.Property<DateTime>("LinkedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasColumnName("linked_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
-
-                    b.HasKey("TestCaseId", "IssueId")
-                        .HasName("PK_TestCaseIssueLinks");
-
-                    b.HasIndex("IssueId")
-                        .HasDatabaseName("IX_TestCaseIssueLinks_Issue");
-
-                    b.ToTable("TestCaseIssueLinks", (string)null);
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.TestCaseRequirementLink", b =>
@@ -2573,38 +2849,39 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnName("document_id");
 
                     b.Property<string>("ReqUid")
-                        .HasMaxLength(30)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(30)")
+                        .HasMaxLength(40)
+                        .HasColumnType("nvarchar(40)")
                         .HasColumnName("req_uid");
 
                     b.Property<string>("ChangedVersionLabel")
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)")
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)")
                         .HasColumnName("changed_version_label");
 
                     b.Property<DateTime>("LinkedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
+                        .HasColumnType("datetime2(3)")
                         .HasColumnName("linked_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
 
                     b.Property<string>("ReqHash")
                         .IsRequired()
-                        .HasColumnType("char(64)")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)")
+                        .HasDefaultValue("")
                         .HasColumnName("req_hash");
 
                     b.HasKey("TestCaseId", "DocumentId", "ReqUid")
                         .HasName("PK_TestCaseRequirementLinks");
 
                     b.HasIndex("DocumentId", "ReqUid")
-                        .HasDatabaseName("IX_TestCaseRequirementLinks_Doc_Req");
+                        .HasDatabaseName("IX_TestCaseReqLinks_Req");
 
                     b.ToTable("TestCaseRequirementLinks", (string)null);
                 });
 
-            modelBuilder.Entity("SSAM_Server.Models.TestCycle", b =>
+            modelBuilder.Entity("SSAM_Server.Models.TestEnvironment", b =>
                 {
                     b.Property<long>("Id")
                         .ValueGeneratedOnAdd()
@@ -2615,73 +2892,15 @@ namespace SSAM_Server.Data.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
+                        .HasColumnType("datetime2(3)")
                         .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
 
-                    b.Property<long>("CreatedById")
-                        .HasColumnType("bigint")
-                        .HasColumnName("created_by_id");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)")
-                        .HasColumnName("name");
-
-                    b.Property<long>("ProjectId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("project_id");
-
-                    b.Property<long?>("SprintId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("sprint_id");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
+                    b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)")
-                        .HasDefaultValue("OPEN")
-                        .HasColumnName("status");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasColumnName("updated_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
-
-                    b.HasKey("Id")
-                        .HasName("PK_TestCycles");
-
-                    b.HasIndex("CreatedById");
-
-                    b.HasIndex("SprintId");
-
-                    b.HasIndex("ProjectId", "Status")
-                        .HasDatabaseName("IX_TestCycles_Project_Status");
-
-                    b.ToTable("TestCycles", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_TestCycles_Status", "[status] IN ('OPEN','CLOSED')");
-                        });
-                });
-
-            modelBuilder.Entity("SSAM_Server.Models.TestFolder", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("is_deleted");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -2689,196 +2908,342 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("nvarchar(100)")
                         .HasColumnName("name");
 
-                    b.Property<long?>("ParentId")
+                    b.Property<string>("Note")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasDefaultValue("")
+                        .HasColumnName("note");
+
+                    b.Property<long>("PlanId")
                         .HasColumnType("bigint")
-                        .HasColumnName("parent_id");
+                        .HasColumnName("plan_id");
+
+                    b.Property<int>("Position")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("position");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasDefaultValue("")
+                        .HasColumnName("url");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TestEnvironments");
+
+                    b.HasIndex("PlanId", "Position")
+                        .HasDatabaseName("IX_TestEnvironments_Plan");
+
+                    b.ToTable("TestEnvironments", (string)null);
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestModule", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<int>("CaseSeq")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("case_seq");
+
+                    b.Property<long?>("DocumentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("document_id");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
+
+                    b.Property<long>("PlanId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("plan_id");
+
+                    b.Property<int>("Position")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(0)
+                        .HasColumnName("position");
+
+                    b.Property<string>("ShortCode")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("short_code");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TestModules");
+
+                    b.HasIndex("DocumentId")
+                        .HasDatabaseName("IX_TestModules_Document")
+                        .HasFilter("[document_id] IS NOT NULL");
+
+                    b.HasIndex("PlanId", "Position")
+                        .HasDatabaseName("IX_TestModules_Plan");
+
+                    b.ToTable("TestModules", (string)null);
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestPlan", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long>("CreatedById")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<DateOnly>("EndDate")
+                        .HasColumnType("date")
+                        .HasColumnName("end_date");
+
+                    b.Property<DateTime?>("HandoverAt")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("handover_at");
+
+                    b.Property<long?>("HandoverById")
+                        .HasColumnType("bigint")
+                        .HasColumnName("handover_by_id");
+
+                    b.Property<string>("HandoverNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("handover_note");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("name");
 
                     b.Property<long>("ProjectId")
                         .HasColumnType("bigint")
                         .HasColumnName("project_id");
 
-                    b.Property<int>("SortOrder")
+                    b.Property<string>("SheetLayout")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("sheet_layout");
+
+                    b.Property<DateOnly>("StartDate")
+                        .HasColumnType("date")
+                        .HasColumnName("start_date");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasDefaultValue("OPEN")
+                        .HasColumnName("status");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TestPlans");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("HandoverById");
+
+                    b.HasIndex("ProjectId", "CreatedAt")
+                        .IsDescending(false, true)
+                        .HasDatabaseName("IX_TestPlans_Project");
+
+                    b.ToTable("TestPlans", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TestPlans_Layout_Json", "[sheet_layout] IS NULL OR ISJSON([sheet_layout]) = 1");
+
+                            t.HasCheckConstraint("CK_TestPlans_Status", "[status] IN (N'OPEN', N'HANDED_OVER')");
+                        });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestResult", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("At")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long?>("BehalfOfId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("behalf_of_id");
+
+                    b.Property<string>("Build")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("build");
+
+                    b.Property<long>("ById")
+                        .HasColumnType("bigint")
+                        .HasColumnName("by_id");
+
+                    b.Property<long>("EnvId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("env_id");
+
+                    b.Property<string>("Result")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)")
+                        .HasColumnName("result");
+
+                    b.Property<long>("TestCaseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("test_case_id");
+
+                    b.HasKey("Id")
+                        .HasName("PK_TestResults");
+
+                    b.HasIndex("BehalfOfId");
+
+                    b.HasIndex("ById");
+
+                    b.HasIndex("EnvId");
+
+                    b.HasIndex("TestCaseId", "EnvId", "At", "Id")
+                        .IsDescending(false, false, true, true)
+                        .HasDatabaseName("IX_TestResults_Case_Env");
+
+                    b.ToTable("TestResults", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TestResults_Result", "[result] IN (N'PASS', N'FAIL', N'NA', N'UNTEST')");
+                        });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestRetestFlag", b =>
+                {
+                    b.Property<long>("TestCaseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("test_case_id");
+
+                    b.Property<long>("EnvId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("env_id");
+
+                    b.Property<DateTime>("At")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long?>("BugIssueId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("bug_issue_id");
+
+                    b.Property<string>("Build")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)")
+                        .HasColumnName("build");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("ReqKey")
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("req_key");
+
+                    b.HasKey("TestCaseId", "EnvId")
+                        .HasName("PK_TestRetestFlags");
+
+                    b.HasIndex("BugIssueId");
+
+                    b.HasIndex("EnvId");
+
+                    b.ToTable("TestRetestFlags", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_TestRetestFlags_Reason", "[reason] IN (N'BUG_FIXED', N'REQ_CHANGED', N'MANUAL')");
+                        });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestSection", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("AnchorId")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("anchor_id");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)")
+                        .HasColumnName("code");
+
+                    b.Property<long>("ModuleId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("module_id");
+
+                    b.Property<long?>("ParentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("parent_id");
+
+                    b.Property<int>("Position")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
                         .HasDefaultValue(0)
-                        .HasColumnName("sort_order");
+                        .HasColumnName("position");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)")
+                        .HasColumnName("title");
 
                     b.HasKey("Id")
-                        .HasName("PK_TestFolders");
+                        .HasName("PK_TestSections");
 
                     b.HasIndex("ParentId");
 
-                    b.HasIndex("ProjectId", "ParentId", "SortOrder")
-                        .HasDatabaseName("IX_TestFolders_Project_Parent");
+                    b.HasIndex("ModuleId", "ParentId", "Position")
+                        .HasDatabaseName("IX_TestSections_Module");
 
-                    b.ToTable("TestFolders", (string)null);
-                });
-
-            modelBuilder.Entity("SSAM_Server.Models.TestRun", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<long?>("AssigneeId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("assignee_id");
-
-                    b.Property<long>("CycleId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("cycle_id");
-
-                    b.Property<DateTime?>("ExecutedAt")
-                        .HasColumnType("datetime2")
-                        .HasColumnName("executed_at");
-
-                    b.Property<long?>("ExecutedById")
-                        .HasColumnType("bigint")
-                        .HasColumnName("executed_by_id");
-
-                    b.Property<bool>("NeedsRerun")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bit")
-                        .HasDefaultValue(false)
-                        .HasColumnName("needs_rerun");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)")
-                        .HasColumnName("note");
-
-                    b.Property<string>("Result")
-                        .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)")
-                        .HasDefaultValue("NOT_RUN")
-                        .HasColumnName("result");
-
-                    b.Property<byte[]>("RowVer")
-                        .IsConcurrencyToken()
-                        .IsRequired()
-                        .ValueGeneratedOnAddOrUpdate()
-                        .HasColumnType("rowversion")
-                        .HasColumnName("row_ver");
-
-                    b.Property<long>("TestCaseId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("test_case_id");
-
-                    b.HasKey("Id")
-                        .HasName("PK_TestRuns");
-
-                    b.HasIndex("ExecutedById");
-
-                    b.HasIndex("TestCaseId")
-                        .HasDatabaseName("IX_TestRuns_TestCase");
-
-                    b.HasIndex("AssigneeId", "Result")
-                        .HasDatabaseName("IX_TestRuns_Assignee");
-
-                    b.HasIndex("CycleId", "Result")
-                        .HasDatabaseName("IX_TestRuns_Cycle_Result");
-
-                    b.HasIndex("CycleId", "TestCaseId")
-                        .IsUnique()
-                        .HasDatabaseName("UQ_TestRuns_Cycle_TestCase");
-
-                    b.ToTable("TestRuns", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_TestRuns_Result", "[result] IN ('NOT_RUN','PASS','FAIL','BLOCKED')");
-                        });
-                });
-
-            modelBuilder.Entity("SSAM_Server.Models.TestRunDefect", b =>
-                {
-                    b.Property<long>("RunId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("run_id");
-
-                    b.Property<long>("IssueId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("issue_id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasColumnName("created_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
-
-                    b.HasKey("RunId", "IssueId")
-                        .HasName("PK_TestRunDefects");
-
-                    b.HasIndex("IssueId")
-                        .HasDatabaseName("IX_TestRunDefects_Issue");
-
-                    b.ToTable("TestRunDefects", (string)null);
-                });
-
-            modelBuilder.Entity("SSAM_Server.Models.TestRunHistory", b =>
-                {
-                    b.Property<long>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("bigint")
-                        .HasColumnName("id");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
-
-                    b.Property<long?>("DefectIssueId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("defect_issue_id");
-
-                    b.Property<DateTime>("ExecutedAt")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("datetime2")
-                        .HasColumnName("executed_at")
-                        .HasDefaultValueSql("GETUTCDATE()");
-
-                    b.Property<long>("ExecutedById")
-                        .HasColumnType("bigint")
-                        .HasColumnName("executed_by_id");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(2000)
-                        .HasColumnType("nvarchar(2000)")
-                        .HasColumnName("note");
-
-                    b.Property<string>("Result")
-                        .IsRequired()
-                        .HasMaxLength(10)
-                        .IsUnicode(false)
-                        .HasColumnType("varchar(10)")
-                        .HasColumnName("result");
-
-                    b.Property<long>("RunId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("run_id");
-
-                    b.Property<long>("TestCaseId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("test_case_id");
-
-                    b.HasKey("Id")
-                        .HasName("PK_TestRunHistory");
-
-                    b.HasIndex("DefectIssueId");
-
-                    b.HasIndex("ExecutedById");
-
-                    b.HasIndex("RunId")
-                        .HasDatabaseName("IX_TestRunHistory_Run");
-
-                    b.HasIndex("TestCaseId", "ExecutedAt")
-                        .HasDatabaseName("IX_TestRunHistory_TestCase_Time");
-
-                    b.ToTable("TestRunHistory", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_TestRunHistory_Result", "[result] IN ('PASS','FAIL','BLOCKED')");
-                        });
+                    b.ToTable("TestSections", (string)null);
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.User", b =>
@@ -3796,12 +4161,50 @@ namespace SSAM_Server.Data.Migrations
 
             modelBuilder.Entity("SSAM_Server.Models.ProjectPhase", b =>
                 {
+                    b.HasOne("SSAM_Server.Models.User", "CompletedBy")
+                        .WithMany()
+                        .HasForeignKey("CompletedById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_ProjectPhases_CompletedBy");
+
                     b.HasOne("SSAM_Server.Models.Project", "Project")
                         .WithMany("Phases")
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_ProjectPhases_Project");
+
+                    b.Navigation("CompletedBy");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.ProjectPhaseLog", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.User", "Actor")
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_ProjectPhaseLogs_Actor");
+
+                    b.HasOne("SSAM_Server.Models.ProjectPhase", "Phase")
+                        .WithMany("Logs")
+                        .HasForeignKey("PhaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_ProjectPhaseLogs_Phase");
+
+                    b.HasOne("SSAM_Server.Models.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_ProjectPhaseLogs_Project");
+
+                    b.Navigation("Actor");
+
+                    b.Navigation("Phase");
 
                     b.Navigation("Project");
                 });
@@ -3893,8 +4296,117 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.TestActivity", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.User", "Actor")
+                        .WithMany()
+                        .HasForeignKey("ActorId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestActivities_Actor");
+
+                    b.HasOne("SSAM_Server.Models.User", "BehalfOf")
+                        .WithMany()
+                        .HasForeignKey("BehalfOfId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestActivities_BehalfOf");
+
+                    b.HasOne("SSAM_Server.Models.TestEnvironment", "Environment")
+                        .WithMany()
+                        .HasForeignKey("EnvId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestActivities_Env");
+
+                    b.HasOne("SSAM_Server.Models.TestModule", "Module")
+                        .WithMany()
+                        .HasForeignKey("ModuleId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestActivities_Module");
+
+                    b.HasOne("SSAM_Server.Models.TestPlan", "Plan")
+                        .WithMany("Activities")
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestActivities_Plan");
+
+                    b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
+                        .WithMany()
+                        .HasForeignKey("TestCaseId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestActivities_Case");
+
+                    b.Navigation("Actor");
+
+                    b.Navigation("BehalfOf");
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("Module");
+
+                    b.Navigation("Plan");
+
+                    b.Navigation("TestCase");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestAssignment", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.User", "Assignee")
+                        .WithMany()
+                        .HasForeignKey("AssigneeId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestAssignments_Assignee");
+
+                    b.HasOne("SSAM_Server.Models.TestEnvironment", "Environment")
+                        .WithMany("Assignments")
+                        .HasForeignKey("EnvId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestAssignments_Env");
+
+                    b.HasOne("SSAM_Server.Models.TestModule", "Module")
+                        .WithMany("Assignments")
+                        .HasForeignKey("ModuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestAssignments_Module");
+
+                    b.Navigation("Assignee");
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("Module");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestBuild", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.User", "DeployedBy")
+                        .WithMany()
+                        .HasForeignKey("DeployedById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestBuilds_DeployedBy");
+
+                    b.HasOne("SSAM_Server.Models.TestEnvironment", "Environment")
+                        .WithMany("Builds")
+                        .HasForeignKey("EnvId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestBuilds_Env");
+
+                    b.Navigation("DeployedBy");
+
+                    b.Navigation("Environment");
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.TestCase", b =>
                 {
+                    b.HasOne("SSAM_Server.Models.Issue", "BugIssue")
+                        .WithMany()
+                        .HasForeignKey("BugIssueId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestCases_BugIssue");
+
                     b.HasOne("SSAM_Server.Models.User", "CreatedBy")
                         .WithMany()
                         .HasForeignKey("CreatedById")
@@ -3902,53 +4414,45 @@ namespace SSAM_Server.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("FK_TestCases_CreatedBy");
 
-                    b.HasOne("SSAM_Server.Models.TestFolder", "Folder")
+                    b.HasOne("SSAM_Server.Models.TestModule", "Module")
                         .WithMany("TestCases")
-                        .HasForeignKey("FolderId")
+                        .HasForeignKey("ModuleId")
                         .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("FK_TestCases_Folder");
+                        .IsRequired()
+                        .HasConstraintName("FK_TestCases_Module");
 
-                    b.HasOne("SSAM_Server.Models.User", "LastRunBy")
-                        .WithMany()
-                        .HasForeignKey("LastRunById")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("FK_TestCases_LastRunBy");
+                    b.HasOne("SSAM_Server.Models.TestPlan", "Plan")
+                        .WithMany("TestCases")
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestCases_Plan");
 
                     b.HasOne("SSAM_Server.Models.Project", "Project")
                         .WithMany()
                         .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
-                        .HasConstraintName("FK_TestCases_Projects");
+                        .HasConstraintName("FK_TestCases_Project");
+
+                    b.HasOne("SSAM_Server.Models.TestSection", "Section")
+                        .WithMany("TestCases")
+                        .HasForeignKey("SectionId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestCases_Section");
+
+                    b.Navigation("BugIssue");
 
                     b.Navigation("CreatedBy");
 
-                    b.Navigation("Folder");
+                    b.Navigation("Module");
 
-                    b.Navigation("LastRunBy");
+                    b.Navigation("Plan");
 
                     b.Navigation("Project");
-                });
 
-            modelBuilder.Entity("SSAM_Server.Models.TestCaseIssueLink", b =>
-                {
-                    b.HasOne("SSAM_Server.Models.Issue", "Issue")
-                        .WithMany()
-                        .HasForeignKey("IssueId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestCaseIssueLinks_Issue");
-
-                    b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
-                        .WithMany("IssueLinks")
-                        .HasForeignKey("TestCaseId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestCaseIssueLinks_TestCase");
-
-                    b.Navigation("Issue");
-
-                    b.Navigation("TestCase");
+                    b.Navigation("Section");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.TestCaseRequirementLink", b =>
@@ -3958,163 +4462,166 @@ namespace SSAM_Server.Data.Migrations
                         .HasForeignKey("DocumentId")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
-                        .HasConstraintName("FK_TestCaseRequirementLinks_Document");
+                        .HasConstraintName("FK_TestCaseReqLinks_Document");
 
                     b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
                         .WithMany("RequirementLinks")
                         .HasForeignKey("TestCaseId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("FK_TestCaseRequirementLinks_TestCase");
+                        .HasConstraintName("FK_TestCaseReqLinks_TestCase");
 
                     b.Navigation("Document");
 
                     b.Navigation("TestCase");
                 });
 
-            modelBuilder.Entity("SSAM_Server.Models.TestCycle", b =>
+            modelBuilder.Entity("SSAM_Server.Models.TestEnvironment", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.TestPlan", "Plan")
+                        .WithMany("Environments")
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestEnvironments_Plan");
+
+                    b.Navigation("Plan");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestModule", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.DocumentNode", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestModules_Document");
+
+                    b.HasOne("SSAM_Server.Models.TestPlan", "Plan")
+                        .WithMany("Modules")
+                        .HasForeignKey("PlanId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestModules_Plan");
+
+                    b.Navigation("Document");
+
+                    b.Navigation("Plan");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestPlan", b =>
                 {
                     b.HasOne("SSAM_Server.Models.User", "CreatedBy")
                         .WithMany()
                         .HasForeignKey("CreatedById")
                         .OnDelete(DeleteBehavior.NoAction)
                         .IsRequired()
-                        .HasConstraintName("FK_TestCycles_CreatedBy");
+                        .HasConstraintName("FK_TestPlans_CreatedBy");
+
+                    b.HasOne("SSAM_Server.Models.User", "HandoverBy")
+                        .WithMany()
+                        .HasForeignKey("HandoverById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestPlans_HandoverBy");
 
                     b.HasOne("SSAM_Server.Models.Project", "Project")
                         .WithMany()
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
-                        .HasConstraintName("FK_TestCycles_Projects");
-
-                    b.HasOne("SSAM_Server.Models.Sprint", "Sprint")
-                        .WithMany()
-                        .HasForeignKey("SprintId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("FK_TestCycles_Sprint");
+                        .HasConstraintName("FK_TestPlans_Project");
 
                     b.Navigation("CreatedBy");
 
-                    b.Navigation("Project");
+                    b.Navigation("HandoverBy");
 
-                    b.Navigation("Sprint");
+                    b.Navigation("Project");
                 });
 
-            modelBuilder.Entity("SSAM_Server.Models.TestFolder", b =>
+            modelBuilder.Entity("SSAM_Server.Models.TestResult", b =>
                 {
-                    b.HasOne("SSAM_Server.Models.TestFolder", "Parent")
+                    b.HasOne("SSAM_Server.Models.User", "BehalfOf")
+                        .WithMany()
+                        .HasForeignKey("BehalfOfId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestResults_BehalfOf");
+
+                    b.HasOne("SSAM_Server.Models.User", "By")
+                        .WithMany()
+                        .HasForeignKey("ById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestResults_By");
+
+                    b.HasOne("SSAM_Server.Models.TestEnvironment", "Environment")
+                        .WithMany("Results")
+                        .HasForeignKey("EnvId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestResults_Env");
+
+                    b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
+                        .WithMany("Results")
+                        .HasForeignKey("TestCaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestResults_Case");
+
+                    b.Navigation("BehalfOf");
+
+                    b.Navigation("By");
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("TestCase");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestRetestFlag", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.Issue", "BugIssue")
+                        .WithMany()
+                        .HasForeignKey("BugIssueId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_TestRetestFlags_Bug");
+
+                    b.HasOne("SSAM_Server.Models.TestEnvironment", "Environment")
+                        .WithMany("RetestFlags")
+                        .HasForeignKey("EnvId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestRetestFlags_Env");
+
+                    b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
+                        .WithMany("RetestFlags")
+                        .HasForeignKey("TestCaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestRetestFlags_Case");
+
+                    b.Navigation("BugIssue");
+
+                    b.Navigation("Environment");
+
+                    b.Navigation("TestCase");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestSection", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.TestModule", "Module")
+                        .WithMany("Sections")
+                        .HasForeignKey("ModuleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestSections_Module");
+
+                    b.HasOne("SSAM_Server.Models.TestSection", "Parent")
                         .WithMany("Children")
                         .HasForeignKey("ParentId")
                         .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("FK_TestFolders_Parent");
+                        .HasConstraintName("FK_TestSections_Parent");
 
-                    b.HasOne("SSAM_Server.Models.Project", "Project")
-                        .WithMany()
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestFolders_Projects");
+                    b.Navigation("Module");
 
                     b.Navigation("Parent");
-
-                    b.Navigation("Project");
-                });
-
-            modelBuilder.Entity("SSAM_Server.Models.TestRun", b =>
-                {
-                    b.HasOne("SSAM_Server.Models.User", "Assignee")
-                        .WithMany()
-                        .HasForeignKey("AssigneeId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("FK_TestRuns_Assignee");
-
-                    b.HasOne("SSAM_Server.Models.TestCycle", "Cycle")
-                        .WithMany("Runs")
-                        .HasForeignKey("CycleId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestRuns_Cycle");
-
-                    b.HasOne("SSAM_Server.Models.User", "ExecutedBy")
-                        .WithMany()
-                        .HasForeignKey("ExecutedById")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("FK_TestRuns_ExecutedBy");
-
-                    b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
-                        .WithMany()
-                        .HasForeignKey("TestCaseId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestRuns_TestCase");
-
-                    b.Navigation("Assignee");
-
-                    b.Navigation("Cycle");
-
-                    b.Navigation("ExecutedBy");
-
-                    b.Navigation("TestCase");
-                });
-
-            modelBuilder.Entity("SSAM_Server.Models.TestRunDefect", b =>
-                {
-                    b.HasOne("SSAM_Server.Models.Issue", "Issue")
-                        .WithMany()
-                        .HasForeignKey("IssueId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestRunDefects_Issue");
-
-                    b.HasOne("SSAM_Server.Models.TestRun", "Run")
-                        .WithMany("Defects")
-                        .HasForeignKey("RunId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestRunDefects_Run");
-
-                    b.Navigation("Issue");
-
-                    b.Navigation("Run");
-                });
-
-            modelBuilder.Entity("SSAM_Server.Models.TestRunHistory", b =>
-                {
-                    b.HasOne("SSAM_Server.Models.Issue", "DefectIssue")
-                        .WithMany()
-                        .HasForeignKey("DefectIssueId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("FK_TestRunHistory_DefectIssue");
-
-                    b.HasOne("SSAM_Server.Models.User", "ExecutedBy")
-                        .WithMany()
-                        .HasForeignKey("ExecutedById")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestRunHistory_ExecutedBy");
-
-                    b.HasOne("SSAM_Server.Models.TestRun", "Run")
-                        .WithMany("History")
-                        .HasForeignKey("RunId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestRunHistory_Run");
-
-                    b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
-                        .WithMany()
-                        .HasForeignKey("TestCaseId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .IsRequired()
-                        .HasConstraintName("FK_TestRunHistory_TestCase");
-
-                    b.Navigation("DefectIssue");
-
-                    b.Navigation("ExecutedBy");
-
-                    b.Navigation("Run");
-
-                    b.Navigation("TestCase");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.User", b =>
@@ -4345,6 +4852,8 @@ namespace SSAM_Server.Data.Migrations
 
             modelBuilder.Entity("SSAM_Server.Models.ProjectPhase", b =>
                 {
+                    b.Navigation("Logs");
+
                     b.Navigation("Statuses");
 
                     b.Navigation("Transitions");
@@ -4357,28 +4866,49 @@ namespace SSAM_Server.Data.Migrations
 
             modelBuilder.Entity("SSAM_Server.Models.TestCase", b =>
                 {
-                    b.Navigation("IssueLinks");
-
                     b.Navigation("RequirementLinks");
+
+                    b.Navigation("Results");
+
+                    b.Navigation("RetestFlags");
                 });
 
-            modelBuilder.Entity("SSAM_Server.Models.TestCycle", b =>
+            modelBuilder.Entity("SSAM_Server.Models.TestEnvironment", b =>
                 {
-                    b.Navigation("Runs");
+                    b.Navigation("Assignments");
+
+                    b.Navigation("Builds");
+
+                    b.Navigation("Results");
+
+                    b.Navigation("RetestFlags");
                 });
 
-            modelBuilder.Entity("SSAM_Server.Models.TestFolder", b =>
+            modelBuilder.Entity("SSAM_Server.Models.TestModule", b =>
                 {
-                    b.Navigation("Children");
+                    b.Navigation("Assignments");
+
+                    b.Navigation("Sections");
 
                     b.Navigation("TestCases");
                 });
 
-            modelBuilder.Entity("SSAM_Server.Models.TestRun", b =>
+            modelBuilder.Entity("SSAM_Server.Models.TestPlan", b =>
                 {
-                    b.Navigation("Defects");
+                    b.Navigation("Activities");
 
-                    b.Navigation("History");
+                    b.Navigation("Environments");
+
+                    b.Navigation("Modules");
+
+                    b.Navigation("TestCases");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.TestSection", b =>
+                {
+                    b.Navigation("Children");
+
+                    b.Navigation("TestCases");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.User", b =>

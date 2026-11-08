@@ -4,35 +4,373 @@ using SSAM_Server.Models;
 
 namespace SSAM_Server.Data.Configurations;
 
-public class TestFolderConfiguration : IEntityTypeConfiguration<TestFolder>
+public class TestPlanConfiguration : IEntityTypeConfiguration<TestPlan>
 {
-    public void Configure(EntityTypeBuilder<TestFolder> builder)
+    public void Configure(EntityTypeBuilder<TestPlan> builder)
     {
-        builder.ToTable("TestFolders");
+        builder.ToTable("TestPlans", t =>
+        {
+            t.HasCheckConstraint("CK_TestPlans_Status", "[status] IN (N'OPEN', N'HANDED_OVER')");
+            t.HasCheckConstraint("CK_TestPlans_Layout_Json", "[sheet_layout] IS NULL OR ISJSON([sheet_layout]) = 1");
+        });
 
-        builder.HasKey(f => f.Id).HasName("PK_TestFolders");
-        builder.Property(f => f.Id).HasColumnName("id").UseIdentityColumn(1, 1);
+        builder.HasKey(x => x.Id).HasName("PK_TestPlans");
 
-        builder.Property(f => f.ProjectId).HasColumnName("project_id").IsRequired();
-        builder.Property(f => f.ParentId).HasColumnName("parent_id");
-        builder.Property(f => f.Name).HasColumnName("name").IsRequired().HasMaxLength(100);
-        builder.Property(f => f.SortOrder).HasColumnName("sort_order").IsRequired().HasDefaultValue(0);
-        builder.Property(f => f.CreatedAt).HasColumnName("created_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
+        builder.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityColumn();
 
-        builder.HasIndex(f => new { f.ProjectId, f.ParentId, f.SortOrder })
-            .HasDatabaseName("IX_TestFolders_Project_Parent");
+        builder.Property(x => x.ProjectId)
+            .HasColumnName("project_id")
+            .IsRequired();
 
-        builder.HasOne(f => f.Project)
+        builder.Property(x => x.Name)
+            .HasColumnName("name")
+            .HasMaxLength(200)
+            .IsRequired();
+
+        builder.Property(x => x.StartDate)
+            .HasColumnName("start_date")
+            .HasColumnType("date")
+            .IsRequired();
+
+        builder.Property(x => x.EndDate)
+            .HasColumnName("end_date")
+            .HasColumnType("date")
+            .IsRequired();
+
+        builder.Property(x => x.Status)
+            .HasColumnName("status")
+            .HasMaxLength(20)
+            .HasDefaultValue(TestPlanStatuses.Open)
+            .IsRequired();
+
+        builder.Property(x => x.HandoverById)
+            .HasColumnName("handover_by_id");
+
+        builder.Property(x => x.HandoverAt)
+            .HasColumnName("handover_at")
+            .HasColumnType("datetime2(3)");
+
+        builder.Property(x => x.HandoverNote)
+            .HasColumnName("handover_note")
+            .HasMaxLength(1000);
+
+        builder.Property(x => x.SheetLayout)
+            .HasColumnName("sheet_layout")
+            .HasColumnType("nvarchar(max)");
+
+        builder.Property(x => x.CreatedById)
+            .HasColumnName("created_by_id")
+            .IsRequired();
+
+        builder.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.Property(x => x.UpdatedAt)
+            .HasColumnName("updated_at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.HasIndex(x => new { x.ProjectId, x.CreatedAt })
+            .IsDescending(false, true)
+            .HasDatabaseName("IX_TestPlans_Project");
+
+        builder.HasOne(x => x.Project)
             .WithMany()
-            .HasForeignKey(f => f.ProjectId)
-            .HasConstraintName("FK_TestFolders_Projects")
-            .OnDelete(DeleteBehavior.Cascade);
+            .HasForeignKey(x => x.ProjectId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestPlans_Project");
 
-        builder.HasOne(f => f.Parent)
+        builder.HasOne(x => x.HandoverBy)
+            .WithMany()
+            .HasForeignKey(x => x.HandoverById)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestPlans_HandoverBy");
+
+        builder.HasOne(x => x.CreatedBy)
+            .WithMany()
+            .HasForeignKey(x => x.CreatedById)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestPlans_CreatedBy");
+    }
+}
+
+public class TestEnvironmentConfiguration : IEntityTypeConfiguration<TestEnvironment>
+{
+    public void Configure(EntityTypeBuilder<TestEnvironment> builder)
+    {
+        builder.ToTable("TestEnvironments");
+
+        builder.HasKey(x => x.Id).HasName("PK_TestEnvironments");
+
+        builder.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityColumn();
+
+        builder.Property(x => x.PlanId)
+            .HasColumnName("plan_id")
+            .IsRequired();
+
+        builder.Property(x => x.Name)
+            .HasColumnName("name")
+            .HasMaxLength(100)
+            .IsRequired();
+
+        builder.Property(x => x.Url)
+            .HasColumnName("url")
+            .HasMaxLength(500)
+            .HasDefaultValue("")
+            .IsRequired();
+
+        builder.Property(x => x.Note)
+            .HasColumnName("note")
+            .HasMaxLength(300)
+            .HasDefaultValue("")
+            .IsRequired();
+
+        builder.Property(x => x.Position)
+            .HasColumnName("position")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(x => x.IsDeleted)
+            .HasColumnName("is_deleted")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.HasIndex(x => new { x.PlanId, x.Position })
+            .HasDatabaseName("IX_TestEnvironments_Plan");
+
+        builder.HasOne(x => x.Plan)
+            .WithMany(p => p.Environments)
+            .HasForeignKey(x => x.PlanId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestEnvironments_Plan");
+    }
+}
+
+public class TestBuildConfiguration : IEntityTypeConfiguration<TestBuild>
+{
+    public void Configure(EntityTypeBuilder<TestBuild> builder)
+    {
+        builder.ToTable("TestBuilds", t =>
+        {
+            t.HasCheckConstraint("CK_TestBuilds_FixedIssues_Json", "ISJSON([fixed_issue_ids]) = 1");
+        });
+
+        builder.HasKey(x => x.Id).HasName("PK_TestBuilds");
+
+        builder.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityColumn();
+
+        builder.Property(x => x.EnvId)
+            .HasColumnName("env_id")
+            .IsRequired();
+
+        builder.Property(x => x.Version)
+            .HasColumnName("version")
+            .HasMaxLength(80)
+            .IsRequired();
+
+        builder.Property(x => x.DeployedAt)
+            .HasColumnName("deployed_at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.Property(x => x.DeployedById)
+            .HasColumnName("deployed_by_id")
+            .IsRequired();
+
+        builder.Property(x => x.FixedIssueIds)
+            .HasColumnName("fixed_issue_ids")
+            .HasColumnType("nvarchar(max)")
+            .HasDefaultValue("[]")
+            .IsRequired();
+
+        builder.HasIndex(x => new { x.EnvId, x.DeployedAt })
+            .IsDescending(false, true)
+            .HasDatabaseName("IX_TestBuilds_Env");
+
+        builder.HasOne(x => x.Environment)
+            .WithMany(e => e.Builds)
+            .HasForeignKey(x => x.EnvId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestBuilds_Env");
+
+        builder.HasOne(x => x.DeployedBy)
+            .WithMany()
+            .HasForeignKey(x => x.DeployedById)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestBuilds_DeployedBy");
+    }
+}
+
+public class TestModuleConfiguration : IEntityTypeConfiguration<TestModule>
+{
+    public void Configure(EntityTypeBuilder<TestModule> builder)
+    {
+        builder.ToTable("TestModules");
+
+        builder.HasKey(x => x.Id).HasName("PK_TestModules");
+
+        builder.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityColumn();
+
+        builder.Property(x => x.PlanId)
+            .HasColumnName("plan_id")
+            .IsRequired();
+
+        builder.Property(x => x.DocumentId)
+            .HasColumnName("document_id");
+
+        builder.Property(x => x.Name)
+            .HasColumnName("name")
+            .HasMaxLength(200)
+            .IsRequired();
+
+        builder.Property(x => x.ShortCode)
+            .HasColumnName("short_code")
+            .HasMaxLength(20)
+            .IsRequired();
+
+        builder.Property(x => x.Position)
+            .HasColumnName("position")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(x => x.CaseSeq)
+            .HasColumnName("case_seq")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.HasIndex(x => new { x.PlanId, x.Position })
+            .HasDatabaseName("IX_TestModules_Plan");
+
+        builder.HasIndex(x => x.DocumentId)
+            .HasDatabaseName("IX_TestModules_Document")
+            .HasFilter("[document_id] IS NOT NULL");
+
+        builder.HasOne(x => x.Plan)
+            .WithMany(p => p.Modules)
+            .HasForeignKey(x => x.PlanId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestModules_Plan");
+
+        builder.HasOne(x => x.Document)
+            .WithMany()
+            .HasForeignKey(x => x.DocumentId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestModules_Document");
+    }
+}
+
+public class TestSectionConfiguration : IEntityTypeConfiguration<TestSection>
+{
+    public void Configure(EntityTypeBuilder<TestSection> builder)
+    {
+        builder.ToTable("TestSections");
+
+        builder.HasKey(x => x.Id).HasName("PK_TestSections");
+
+        builder.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityColumn();
+
+        builder.Property(x => x.ModuleId)
+            .HasColumnName("module_id")
+            .IsRequired();
+
+        builder.Property(x => x.ParentId)
+            .HasColumnName("parent_id");
+
+        builder.Property(x => x.Code)
+            .HasColumnName("code")
+            .HasMaxLength(20)
+            .IsRequired();
+
+        builder.Property(x => x.Title)
+            .HasColumnName("title")
+            .HasMaxLength(300)
+            .IsRequired();
+
+        builder.Property(x => x.AnchorId)
+            .HasColumnName("anchor_id")
+            .HasMaxLength(100);
+
+        builder.Property(x => x.Position)
+            .HasColumnName("position")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.HasIndex(x => new { x.ModuleId, x.ParentId, x.Position })
+            .HasDatabaseName("IX_TestSections_Module");
+
+        builder.HasOne(x => x.Module)
+            .WithMany(m => m.Sections)
+            .HasForeignKey(x => x.ModuleId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestSections_Module");
+
+        builder.HasOne(x => x.Parent)
             .WithMany(p => p.Children)
-            .HasForeignKey(f => f.ParentId)
-            .HasConstraintName("FK_TestFolders_Parent")
-            .OnDelete(DeleteBehavior.NoAction);
+            .HasForeignKey(x => x.ParentId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestSections_Parent");
+    }
+}
+
+public class TestAssignmentConfiguration : IEntityTypeConfiguration<TestAssignment>
+{
+    public void Configure(EntityTypeBuilder<TestAssignment> builder)
+    {
+        builder.ToTable("TestAssignments");
+
+        builder.HasKey(x => new { x.ModuleId, x.EnvId }).HasName("PK_TestAssignments");
+
+        builder.Property(x => x.ModuleId)
+            .HasColumnName("module_id");
+
+        builder.Property(x => x.EnvId)
+            .HasColumnName("env_id");
+
+        builder.Property(x => x.AssigneeId)
+            .HasColumnName("assignee_id")
+            .IsRequired();
+
+        builder.HasIndex(x => x.AssigneeId)
+            .HasDatabaseName("IX_TestAssignments_Assignee");
+
+        builder.HasOne(x => x.Module)
+            .WithMany(m => m.Assignments)
+            .HasForeignKey(x => x.ModuleId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestAssignments_Module");
+
+        builder.HasOne(x => x.Environment)
+            .WithMany(e => e.Assignments)
+            .HasForeignKey(x => x.EnvId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestAssignments_Env");
+
+        builder.HasOne(x => x.Assignee)
+            .WithMany()
+            .HasForeignKey(x => x.AssigneeId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestAssignments_Assignee");
     }
 }
 
@@ -42,68 +380,166 @@ public class TestCaseConfiguration : IEntityTypeConfiguration<TestCase>
     {
         builder.ToTable("TestCases", t =>
         {
-            t.HasCheckConstraint(
-                "CK_TestCases_Type",
-                "[type] IN ('FUNCTIONAL','INTEGRATION','SECURITY','E2E','UNIT','REGRESSION')");
-            t.HasCheckConstraint(
-                "CK_TestCases_Priority",
-                "[priority] IN ('HIGH','MEDIUM','LOW')");
-            t.HasCheckConstraint(
-                "CK_TestCases_LastResult",
-                "[last_result] IS NULL OR [last_result] IN ('NOT_RUN','PASS','FAIL','BLOCKED')");
+            t.HasCheckConstraint("CK_TestCases_Steps_Json", "ISJSON([steps]) = 1");
+            t.HasCheckConstraint("CK_TestCases_Custom_Json", "ISJSON([custom_fields]) = 1");
+            t.HasCheckConstraint("CK_TestCases_Priority", "[priority] IN (N'P0', N'P1', N'P2', N'P3')");
+            t.HasCheckConstraint("CK_TestCases_Category", "[category] IN (N'FUNCTIONAL', N'BOUNDARY', N'NEGATIVE', N'UI', N'SECURITY', N'PERFORMANCE')");
+            t.HasCheckConstraint("CK_TestCases_Status", "[status] IN (N'ACTIVE', N'DELETED')");
         });
 
-        builder.HasKey(tc => tc.Id).HasName("PK_TestCases");
-        builder.Property(tc => tc.Id).HasColumnName("id").UseIdentityColumn(1, 1);
+        builder.HasKey(x => x.Id).HasName("PK_TestCases");
 
-        builder.Property(tc => tc.ProjectId).HasColumnName("project_id").IsRequired();
-        builder.Property(tc => tc.Key).HasColumnName("key").IsRequired().HasMaxLength(25).IsUnicode(false);
-        builder.Property(tc => tc.Title).HasColumnName("title").IsRequired().HasMaxLength(200);
-        builder.Property(tc => tc.Type).HasColumnName("type").IsRequired().HasMaxLength(15).IsUnicode(false);
-        builder.Property(tc => tc.Priority).HasColumnName("priority").IsRequired().HasMaxLength(10).IsUnicode(false);
-        builder.Property(tc => tc.Preconditions).HasColumnName("preconditions").IsRequired().HasColumnType("nvarchar(max)").HasDefaultValue(string.Empty);
-        builder.Property(tc => tc.Steps).HasColumnName("steps").IsRequired().HasColumnType("nvarchar(max)").HasDefaultValue("[]");
-        builder.Property(tc => tc.StepCount).HasColumnName("step_count").IsRequired().HasDefaultValue(0);
-        builder.Property(tc => tc.FolderId).HasColumnName("folder_id");
-        builder.Property(tc => tc.NeedsReview).HasColumnName("needs_review").IsRequired().HasDefaultValue(false);
-        builder.Property(tc => tc.LastResult).HasColumnName("last_result").HasMaxLength(10).IsUnicode(false);
-        builder.Property(tc => tc.LastRunAt).HasColumnName("last_run_at");
-        builder.Property(tc => tc.LastRunById).HasColumnName("last_run_by_id");
-        builder.Property(tc => tc.CreatedById).HasColumnName("created_by_id").IsRequired();
-        builder.Property(tc => tc.CreatedAt).HasColumnName("created_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
-        builder.Property(tc => tc.UpdatedAt).HasColumnName("updated_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
-        builder.Property(tc => tc.IsDeleted).HasColumnName("is_deleted").IsRequired().HasDefaultValue(false);
+        builder.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityColumn();
 
-        builder.HasIndex(tc => new { tc.ProjectId, tc.Key })
-            .IsUnique()
-            .HasDatabaseName("UQ_TestCases_Project_Key");
+        builder.Property(x => x.ProjectId)
+            .HasColumnName("project_id")
+            .IsRequired();
 
-        builder.HasIndex(tc => new { tc.ProjectId, tc.FolderId, tc.IsDeleted })
-            .HasDatabaseName("IX_TestCases_Project_Folder");
+        builder.Property(x => x.PlanId)
+            .HasColumnName("plan_id")
+            .IsRequired();
 
-        builder.HasOne(tc => tc.Project)
+        builder.Property(x => x.ModuleId)
+            .HasColumnName("module_id")
+            .IsRequired();
+
+        builder.Property(x => x.SectionId)
+            .HasColumnName("section_id")
+            .IsRequired();
+
+        builder.Property(x => x.Code)
+            .HasColumnName("code")
+            .HasMaxLength(30)
+            .IsRequired();
+
+        builder.Property(x => x.Title)
+            .HasColumnName("title")
+            .HasMaxLength(500)
+            .HasDefaultValue("")
+            .IsRequired();
+
+        builder.Property(x => x.Preconditions)
+            .HasColumnName("preconditions")
+            .HasColumnType("nvarchar(max)")
+            .HasDefaultValue("")
+            .IsRequired();
+
+        builder.Property(x => x.Steps)
+            .HasColumnName("steps")
+            .HasColumnType("nvarchar(max)")
+            .HasDefaultValue("[]")
+            .IsRequired();
+
+        builder.Property(x => x.Actual)
+            .HasColumnName("actual")
+            .HasColumnType("nvarchar(max)")
+            .HasDefaultValue("")
+            .IsRequired();
+
+        builder.Property(x => x.AiSuggestedReqs)
+            .HasColumnName("ai_suggested_reqs")
+            .HasDefaultValue(false)
+            .IsRequired();
+
+        builder.Property(x => x.Priority)
+            .HasColumnName("priority")
+            .HasMaxLength(10)
+            .HasDefaultValue(TestCasePriorities.P1)
+            .IsRequired();
+
+        builder.Property(x => x.Category)
+            .HasColumnName("category")
+            .HasMaxLength(20)
+            .HasDefaultValue(TestCaseCategories.Functional)
+            .IsRequired();
+
+        builder.Property(x => x.Browser)
+            .HasColumnName("browser")
+            .HasMaxLength(100)
+            .HasDefaultValue("")
+            .IsRequired();
+
+        builder.Property(x => x.CustomFields)
+            .HasColumnName("custom_fields")
+            .HasColumnType("nvarchar(max)")
+            .HasDefaultValue("{}")
+            .IsRequired();
+
+        builder.Property(x => x.Status)
+            .HasColumnName("status")
+            .HasMaxLength(20)
+            .HasDefaultValue(TestCaseStatuses.Active)
+            .IsRequired();
+
+        builder.Property(x => x.Position)
+            .HasColumnName("position")
+            .HasDefaultValue(0)
+            .IsRequired();
+
+        builder.Property(x => x.BugIssueId)
+            .HasColumnName("bug_issue_id");
+
+        builder.Property(x => x.CreatedById)
+            .HasColumnName("created_by_id")
+            .IsRequired();
+
+        builder.Property(x => x.CreatedAt)
+            .HasColumnName("created_at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.Property(x => x.UpdatedAt)
+            .HasColumnName("updated_at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.HasIndex(x => new { x.PlanId, x.ModuleId, x.SectionId, x.Position })
+            .HasDatabaseName("IX_TestCases_Plan_Module")
+            .HasFilter("[status] = N'ACTIVE'");
+
+        builder.HasIndex(x => x.BugIssueId)
+            .HasDatabaseName("IX_TestCases_BugIssue")
+            .HasFilter("[bug_issue_id] IS NOT NULL AND [status] = N'ACTIVE'");
+
+        builder.HasOne(x => x.Project)
             .WithMany()
-            .HasForeignKey(tc => tc.ProjectId)
-            .HasConstraintName("FK_TestCases_Projects")
-            .OnDelete(DeleteBehavior.Cascade);
+            .HasForeignKey(x => x.ProjectId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestCases_Project");
 
-        builder.HasOne(tc => tc.Folder)
-            .WithMany(f => f.TestCases)
-            .HasForeignKey(tc => tc.FolderId)
-            .HasConstraintName("FK_TestCases_Folder")
-            .OnDelete(DeleteBehavior.NoAction);
+        builder.HasOne(x => x.Plan)
+            .WithMany(p => p.TestCases)
+            .HasForeignKey(x => x.PlanId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestCases_Plan");
 
-        builder.HasOne(tc => tc.LastRunBy)
+        builder.HasOne(x => x.Module)
+            .WithMany(m => m.TestCases)
+            .HasForeignKey(x => x.ModuleId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestCases_Module");
+
+        builder.HasOne(x => x.Section)
+            .WithMany(s => s.TestCases)
+            .HasForeignKey(x => x.SectionId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestCases_Section");
+
+        builder.HasOne(x => x.BugIssue)
             .WithMany()
-            .HasForeignKey(tc => tc.LastRunById)
-            .HasConstraintName("FK_TestCases_LastRunBy")
-            .OnDelete(DeleteBehavior.NoAction);
+            .HasForeignKey(x => x.BugIssueId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestCases_BugIssue");
 
-        builder.HasOne(tc => tc.CreatedBy)
+        builder.HasOne(x => x.CreatedBy)
             .WithMany()
-            .HasForeignKey(tc => tc.CreatedById)
-            .HasConstraintName("FK_TestCases_CreatedBy")
-            .OnDelete(DeleteBehavior.NoAction);
+            .HasForeignKey(x => x.CreatedById)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestCases_CreatedBy");
     }
 }
 
@@ -113,249 +549,287 @@ public class TestCaseRequirementLinkConfiguration : IEntityTypeConfiguration<Tes
     {
         builder.ToTable("TestCaseRequirementLinks");
 
-        builder.HasKey(l => new { l.TestCaseId, l.DocumentId, l.ReqUid })
+        builder.HasKey(x => new { x.TestCaseId, x.DocumentId, x.ReqUid })
             .HasName("PK_TestCaseRequirementLinks");
 
-        builder.Property(l => l.TestCaseId).HasColumnName("test_case_id");
-        builder.Property(l => l.DocumentId).HasColumnName("document_id");
-        builder.Property(l => l.ReqUid).HasColumnName("req_uid").IsRequired().HasMaxLength(30).IsUnicode(false);
-        builder.Property(l => l.ReqHash).HasColumnName("req_hash").IsRequired().HasColumnType("char(64)");
-        builder.Property(l => l.ChangedVersionLabel).HasColumnName("changed_version_label").HasMaxLength(10).IsUnicode(false);
-        builder.Property(l => l.LinkedAt).HasColumnName("linked_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
+        builder.Property(x => x.TestCaseId)
+            .HasColumnName("test_case_id");
 
-        builder.HasIndex(l => new { l.DocumentId, l.ReqUid })
-            .HasDatabaseName("IX_TestCaseRequirementLinks_Doc_Req");
+        builder.Property(x => x.DocumentId)
+            .HasColumnName("document_id");
 
-        builder.HasOne(l => l.TestCase)
-            .WithMany(tc => tc.RequirementLinks)
-            .HasForeignKey(l => l.TestCaseId)
-            .HasConstraintName("FK_TestCaseRequirementLinks_TestCase")
-            .OnDelete(DeleteBehavior.Cascade);
+        builder.Property(x => x.ReqUid)
+            .HasColumnName("req_uid")
+            .HasMaxLength(40);
 
-        builder.HasOne(l => l.Document)
-            .WithMany()
-            .HasForeignKey(l => l.DocumentId)
-            .HasConstraintName("FK_TestCaseRequirementLinks_Document")
-            .OnDelete(DeleteBehavior.NoAction);
-    }
-}
-
-public class TestCaseIssueLinkConfiguration : IEntityTypeConfiguration<TestCaseIssueLink>
-{
-    public void Configure(EntityTypeBuilder<TestCaseIssueLink> builder)
-    {
-        builder.ToTable("TestCaseIssueLinks");
-
-        builder.HasKey(l => new { l.TestCaseId, l.IssueId })
-            .HasName("PK_TestCaseIssueLinks");
-
-        builder.Property(l => l.TestCaseId).HasColumnName("test_case_id");
-        builder.Property(l => l.IssueId).HasColumnName("issue_id");
-        builder.Property(l => l.LinkedAt).HasColumnName("linked_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
-
-        builder.HasIndex(l => l.IssueId)
-            .HasDatabaseName("IX_TestCaseIssueLinks_Issue");
-
-        builder.HasOne(l => l.TestCase)
-            .WithMany(tc => tc.IssueLinks)
-            .HasForeignKey(l => l.TestCaseId)
-            .HasConstraintName("FK_TestCaseIssueLinks_TestCase")
-            .OnDelete(DeleteBehavior.Cascade);
-
-        builder.HasOne(l => l.Issue)
-            .WithMany()
-            .HasForeignKey(l => l.IssueId)
-            .HasConstraintName("FK_TestCaseIssueLinks_Issue")
-            .OnDelete(DeleteBehavior.NoAction);
-    }
-}
-
-public class TestCycleConfiguration : IEntityTypeConfiguration<TestCycle>
-{
-    public void Configure(EntityTypeBuilder<TestCycle> builder)
-    {
-        builder.ToTable("TestCycles", t =>
-        {
-            t.HasCheckConstraint("CK_TestCycles_Status", "[status] IN ('OPEN','CLOSED')");
-        });
-
-        builder.HasKey(c => c.Id).HasName("PK_TestCycles");
-        builder.Property(c => c.Id).HasColumnName("id").UseIdentityColumn(1, 1);
-
-        builder.Property(c => c.ProjectId).HasColumnName("project_id").IsRequired();
-        builder.Property(c => c.Name).HasColumnName("name").IsRequired().HasMaxLength(150);
-        builder.Property(c => c.SprintId).HasColumnName("sprint_id");
-        builder.Property(c => c.Status).HasColumnName("status").IsRequired().HasMaxLength(10).IsUnicode(false).HasDefaultValue("OPEN");
-        builder.Property(c => c.CreatedById).HasColumnName("created_by_id").IsRequired();
-        builder.Property(c => c.CreatedAt).HasColumnName("created_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
-        builder.Property(c => c.UpdatedAt).HasColumnName("updated_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
-
-        builder.HasIndex(c => new { c.ProjectId, c.Status })
-            .HasDatabaseName("IX_TestCycles_Project_Status");
-
-        builder.HasOne(c => c.Project)
-            .WithMany()
-            .HasForeignKey(c => c.ProjectId)
-            .HasConstraintName("FK_TestCycles_Projects")
-            .OnDelete(DeleteBehavior.Cascade);
-
-        builder.HasOne(c => c.Sprint)
-            .WithMany()
-            .HasForeignKey(c => c.SprintId)
-            .HasConstraintName("FK_TestCycles_Sprint")
-            .OnDelete(DeleteBehavior.NoAction);
-
-        builder.HasOne(c => c.CreatedBy)
-            .WithMany()
-            .HasForeignKey(c => c.CreatedById)
-            .HasConstraintName("FK_TestCycles_CreatedBy")
-            .OnDelete(DeleteBehavior.NoAction);
-    }
-}
-
-public class TestRunConfiguration : IEntityTypeConfiguration<TestRun>
-{
-    public void Configure(EntityTypeBuilder<TestRun> builder)
-    {
-        builder.ToTable("TestRuns", t =>
-        {
-            t.HasCheckConstraint("CK_TestRuns_Result", "[result] IN ('NOT_RUN','PASS','FAIL','BLOCKED')");
-        });
-
-        builder.HasKey(r => r.Id).HasName("PK_TestRuns");
-        builder.Property(r => r.Id).HasColumnName("id").UseIdentityColumn(1, 1);
-
-        builder.Property(r => r.CycleId).HasColumnName("cycle_id").IsRequired();
-        builder.Property(r => r.TestCaseId).HasColumnName("test_case_id").IsRequired();
-        builder.Property(r => r.AssigneeId).HasColumnName("assignee_id");
-        builder.Property(r => r.Result).HasColumnName("result").IsRequired().HasMaxLength(10).IsUnicode(false).HasDefaultValue("NOT_RUN");
-        builder.Property(r => r.Note).HasColumnName("note").HasMaxLength(2000);
-        builder.Property(r => r.ExecutedAt).HasColumnName("executed_at");
-        builder.Property(r => r.ExecutedById).HasColumnName("executed_by_id");
-        builder.Property(r => r.NeedsRerun).HasColumnName("needs_rerun").IsRequired().HasDefaultValue(false);
-
-        builder.Property(r => r.RowVer)
-            .HasColumnName("row_ver")
-            .IsRowVersion()
+        builder.Property(x => x.ReqHash)
+            .HasColumnName("req_hash")
+            .HasMaxLength(32)
+            .HasDefaultValue("")
             .IsRequired();
 
-        builder.HasIndex(r => new { r.CycleId, r.TestCaseId })
-            .IsUnique()
-            .HasDatabaseName("UQ_TestRuns_Cycle_TestCase");
+        builder.Property(x => x.ChangedVersionLabel)
+            .HasColumnName("changed_version_label")
+            .HasMaxLength(30);
 
-        builder.HasIndex(r => new { r.CycleId, r.Result })
-            .HasDatabaseName("IX_TestRuns_Cycle_Result");
+        builder.Property(x => x.LinkedAt)
+            .HasColumnName("linked_at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
 
-        builder.HasIndex(r => new { r.AssigneeId, r.Result })
-            .HasDatabaseName("IX_TestRuns_Assignee");
+        builder.HasIndex(x => new { x.DocumentId, x.ReqUid })
+            .HasDatabaseName("IX_TestCaseReqLinks_Req");
 
-        builder.HasIndex(r => r.TestCaseId)
-            .HasDatabaseName("IX_TestRuns_TestCase");
+        builder.HasOne(x => x.TestCase)
+            .WithMany(tc => tc.RequirementLinks)
+            .HasForeignKey(x => x.TestCaseId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestCaseReqLinks_TestCase");
 
-        builder.HasOne(r => r.Cycle)
-            .WithMany(c => c.Runs)
-            .HasForeignKey(r => r.CycleId)
-            .HasConstraintName("FK_TestRuns_Cycle")
-            .OnDelete(DeleteBehavior.Cascade);
-
-        builder.HasOne(r => r.TestCase)
+        builder.HasOne(x => x.Document)
             .WithMany()
-            .HasForeignKey(r => r.TestCaseId)
-            .HasConstraintName("FK_TestRuns_TestCase")
-            .OnDelete(DeleteBehavior.NoAction);
-
-        builder.HasOne(r => r.Assignee)
-            .WithMany()
-            .HasForeignKey(r => r.AssigneeId)
-            .HasConstraintName("FK_TestRuns_Assignee")
-            .OnDelete(DeleteBehavior.NoAction);
-
-        builder.HasOne(r => r.ExecutedBy)
-            .WithMany()
-            .HasForeignKey(r => r.ExecutedById)
-            .HasConstraintName("FK_TestRuns_ExecutedBy")
-            .OnDelete(DeleteBehavior.NoAction);
+            .HasForeignKey(x => x.DocumentId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestCaseReqLinks_Document");
     }
 }
 
-public class TestRunDefectConfiguration : IEntityTypeConfiguration<TestRunDefect>
+public class TestResultConfiguration : IEntityTypeConfiguration<TestResult>
 {
-    public void Configure(EntityTypeBuilder<TestRunDefect> builder)
+    public void Configure(EntityTypeBuilder<TestResult> builder)
     {
-        builder.ToTable("TestRunDefects");
-
-        builder.HasKey(d => new { d.RunId, d.IssueId })
-            .HasName("PK_TestRunDefects");
-
-        builder.Property(d => d.RunId).HasColumnName("run_id");
-        builder.Property(d => d.IssueId).HasColumnName("issue_id");
-        builder.Property(d => d.CreatedAt).HasColumnName("created_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
-
-        builder.HasIndex(d => d.IssueId)
-            .HasDatabaseName("IX_TestRunDefects_Issue");
-
-        builder.HasOne(d => d.Run)
-            .WithMany(r => r.Defects)
-            .HasForeignKey(d => d.RunId)
-            .HasConstraintName("FK_TestRunDefects_Run")
-            .OnDelete(DeleteBehavior.Cascade);
-
-        builder.HasOne(d => d.Issue)
-            .WithMany()
-            .HasForeignKey(d => d.IssueId)
-            .HasConstraintName("FK_TestRunDefects_Issue")
-            .OnDelete(DeleteBehavior.NoAction);
-    }
-}
-
-public class TestRunHistoryConfiguration : IEntityTypeConfiguration<TestRunHistory>
-{
-    public void Configure(EntityTypeBuilder<TestRunHistory> builder)
-    {
-        builder.ToTable("TestRunHistory", t =>
+        builder.ToTable("TestResults", t =>
         {
-            t.HasCheckConstraint("CK_TestRunHistory_Result", "[result] IN ('PASS','FAIL','BLOCKED')");
+            t.HasCheckConstraint("CK_TestResults_Result", "[result] IN (N'PASS', N'FAIL', N'NA', N'UNTEST')");
         });
 
-        builder.HasKey(h => h.Id).HasName("PK_TestRunHistory");
-        builder.Property(h => h.Id).HasColumnName("id").UseIdentityColumn(1, 1);
+        builder.HasKey(x => x.Id).HasName("PK_TestResults");
 
-        builder.Property(h => h.RunId).HasColumnName("run_id").IsRequired();
-        builder.Property(h => h.TestCaseId).HasColumnName("test_case_id").IsRequired();
-        builder.Property(h => h.Result).HasColumnName("result").IsRequired().HasMaxLength(10).IsUnicode(false);
-        builder.Property(h => h.Note).HasColumnName("note").HasMaxLength(2000);
-        builder.Property(h => h.DefectIssueId).HasColumnName("defect_issue_id");
-        builder.Property(h => h.ExecutedById).HasColumnName("executed_by_id").IsRequired();
-        builder.Property(h => h.ExecutedAt).HasColumnName("executed_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
+        builder.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityColumn();
 
-        builder.HasIndex(h => new { h.TestCaseId, h.ExecutedAt })
-            .HasDatabaseName("IX_TestRunHistory_TestCase_Time");
+        builder.Property(x => x.TestCaseId)
+            .HasColumnName("test_case_id")
+            .IsRequired();
 
-        builder.HasIndex(h => h.RunId)
-            .HasDatabaseName("IX_TestRunHistory_Run");
+        builder.Property(x => x.EnvId)
+            .HasColumnName("env_id")
+            .IsRequired();
 
-        builder.HasOne(h => h.Run)
-            .WithMany(r => r.History)
-            .HasForeignKey(h => h.RunId)
-            .HasConstraintName("FK_TestRunHistory_Run")
-            .OnDelete(DeleteBehavior.Cascade);
+        builder.Property(x => x.Build)
+            .HasColumnName("build")
+            .HasMaxLength(80)
+            .IsRequired();
 
-        builder.HasOne(h => h.TestCase)
+        builder.Property(x => x.Result)
+            .HasColumnName("result")
+            .HasMaxLength(10)
+            .IsRequired();
+
+        builder.Property(x => x.ById)
+            .HasColumnName("by_id")
+            .IsRequired();
+
+        builder.Property(x => x.At)
+            .HasColumnName("at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.Property(x => x.BehalfOfId)
+            .HasColumnName("behalf_of_id");
+
+        builder.HasIndex(x => new { x.TestCaseId, x.EnvId, x.At, x.Id })
+            .IsDescending(false, false, true, true)
+            .HasDatabaseName("IX_TestResults_Case_Env");
+
+        builder.HasOne(x => x.TestCase)
+            .WithMany(tc => tc.Results)
+            .HasForeignKey(x => x.TestCaseId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestResults_Case");
+
+        builder.HasOne(x => x.Environment)
+            .WithMany(e => e.Results)
+            .HasForeignKey(x => x.EnvId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestResults_Env");
+
+        builder.HasOne(x => x.By)
             .WithMany()
-            .HasForeignKey(h => h.TestCaseId)
-            .HasConstraintName("FK_TestRunHistory_TestCase")
-            .OnDelete(DeleteBehavior.NoAction);
+            .HasForeignKey(x => x.ById)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestResults_By");
 
-        builder.HasOne(h => h.DefectIssue)
+        builder.HasOne(x => x.BehalfOf)
             .WithMany()
-            .HasForeignKey(h => h.DefectIssueId)
-            .HasConstraintName("FK_TestRunHistory_DefectIssue")
-            .OnDelete(DeleteBehavior.NoAction);
+            .HasForeignKey(x => x.BehalfOfId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestResults_BehalfOf");
+    }
+}
 
-        builder.HasOne(h => h.ExecutedBy)
+public class TestRetestFlagConfiguration : IEntityTypeConfiguration<TestRetestFlag>
+{
+    public void Configure(EntityTypeBuilder<TestRetestFlag> builder)
+    {
+        builder.ToTable("TestRetestFlags", t =>
+        {
+            t.HasCheckConstraint("CK_TestRetestFlags_Reason", "[reason] IN (N'BUG_FIXED', N'REQ_CHANGED', N'MANUAL')");
+        });
+
+        builder.HasKey(x => new { x.TestCaseId, x.EnvId })
+            .HasName("PK_TestRetestFlags");
+
+        builder.Property(x => x.TestCaseId)
+            .HasColumnName("test_case_id");
+
+        builder.Property(x => x.EnvId)
+            .HasColumnName("env_id");
+
+        builder.Property(x => x.Reason)
+            .HasColumnName("reason")
+            .HasMaxLength(20)
+            .IsRequired();
+
+        builder.Property(x => x.BugIssueId)
+            .HasColumnName("bug_issue_id");
+
+        builder.Property(x => x.Build)
+            .HasColumnName("build")
+            .HasMaxLength(80);
+
+        builder.Property(x => x.ReqKey)
+            .HasColumnName("req_key")
+            .HasMaxLength(120);
+
+        builder.Property(x => x.At)
+            .HasColumnName("at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.HasOne(x => x.TestCase)
+            .WithMany(tc => tc.RetestFlags)
+            .HasForeignKey(x => x.TestCaseId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestRetestFlags_Case");
+
+        builder.HasOne(x => x.Environment)
+            .WithMany(e => e.RetestFlags)
+            .HasForeignKey(x => x.EnvId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestRetestFlags_Env");
+
+        builder.HasOne(x => x.BugIssue)
             .WithMany()
-            .HasForeignKey(h => h.ExecutedById)
-            .HasConstraintName("FK_TestRunHistory_ExecutedBy")
-            .OnDelete(DeleteBehavior.NoAction);
+            .HasForeignKey(x => x.BugIssueId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestRetestFlags_Bug");
+    }
+}
+
+public class TestActivityConfiguration : IEntityTypeConfiguration<TestActivity>
+{
+    public void Configure(EntityTypeBuilder<TestActivity> builder)
+    {
+        builder.ToTable("TestActivities", t =>
+        {
+            t.HasCheckConstraint("CK_TestActivities_Type", "[type] IN (N'RESULT', N'DEPLOY', N'ASSIGN', N'REQ', N'HANDOVER', N'CASE', N'BUG')");
+        });
+
+        builder.HasKey(x => x.Id).HasName("PK_TestActivities");
+
+        builder.Property(x => x.Id)
+            .HasColumnName("id")
+            .UseIdentityColumn();
+
+        builder.Property(x => x.PlanId)
+            .HasColumnName("plan_id")
+            .IsRequired();
+
+        builder.Property(x => x.Type)
+            .HasColumnName("type")
+            .HasMaxLength(20)
+            .IsRequired();
+
+        builder.Property(x => x.At)
+            .HasColumnName("at")
+            .HasColumnType("datetime2(3)")
+            .HasDefaultValueSql("SYSUTCDATETIME()")
+            .IsRequired();
+
+        builder.Property(x => x.ActorId)
+            .HasColumnName("actor_id");
+
+        builder.Property(x => x.EnvId)
+            .HasColumnName("env_id");
+
+        builder.Property(x => x.ModuleId)
+            .HasColumnName("module_id");
+
+        builder.Property(x => x.TestCaseId)
+            .HasColumnName("test_case_id");
+
+        builder.Property(x => x.FromStatus)
+            .HasColumnName("from_status")
+            .HasMaxLength(20);
+
+        builder.Property(x => x.ToResult)
+            .HasColumnName("to_result")
+            .HasMaxLength(20);
+
+        builder.Property(x => x.Build)
+            .HasColumnName("build")
+            .HasMaxLength(80);
+
+        builder.Property(x => x.BehalfOfId)
+            .HasColumnName("behalf_of_id");
+
+        builder.Property(x => x.Text)
+            .HasColumnName("text")
+            .HasMaxLength(500);
+
+        builder.HasIndex(x => new { x.PlanId, x.At, x.Id })
+            .IsDescending(false, true, true)
+            .HasDatabaseName("IX_TestActivities_Plan_At");
+
+        builder.HasOne(x => x.Plan)
+            .WithMany(p => p.Activities)
+            .HasForeignKey(x => x.PlanId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestActivities_Plan");
+
+        builder.HasOne(x => x.Actor)
+            .WithMany()
+            .HasForeignKey(x => x.ActorId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestActivities_Actor");
+
+        builder.HasOne(x => x.Environment)
+            .WithMany()
+            .HasForeignKey(x => x.EnvId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestActivities_Env");
+
+        builder.HasOne(x => x.Module)
+            .WithMany()
+            .HasForeignKey(x => x.ModuleId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestActivities_Module");
+
+        builder.HasOne(x => x.TestCase)
+            .WithMany()
+            .HasForeignKey(x => x.TestCaseId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestActivities_Case");
+
+        builder.HasOne(x => x.BehalfOf)
+            .WithMany()
+            .HasForeignKey(x => x.BehalfOfId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_TestActivities_BehalfOf");
     }
 }
