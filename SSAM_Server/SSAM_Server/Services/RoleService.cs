@@ -100,12 +100,21 @@ public class RoleService : IRoleService
         var name = (request.Name ?? string.Empty).Trim();
         var scope = (request.Scope ?? string.Empty).Trim().ToUpperInvariant();
         var rawCode = (request.Code ?? string.Empty).Trim();
+        var kind = RoleKinds.Other;
 
         var errors = new Dictionary<string, string[]>();
         if (name.Length < 2 || name.Length > 100)
             errors["name"] = new[] { "Tên role từ 2 đến 100 ký tự" };
         if (!RoleScopes.IsValid(scope))
             errors["scope"] = new[] { "Chọn phạm vi áp dụng" };
+        if (scope == RoleScopes.Project && !string.IsNullOrWhiteSpace(request.Kind))
+        {
+            var candidateKind = request.Kind.Trim().ToUpperInvariant();
+            if (!RoleKinds.IsValid(candidateKind))
+                errors["kind"] = new[] { "Chọn nhóm chuyên môn hợp lệ" };
+            else
+                kind = candidateKind;
+        }
         if (!string.IsNullOrEmpty(rawCode) && !SlugHelper.RoleCodeRegex().IsMatch(rawCode))
             errors["code"] = new[] { "Mã viết HOA, bắt đầu bằng chữ, chỉ gồm A-Z 0-9 _" };
 
@@ -151,6 +160,7 @@ public class RoleService : IRoleService
                 Name = name,
                 Code = code,
                 Scope = scope,
+                Kind = kind,
                 Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
                 IsSystem = false,
                 IsActive = true,
@@ -208,6 +218,27 @@ public class RoleService : IRoleService
                 return ServiceResult<RoleDto>.Conflict("ROLE_NAME_TAKEN", "Tên role đã tồn tại trong công ty.");
         }
 
+        string? validatedKind = null;
+        if (request.Kind != null)
+        {
+            if (role.Scope == RoleScopes.Project)
+            {
+                var candidateKind = request.Kind.Trim().ToUpperInvariant();
+                if (!RoleKinds.IsValid(candidateKind))
+                {
+                    return ServiceResult<RoleDto>.Validation(new Dictionary<string, string[]>
+                    {
+                        ["kind"] = new[] { "Chọn nhóm chuyên môn hợp lệ" }
+                    });
+                }
+                validatedKind = candidateKind;
+            }
+            else
+            {
+                validatedKind = RoleKinds.Other;
+            }
+        }
+
         List<Permission>? validatedPermissions = null;
         if (request.PermissionKeys != null)
         {
@@ -226,6 +257,9 @@ public class RoleService : IRoleService
 
             if (request.Name != null)
                 tracked.Name = request.Name.Trim();
+
+            if (validatedKind != null)
+                tracked.Kind = validatedKind;
 
             if (request.DescriptionSpecified)
                 tracked.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
@@ -318,6 +352,7 @@ public class RoleService : IRoleService
             Name = role.Name,
             Description = role.Description,
             Scope = role.Scope,
+            Kind = role.Kind,
             IsSystem = role.IsSystem,
             IsLocked = CompanyRoleCodes.IsLocked(role.Code),
             IsActive = role.IsActive,

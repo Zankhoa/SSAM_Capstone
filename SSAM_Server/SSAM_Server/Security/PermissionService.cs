@@ -1,4 +1,4 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
@@ -89,7 +89,8 @@ public class PermissionService : IPermissionService
                 RoleId = wsMember.Role.Id,
                 Code = wsMember.Role.Code,
                 Name = wsMember.Role.Name,
-                Scope = wsMember.Role.Scope
+                Scope = wsMember.Role.Scope,
+                Kind = wsMember.Role.Kind
             }
             : null;
 
@@ -154,7 +155,8 @@ public class PermissionService : IPermissionService
                 RoleId = pm.Role.Id,
                 Code = pm.Role.Code,
                 Name = pm.Role.Name,
-                Scope = pm.Role.Scope
+                Scope = pm.Role.Scope,
+                Kind = pm.Role.Kind
             }
             : null;
 
@@ -252,5 +254,43 @@ public class PermissionService : IPermissionService
             return ServiceResult<ProjectAccessContext>.ForbiddenPermission(requiredPermission);
 
         return ServiceResult<ProjectAccessContext>.Ok(access);
+    }
+
+    public async Task<bool> HasProjectPermissionAsync(long userId, long projectId, string permission, CancellationToken ct = default)
+    {
+        var access = await GetProjectAccessAsync(userId, projectId, ct);
+        return access != null && access.Permissions.Contains(permission);
+    }
+
+    public async Task<IReadOnlyCollection<string>> GetProjectPermissionsAsync(long userId, long projectId, CancellationToken ct = default)
+    {
+        var access = await GetProjectAccessAsync(userId, projectId, ct);
+        return access?.Permissions ?? (IReadOnlyCollection<string>)Array.Empty<string>();
+    }
+
+    public async Task<IReadOnlyCollection<string>> GetWorkspacePermissionsAsync(long userId, long workspaceId, CancellationToken ct = default)
+    {
+        var access = await GetWorkspaceAccessAsync(userId, workspaceId, ct);
+        return access?.Permissions ?? (IReadOnlyCollection<string>)Array.Empty<string>();
+    }
+
+    public async Task<IReadOnlyCollection<string>> GetCompanyPermissionsAsync(long userId, CancellationToken ct = default)
+    {
+        var companyIds = await _db.CompanyMembers
+            .AsNoTracking()
+            .Where(cm => cm.UserId == userId && cm.IsActive)
+            .Select(cm => cm.CompanyId)
+            .ToListAsync(ct);
+
+        var all = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var cid in companyIds)
+        {
+            var perms = await GetTenantPermissionsAsync(userId, cid, ct);
+            if (perms != null)
+            {
+                all.UnionWith(perms);
+            }
+        }
+        return all;
     }
 }

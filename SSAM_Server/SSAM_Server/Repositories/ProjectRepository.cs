@@ -143,9 +143,10 @@ public class ProjectRepository : IProjectRepository
                     RoleId = wm.Role.Id,
                     Code = wm.Role.Code,
                     Name = wm.Role.Name,
-                    Scope = wm.Role.Scope
+                    Scope = wm.Role.Scope,
+                    Kind = wm.Role.Kind
                 }
-                : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Workspace }
+                : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Workspace, Kind = RoleKinds.Other }
         }).ToList();
     }
 
@@ -166,6 +167,20 @@ public class ProjectRepository : IProjectRepository
             .Where(ws => ws.PhaseId == phaseId)
             .orderByPosition()
             .ToListAsync(ct);
+
+    public async Task<List<long>> GetStatusIdsWithIssuesAsync(IEnumerable<long> statusIds, CancellationToken ct = default)
+    {
+        var ids = statusIds.Distinct().ToList();
+        if (ids.Count == 0)
+            return new List<long>();
+
+        return await _db.Issues
+            .AsNoTracking()
+            .Where(i => !i.IsDeleted && ids.Contains(i.StatusId))
+            .Select(i => i.StatusId)
+            .Distinct()
+            .ToListAsync(ct);
+    }
 
     public async Task WritePhaseWorkflowAsync(
         long projectId,
@@ -196,6 +211,15 @@ public class ProjectRepository : IProjectRepository
         var toDelete = existingStatuses.Where(s => !keepIds.Contains(s.Id)).ToList();
         if (toDelete.Count > 0)
         {
+            var toDeleteIds = toDelete.Select(s => s.Id).ToList();
+            var wipToDelete = await _db.BoardWipLimits
+                .Where(w => toDeleteIds.Contains(w.StatusId))
+                .ToListAsync(ct);
+            if (wipToDelete.Count > 0)
+            {
+                _db.BoardWipLimits.RemoveRange(wipToDelete);
+            }
+
             _db.WorkflowStatuses.RemoveRange(toDelete);
             await _db.SaveChangesAsync(ct);
         }
@@ -325,6 +349,18 @@ public class ProjectRepository : IProjectRepository
             .AsNoTracking()
             .CountAsync(pp => pp.ProjectId == project.Id && pp.IsActive, ct);
 
+        var openIssueCount = await _db.Issues
+            .AsNoTracking()
+            .CountAsync(i => i.ProjectId == project.Id && !i.IsDeleted && i.Status.Category != StatusCategories.Done, ct);
+
+        var doneIssueCount = await _db.Issues
+            .AsNoTracking()
+            .CountAsync(i => i.ProjectId == project.Id && !i.IsDeleted && i.Status.Category == StatusCategories.Done, ct);
+
+        var documentCount = await _db.DocumentNodes
+            .AsNoTracking()
+            .CountAsync(n => n.ProjectId == project.Id && !n.IsDeleted && n.Kind == DocumentNodeKinds.Page, ct);
+
         var effectiveStatus = (!ws.IsActive || !project.IsActive) ? "ARCHIVED" : "ACTIVE";
 
         return new ProjectDto
@@ -344,9 +380,9 @@ public class ProjectRepository : IProjectRepository
             MyPermissions = myPermissions.ToList(),
             MemberCount = memberCount,
             PhaseCount = phaseCount,
-            OpenIssueCount = 0,
-            DoneIssueCount = 0,
-            DocumentCount = 0,
+            OpenIssueCount = openIssueCount,
+            DoneIssueCount = doneIssueCount,
+            DocumentCount = documentCount,
             CreatedBy = creator,
             CreatedAt = project.CreatedAt,
             UpdatedAt = project.UpdatedAt,
@@ -378,6 +414,22 @@ public class ProjectRepository : IProjectRepository
             })
             .ToListAsync(ct);
 
+        var statusIds = statuses.Select(s => s.StatusId).ToList();
+        if (statusIds.Count > 0)
+        {
+            var counts = await _db.Issues
+                .AsNoTracking()
+                .Where(i => !i.IsDeleted && statusIds.Contains(i.StatusId))
+                .GroupBy(i => i.StatusId)
+                .Select(g => new { StatusId = g.Key, Count = g.Count() })
+                .ToDictionaryAsync(x => x.StatusId, x => x.Count, ct);
+
+            foreach (var s in statuses)
+            {
+                s.IssueCount = counts.GetValueOrDefault(s.StatusId, 0);
+            }
+        }
+
         var transitions = await _db.WorkflowTransitions
             .AsNoTracking()
             .Include(wt => wt.AllowedRoles)
@@ -397,7 +449,8 @@ public class ProjectRepository : IProjectRepository
                     RoleId = ar.Role.Id,
                     Code = ar.Role.Code,
                     Name = ar.Role.Name,
-                    Scope = ar.Role.Scope
+                    Scope = ar.Role.Scope,
+                    Kind = ar.Role.Kind
                 })
                 .ToList(),
             RequireComment = wt.RequireComment,
@@ -454,7 +507,8 @@ public class ProjectRepository : IProjectRepository
                 RoleId = pm.Role.Id,
                 Code = pm.Role.Code,
                 Name = pm.Role.Name,
-                Scope = pm.Role.Scope
+                Scope = pm.Role.Scope,
+                Kind = pm.Role.Kind
             },
             WorkspaceRole = wsRole != null
                 ? new RoleRefDto
@@ -462,9 +516,10 @@ public class ProjectRepository : IProjectRepository
                     RoleId = wsRole.Id,
                     Code = wsRole.Code,
                     Name = wsRole.Name,
-                    Scope = wsRole.Scope
+                    Scope = wsRole.Scope,
+                    Kind = wsRole.Kind
                 }
-                : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Workspace },
+                : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Workspace, Kind = RoleKinds.Other },
             JoinedAt = pm.JoinedAt
         };
     }
