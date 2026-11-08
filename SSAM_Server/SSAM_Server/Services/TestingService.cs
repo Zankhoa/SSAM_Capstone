@@ -1,9 +1,12 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
+using SSAM_Server.DTOs.Documents;
 using SSAM_Server.DTOs.Kanban;
 using SSAM_Server.DTOs.Testing;
 using SSAM_Server.Models;
@@ -16,622 +19,2077 @@ public class TestingService : ITestingService
     private readonly AppDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly IPermissionService _permissions;
+    private readonly IKanbanService _kanbanService;
     private readonly TimeProvider _clock;
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true
+    };
 
     public TestingService(
         AppDbContext db,
         ICurrentUser currentUser,
         IPermissionService permissions,
+        IKanbanService kanbanService,
         TimeProvider clock)
     {
         _db = db;
         _currentUser = currentUser;
         _permissions = permissions;
+        _kanbanService = kanbanService;
         _clock = clock;
     }
 
-    public async Task<ServiceResult<ItemsDto<TestTreeNodeDto>>> GetTestTreeAsync(
+    // =========================================================================
+    // 1. Test Plans
+    // =========================================================================
+
+    public async Task<ServiceResult<ItemsDto<TestPlanDto>>> GetProjectTestPlansAsync(
         long projectId,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestcaseView, ct);
-        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestTreeNodeDto>>();
+        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseView, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestPlanDto>>();
 
-        var folders = await _db.TestFolders
+        var planIds = await _db.TestPlans
             .AsNoTracking()
-            .Where(f => f.ProjectId == projectId)
-            .OrderBy(f => f.SortOrder)
-            .ThenBy(f => f.Id)
+            .Where(p => p.ProjectId == projectId)
+            .OrderBy(p => p.Id)
+            .Select(p => p.Id)
             .ToListAsync(ct);
 
-        var testCases = await _db.TestCases
+        var items = new List<TestPlanDto>(planIds.Count);
+        foreach (var id in planIds)
+        {
+            var dto = await BuildPlanDtoAsync(id, ct);
+            if (dto != null) items.Add(dto);
+        }
+
+        return ServiceResult<ItemsDto<TestPlanDto>>.Success(new ItemsDto<TestPlanDto>(items));
+    }
+
+    public async Task<ServiceResult<TestPlanDto>> CreateTestPlanAsync(
+        long projectId,
+        CreateTestPlanRequest request,
+        CancellationToken ct = default)
+    {
+        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseCreate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
+
+        var name = request.Name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name) || name.Length > 200)
+        {
+            return ServiceResult<TestPlanDto>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["name"] = new[] { "Plan name is required (max 200 chars)." }
+            });
+        }
+
+        var startDate = ParseOptionalDate(request.StartDate);
+        var endDate = ParseOptionalDate(request.EndDate);
+        var userId = _currentUser.UserId;
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        var planId = await _db.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var plan = new TestPlan
+            {
+                ProjectId = projectId,
+                Name = name,
+                StartDate = startDate,
+                EndDate = endDate,
+                Status = TestPlanStatuses.Open,
+                SheetLayout = JsonSerializer.Serialize(new SheetLayoutDto(), JsonOptions),
+                CreatedById = userId,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _db.TestPlans.Add(plan);
+            await _db.SaveChangesAsync(innerCt);
+
+            var envNames = (request.Environments ?? new List<string>())
+                .Where(x => !string.IsNullOrWhiteSpace(x))
+                .Select(x => x.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (envNames.Count == 0)
+            {
+                envNames = new List<string> { "SIT", "UAT" };
+            }
+
+            for (var i = 0; i < envNames.Count; i++)
+            {
+                _db.TestEnvironments.Add(new TestEnvironment
+                {
+                    PlanId = plan.Id,
+                    Name = envNames[i],
+                    Url = string.Empty,
+                    Note = string.Empty,
+                    Position = i + 1,
+                    IsDeleted = false,
+                    CreatedAt = now
+                });
+            }
+
+            _db.TestActivities.Add(new TestActivity
+            {
+                PlanId = plan.Id,
+                Type = TestActivityTypes.Setup,
+                At = now,
+                ActorId = userId,
+                Text = $"Tạo kế hoạch kiểm thử {name}"
+            });
+
+            await _db.SaveChangesAsync(innerCt);
+            return plan.Id;
+        }, ct);
+
+        var dto = await BuildPlanDtoAsync(planId, ct);
+        return ServiceResult<TestPlanDto>.Created(dto!);
+    }
+
+    public async Task<ServiceResult<TestPlanDto>> GetTestPlanAsync(
+        long planId,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans
             .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
+
+        var dto = await BuildPlanDtoAsync(planId, ct);
+        return ServiceResult<TestPlanDto>.Success(dto!);
+    }
+
+    public async Task<ServiceResult<TestPlanDto>> UpdateTestPlanAsync(
+        long planId,
+        UpdateTestPlanRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
+
+        if (!string.IsNullOrWhiteSpace(request.Name))
+        {
+            plan.Name = request.Name.Trim();
+        }
+
+        if (request.StartDateSpecified)
+        {
+            plan.StartDate = ParseOptionalDate(request.StartDate);
+        }
+
+        if (request.EndDateSpecified)
+        {
+            plan.EndDate = ParseOptionalDate(request.EndDate);
+        }
+
+        plan.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await BuildPlanDtoAsync(planId, ct);
+        return ServiceResult<TestPlanDto>.Success(dto!);
+    }
+
+    public async Task<ServiceResult> DeleteTestPlanAsync(long planId, CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        if (!auth.IsSuccess) return auth;
+
+        return await _db.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var envIds = await _db.TestEnvironments.Where(e => e.PlanId == planId).Select(e => e.Id).ToListAsync(innerCt);
+            var moduleIds = await _db.TestModules.Where(m => m.PlanId == planId).Select(m => m.Id).ToListAsync(innerCt);
+            var caseIds = await _db.TestCases.Where(tc => tc.PlanId == planId).Select(tc => tc.Id).ToListAsync(innerCt);
+
+            if (caseIds.Count > 0)
+            {
+                await _db.TestResults.Where(r => caseIds.Contains(r.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestRetestFlags.Where(f => caseIds.Contains(f.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestCaseRequirementLinks.Where(l => caseIds.Contains(l.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestCases.Where(tc => tc.PlanId == planId).ExecuteDeleteAsync(innerCt);
+            }
+
+            await _db.TestActivities.Where(a => a.PlanId == planId).ExecuteDeleteAsync(innerCt);
+
+            if (moduleIds.Count > 0)
+            {
+                await _db.TestAssignments.Where(a => moduleIds.Contains(a.ModuleId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestSections.Where(s => moduleIds.Contains(s.ModuleId) && s.ParentId != null).ExecuteDeleteAsync(innerCt);
+                await _db.TestSections.Where(s => moduleIds.Contains(s.ModuleId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestModules.Where(m => m.PlanId == planId).ExecuteDeleteAsync(innerCt);
+            }
+
+            if (envIds.Count > 0)
+            {
+                await _db.TestBuilds.Where(b => envIds.Contains(b.EnvId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestEnvironments.Where(e => e.PlanId == planId).ExecuteDeleteAsync(innerCt);
+            }
+
+            _db.TestPlans.Remove(plan);
+            await _db.SaveChangesAsync(innerCt);
+            return ServiceResult.NoContent();
+        }, ct);
+    }
+
+    // =========================================================================
+    // 2. Environments & Builds
+    // =========================================================================
+
+    public async Task<ServiceResult<TestEnvironmentDto>> CreateEnvironmentAsync(
+        long planId,
+        CreateTestEnvironmentRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<TestEnvironmentDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestEnvironmentDto>();
+
+        var name = request.Name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return ServiceResult<TestEnvironmentDto>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["name"] = new[] { "Environment name is required." }
+            });
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var maxPos = await _db.TestEnvironments
+            .Where(e => e.PlanId == planId && !e.IsDeleted)
+            .Select(e => (int?)e.Position)
+            .MaxAsync(ct) ?? 0;
+
+        var env = new TestEnvironment
+        {
+            PlanId = planId,
+            Name = name,
+            Url = request.Url?.Trim() ?? string.Empty,
+            Note = request.Note?.Trim() ?? string.Empty,
+            Position = maxPos + 1,
+            IsDeleted = false,
+            CreatedAt = now
+        };
+        _db.TestEnvironments.Add(env);
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = planId,
+            Type = TestActivityTypes.Setup,
+            At = now,
+            ActorId = _currentUser.UserId,
+            Text = $"Thêm môi trường {env.Name}"
+        });
+
+        plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        return ServiceResult<TestEnvironmentDto>.Created(new TestEnvironmentDto
+        {
+            EnvId = env.Id,
+            Name = env.Name,
+            Url = NullIfEmpty(env.Url),
+            Note = NullIfEmpty(env.Note),
+            Position = env.Position,
+            CurrentBuild = null,
+            Builds = new List<TestBuildDto>()
+        });
+    }
+
+    public async Task<ServiceResult<TestEnvironmentDto>> UpdateEnvironmentAsync(
+        long envId,
+        UpdateTestEnvironmentRequest request,
+        CancellationToken ct = default)
+    {
+        var env = await _db.TestEnvironments
+            .Include(e => e.Plan)
+            .Include(e => e.Builds)
+                .ThenInclude(b => b.DeployedBy)
+            .FirstOrDefaultAsync(e => e.Id == envId && !e.IsDeleted, ct);
+        if (env == null)
+            return ServiceResult<TestEnvironmentDto>.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
+
+        var auth = await EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestEnvironmentDto>();
+
+        if (!string.IsNullOrWhiteSpace(request.Name))
+            env.Name = request.Name.Trim();
+        if (request.Url != null)
+            env.Url = request.Url.Trim();
+        if (request.Note != null)
+            env.Note = request.Note.Trim();
+        if (request.Position.HasValue)
+            env.Position = request.Position.Value;
+
+        env.Plan.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await MapEnvironmentDtoAsync(env, ct);
+        return ServiceResult<TestEnvironmentDto>.Success(dto);
+    }
+
+    public async Task<ServiceResult> DeleteEnvironmentAsync(long envId, CancellationToken ct = default)
+    {
+        var env = await _db.TestEnvironments
+            .Include(e => e.Plan)
+            .FirstOrDefaultAsync(e => e.Id == envId && !e.IsDeleted, ct);
+        if (env == null)
+            return ServiceResult.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
+
+        var auth = await EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        if (!auth.IsSuccess) return auth;
+
+        var activeEnvCount = await _db.TestEnvironments
+            .CountAsync(e => e.PlanId == env.PlanId && !e.IsDeleted, ct);
+        if (activeEnvCount <= 1)
+        {
+            return ServiceResult.Conflict("LAST_ENVIRONMENT", "Cần giữ ít nhất 1 môi trường kiểm thử.");
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        env.IsDeleted = true;
+        env.Plan.UpdatedAt = now;
+
+        var assignments = await _db.TestAssignments.Where(a => a.EnvId == envId).ToListAsync(ct);
+        if (assignments.Count > 0) _db.TestAssignments.RemoveRange(assignments);
+
+        var flags = await _db.TestRetestFlags.Where(f => f.EnvId == envId).ToListAsync(ct);
+        if (flags.Count > 0) _db.TestRetestFlags.RemoveRange(flags);
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = env.PlanId,
+            Type = TestActivityTypes.Setup,
+            At = now,
+            ActorId = _currentUser.UserId,
+            Text = $"Xoá môi trường {env.Name}"
+        });
+
+        await _db.SaveChangesAsync(ct);
+        return ServiceResult.NoContent();
+    }
+
+    public async Task<ServiceResult<DeployTestBuildResponse>> DeployBuildAsync(
+        long envId,
+        DeployTestBuildRequest request,
+        CancellationToken ct = default)
+    {
+        var env = await _db.TestEnvironments
+            .Include(e => e.Plan)
+            .FirstOrDefaultAsync(e => e.Id == envId && !e.IsDeleted, ct);
+        if (env == null)
+            return ServiceResult<DeployTestBuildResponse>.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
+
+        var auth = await EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        if (!auth.IsSuccess) return auth.Cast<DeployTestBuildResponse>();
+
+        var version = request.Version?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            return ServiceResult<DeployTestBuildResponse>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["version"] = new[] { "Build version is required." }
+            });
+        }
+
+        var fixedIssueIds = (request.FixedIssueIds ?? new List<long>()).Distinct().ToList();
+        var userId = _currentUser.UserId;
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        var issueKeyMap = fixedIssueIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _db.Issues
+                .AsNoTracking()
+                .Where(i => fixedIssueIds.Contains(i.Id))
+                .ToDictionaryAsync(i => i.Id, i => i.Key, ct);
+
+        var build = new TestBuild
+        {
+            EnvId = envId,
+            Version = version,
+            DeployedAt = now,
+            DeployedById = userId,
+            FixedIssueIds = JsonSerializer.Serialize(fixedIssueIds)
+        };
+        _db.TestBuilds.Add(build);
+
+        int retestCount = 0;
+        if (fixedIssueIds.Count > 0)
+        {
+            var matchingCases = await _db.TestCases
+                .Where(tc => tc.PlanId == env.PlanId &&
+                             tc.Status == TestCaseStatuses.Active &&
+                             tc.BugIssueId.HasValue &&
+                             fixedIssueIds.Contains(tc.BugIssueId.Value))
+                .ToListAsync(ct);
+
+            var caseIds = matchingCases.Select(c => c.Id).ToList();
+            var testedCaseIds = caseIds.Count == 0
+                ? new HashSet<long>()
+                : (await _db.TestResults
+                    .AsNoTracking()
+                    .Where(r => r.EnvId == envId && caseIds.Contains(r.TestCaseId))
+                    .Select(r => r.TestCaseId)
+                    .Distinct()
+                    .ToListAsync(ct)).ToHashSet();
+
+            var existingFlags = await _db.TestRetestFlags
+                .Where(f => f.EnvId == envId && caseIds.Contains(f.TestCaseId))
+                .ToListAsync(ct);
+            var flagByCase = existingFlags.ToDictionary(f => f.TestCaseId);
+
+            foreach (var tc in matchingCases)
+            {
+                if (!testedCaseIds.Contains(tc.Id))
+                    continue;
+
+                if (flagByCase.TryGetValue(tc.Id, out var existing))
+                {
+                    existing.Reason = TestRetestReasons.BugFixed;
+                    existing.BugIssueId = tc.BugIssueId;
+                    existing.Build = version;
+                    existing.ReqKey = null;
+                    existing.At = now;
+                }
+                else
+                {
+                    _db.TestRetestFlags.Add(new TestRetestFlag
+                    {
+                        TestCaseId = tc.Id,
+                        EnvId = envId,
+                        Reason = TestRetestReasons.BugFixed,
+                        BugIssueId = tc.BugIssueId,
+                        Build = version,
+                        At = now
+                    });
+                }
+
+                tc.UpdatedAt = now;
+                retestCount++;
+            }
+        }
+
+        var fixedKeysText = fixedIssueIds
+            .Select(id => issueKeyMap.GetValueOrDefault(id, $"#{id}"))
+            .ToList();
+
+        var suffix = fixedKeysText.Count > 0
+            ? $" (fix {string.Join(", ", fixedKeysText)} → {retestCount} câu cần test lại)"
+            : string.Empty;
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = env.PlanId,
+            Type = TestActivityTypes.Build,
+            At = now,
+            ActorId = userId,
+            EnvId = envId,
+            Build = version,
+            Text = $"Deploy build {version} lên {env.Name}{suffix}"
+        });
+
+        env.Plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var actorRef = await GetUserRefAsync(userId, ct);
+        var buildDto = new TestBuildDto
+        {
+            BuildId = build.Id,
+            Version = build.Version,
+            DeployedAt = FormatUtc(build.DeployedAt),
+            DeployedBy = actorRef,
+            FixedBugs = fixedIssueIds.Select(id => new IssueKeyRefDto
+            {
+                IssueId = id,
+                Key = issueKeyMap.GetValueOrDefault(id, $"#{id}")
+            }).ToList(),
+            ResultCount = 0
+        };
+
+        return ServiceResult<DeployTestBuildResponse>.Created(new DeployTestBuildResponse
+        {
+            Build = buildDto,
+            RetestCount = retestCount
+        });
+    }
+
+    public async Task<ServiceResult<TriggerRegressionResponse>> TriggerRegressionAsync(
+        long envId,
+        TriggerRegressionRequest request,
+        CancellationToken ct = default)
+    {
+        var env = await _db.TestEnvironments
+            .Include(e => e.Plan)
+            .Include(e => e.Builds)
+            .FirstOrDefaultAsync(e => e.Id == envId && !e.IsDeleted, ct);
+        if (env == null)
+            return ServiceResult<TriggerRegressionResponse>.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
+
+        var auth = await EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        if (!auth.IsSuccess) return auth.Cast<TriggerRegressionResponse>();
+
+        var latestBuild = env.Builds
+            .OrderByDescending(b => b.DeployedAt)
+            .ThenByDescending(b => b.Id)
+            .FirstOrDefault()?.Version;
+
+        var casesQuery = _db.TestCases
+            .Include(tc => tc.Results.Where(r => r.EnvId == envId))
+            .Where(tc => tc.PlanId == env.PlanId && tc.Status == TestCaseStatuses.Active);
+
+        if (request.ModuleIds != null && request.ModuleIds.Count > 0)
+        {
+            var moduleSet = request.ModuleIds.Distinct().ToList();
+            casesQuery = casesQuery.Where(tc => moduleSet.Contains(tc.ModuleId));
+        }
+
+        var cases = await casesQuery.ToListAsync(ct);
+        var caseIds = cases.Select(c => c.Id).ToList();
+
+        var existingFlags = await _db.TestRetestFlags
+            .Where(f => f.EnvId == envId && caseIds.Contains(f.TestCaseId))
+            .ToListAsync(ct);
+        var flagByCase = existingFlags.ToDictionary(f => f.TestCaseId);
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var retestCount = 0;
+
+        foreach (var tc in cases)
+        {
+            var latestRes = tc.Results
+                .OrderByDescending(r => r.At)
+                .ThenByDescending(r => r.Id)
+                .FirstOrDefault();
+
+            if (latestRes == null || latestRes.Result != TestResultValues.Pass)
+                continue;
+
+            if (flagByCase.TryGetValue(tc.Id, out var existing))
+            {
+                existing.Reason = TestRetestReasons.Regression;
+                existing.BugIssueId = null;
+                existing.Build = latestBuild;
+                existing.ReqKey = null;
+                existing.At = now;
+            }
+            else
+            {
+                _db.TestRetestFlags.Add(new TestRetestFlag
+                {
+                    TestCaseId = tc.Id,
+                    EnvId = envId,
+                    Reason = TestRetestReasons.Regression,
+                    Build = latestBuild,
+                    At = now
+                });
+            }
+
+            tc.UpdatedAt = now;
+            retestCount++;
+        }
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = env.PlanId,
+            Type = TestActivityTypes.Build,
+            At = now,
+            ActorId = _currentUser.UserId,
+            EnvId = envId,
+            Build = latestBuild,
+            Text = $"Đánh dấu regression trên {env.Name} ({retestCount} câu PASS → cần test lại)"
+        });
+
+        env.Plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        return ServiceResult<TriggerRegressionResponse>.Success(new TriggerRegressionResponse
+        {
+            RetestCount = retestCount
+        });
+    }
+
+    // =========================================================================
+    // 3. Modules & Sections
+    // =========================================================================
+
+    public async Task<ServiceResult<TestModuleDto>> CreateModuleAsync(
+        long planId,
+        CreateTestModuleRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans
+            .Include(p => p.Modules)
+            .FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<TestModuleDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestModuleDto>();
+
+        DocumentNode? doc = null;
+        if (request.DocumentId.HasValue && request.DocumentId.Value > 0)
+        {
+            doc = await _db.DocumentNodes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == request.DocumentId.Value && d.ProjectId == plan.ProjectId && !d.IsDeleted, ct);
+            if (doc == null)
+                return ServiceResult<TestModuleDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found in project.");
+        }
+
+        var name = !string.IsNullOrWhiteSpace(request.Name)
+            ? request.Name.Trim()
+            : (doc?.Title ?? "Module");
+
+        var existingCodes = plan.Modules.Select(m => m.ShortCode).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var shortCode = !string.IsNullOrWhiteSpace(request.ShortCode)
+            ? request.ShortCode.Trim().ToUpperInvariant()
+            : MakeShortCode(name, existingCodes);
+
+        var maxPos = plan.Modules.Count == 0 ? 0 : plan.Modules.Max(m => m.Position);
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        var module = new TestModule
+        {
+            PlanId = planId,
+            DocumentId = doc?.Id,
+            Name = name,
+            ShortCode = shortCode,
+            Position = maxPos + 1,
+            CaseSeq = 0
+        };
+        _db.TestModules.Add(module);
+        await _db.SaveChangesAsync(ct);
+
+        // Auto-create top-level sections from document headings if available
+        var docSections = new List<DocSectionDto>();
+        if (doc != null)
+        {
+            var targetVerId = doc.BaselineVersionId ?? doc.CurrentVersionId;
+            if (targetVerId.HasValue)
+            {
+                var ver = await _db.DocumentVersions
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(v => v.Id == targetVerId.Value, ct);
+                if (ver != null)
+                {
+                    var allHeadings = DocumentContentHelper.ExtractDocSections(ver.Content);
+                    if (request.AnchorIds != null && request.AnchorIds.Count > 0)
+                    {
+                        var anchorSet = request.AnchorIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        docSections = allHeadings.Where(s => anchorSet.Contains(s.AnchorId)).ToList();
+                    }
+                    else
+                    {
+                        docSections = DefaultModuleSections(allHeadings);
+                    }
+                }
+            }
+        }
+
+        if (docSections.Count > 0)
+        {
+            for (var i = 0; i < docSections.Count; i++)
+            {
+                var ds = docSections[i];
+                _db.TestSections.Add(new TestSection
+                {
+                    ModuleId = module.Id,
+                    ParentId = null,
+                    Code = $"{i + 1}.",
+                    Title = StripHeadingNumber(ds.Title),
+                    AnchorId = ds.AnchorId,
+                    Position = i + 1
+                });
+            }
+        }
+        else
+        {
+            _db.TestSections.Add(new TestSection
+            {
+                ModuleId = module.Id,
+                ParentId = null,
+                Code = "1.",
+                Title = name,
+                AnchorId = null,
+                Position = 1
+            });
+        }
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = planId,
+            Type = TestActivityTypes.Setup,
+            At = now,
+            ActorId = _currentUser.UserId,
+            ModuleId = module.Id,
+            Text = $"Thêm module {module.Name} ({doc?.Code ?? $"DOC-{doc?.Id ?? 0}"})"
+        });
+
+        plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await BuildSingleModuleDtoAsync(module.Id, ct);
+        return ServiceResult<TestModuleDto>.Created(dto!);
+    }
+
+    public async Task<ServiceResult<TestModuleDto>> UpdateModuleAsync(
+        long moduleId,
+        UpdateTestModuleRequest request,
+        CancellationToken ct = default)
+    {
+        var module = await _db.TestModules
+            .Include(m => m.Plan)
+            .FirstOrDefaultAsync(m => m.Id == moduleId, ct);
+        if (module == null)
+            return ServiceResult<TestModuleDto>.NotFound("MODULE_NOT_FOUND", "Test module not found.");
+
+        var auth = await EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestModuleDto>();
+
+        if (!string.IsNullOrWhiteSpace(request.Name))
+            module.Name = request.Name.Trim();
+        if (!string.IsNullOrWhiteSpace(request.ShortCode))
+            module.ShortCode = request.ShortCode.Trim().ToUpperInvariant();
+        if (request.Position.HasValue)
+            module.Position = request.Position.Value;
+
+        module.Plan.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await BuildSingleModuleDtoAsync(module.Id, ct);
+        return ServiceResult<TestModuleDto>.Success(dto!);
+    }
+
+    public async Task<ServiceResult> DeleteModuleAsync(long moduleId, CancellationToken ct = default)
+    {
+        var module = await _db.TestModules
+            .Include(m => m.Plan)
+            .FirstOrDefaultAsync(m => m.Id == moduleId, ct);
+        if (module == null)
+            return ServiceResult.NotFound("MODULE_NOT_FOUND", "Test module not found.");
+
+        var auth = await EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        if (!auth.IsSuccess) return auth;
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        return await _db.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var caseIds = await _db.TestCases
+                .Where(tc => tc.ModuleId == moduleId)
+                .Select(tc => tc.Id)
+                .ToListAsync(innerCt);
+
+            if (caseIds.Count > 0)
+            {
+                await _db.TestActivities.Where(a => a.TestCaseId.HasValue && caseIds.Contains(a.TestCaseId.Value))
+                    .ExecuteUpdateAsync(s => s.SetProperty(a => a.TestCaseId, (long?)null), innerCt);
+                await _db.TestResults.Where(r => caseIds.Contains(r.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestRetestFlags.Where(f => caseIds.Contains(f.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestCaseRequirementLinks.Where(l => caseIds.Contains(l.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestCases.Where(tc => tc.ModuleId == moduleId).ExecuteDeleteAsync(innerCt);
+            }
+
+            await _db.TestActivities.Where(a => a.ModuleId == moduleId)
+                .ExecuteUpdateAsync(s => s.SetProperty(a => a.ModuleId, (long?)null), innerCt);
+
+            await _db.TestAssignments.Where(a => a.ModuleId == moduleId).ExecuteDeleteAsync(innerCt);
+            await _db.TestSections.Where(s => s.ModuleId == moduleId && s.ParentId != null).ExecuteDeleteAsync(innerCt);
+            await _db.TestSections.Where(s => s.ModuleId == moduleId).ExecuteDeleteAsync(innerCt);
+
+            _db.TestModules.Remove(module);
+            module.Plan.UpdatedAt = now;
+            await _db.SaveChangesAsync(innerCt);
+
+            return ServiceResult.NoContent();
+        }, ct);
+    }
+
+    public async Task<ServiceResult<TestSectionDto>> CreateSectionAsync(
+        long moduleId,
+        CreateTestSectionRequest request,
+        CancellationToken ct = default)
+    {
+        var module = await _db.TestModules
+            .Include(m => m.Plan)
+            .Include(m => m.Sections)
+            .FirstOrDefaultAsync(m => m.Id == moduleId, ct);
+        if (module == null)
+            return ServiceResult<TestSectionDto>.NotFound("MODULE_NOT_FOUND", "Test module not found.");
+
+        var auth = await EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestSectionDto>();
+
+        var title = request.Title?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(title))
+        {
+            return ServiceResult<TestSectionDto>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["title"] = new[] { "Section title is required." }
+            });
+        }
+
+        TestSection? parent = null;
+        if (request.ParentId.HasValue)
+        {
+            parent = module.Sections.FirstOrDefault(s => s.Id == request.ParentId.Value);
+            if (parent == null || parent.ParentId.HasValue)
+                return ServiceResult<TestSectionDto>.BadRequest("INVALID_PARENT", "Sections support at most 2 levels.");
+        }
+
+        var siblings = module.Sections.Where(s => s.ParentId == request.ParentId).ToList();
+        var nextIdx = siblings.Count + 1;
+        var maxPos = siblings.Count == 0 ? 0 : siblings.Max(s => s.Position);
+        var code = parent != null
+            ? $"{parent.Code.TrimEnd('.')}.{nextIdx}"
+            : $"{nextIdx}.";
+
+        var section = new TestSection
+        {
+            ModuleId = moduleId,
+            ParentId = request.ParentId,
+            Code = code,
+            Title = title,
+            AnchorId = string.IsNullOrWhiteSpace(request.AnchorId) ? null : request.AnchorId.Trim(),
+            Position = maxPos + 1
+        };
+        _db.TestSections.Add(section);
+        module.Plan.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        await _db.SaveChangesAsync(ct);
+
+        await RecodeModuleSectionsAsync(moduleId, ct);
+
+        var reloaded = await _db.TestSections.AsNoTracking().FirstAsync(s => s.Id == section.Id, ct);
+        return ServiceResult<TestSectionDto>.Created(new TestSectionDto
+        {
+            SectionId = reloaded.Id,
+            ModuleId = reloaded.ModuleId,
+            ParentId = reloaded.ParentId,
+            Code = reloaded.Code,
+            Title = reloaded.Title,
+            AnchorId = reloaded.AnchorId,
+            ReqChanged = false,
+            Position = reloaded.Position
+        });
+    }
+
+    public async Task<ServiceResult<TestSectionDto>> UpdateSectionAsync(
+        long sectionId,
+        UpdateTestSectionRequest request,
+        CancellationToken ct = default)
+    {
+        var section = await _db.TestSections
+            .Include(s => s.Module)
+                .ThenInclude(m => m.Plan)
+            .FirstOrDefaultAsync(s => s.Id == sectionId, ct);
+        if (section == null)
+            return ServiceResult<TestSectionDto>.NotFound("SECTION_NOT_FOUND", "Test section not found.");
+
+        var auth = await EnsureProjectPermissionAsync(section.Module.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestSectionDto>();
+
+        if (!string.IsNullOrWhiteSpace(request.Title))
+            section.Title = request.Title.Trim();
+        if (request.AnchorId != null)
+            section.AnchorId = string.IsNullOrWhiteSpace(request.AnchorId) ? null : request.AnchorId.Trim();
+        if (request.Position.HasValue)
+            section.Position = request.Position.Value;
+
+        section.Module.Plan.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        await _db.SaveChangesAsync(ct);
+
+        await RecodeModuleSectionsAsync(section.ModuleId, ct);
+
+        var reloaded = await _db.TestSections.AsNoTracking().FirstAsync(s => s.Id == section.Id, ct);
+        return ServiceResult<TestSectionDto>.Success(new TestSectionDto
+        {
+            SectionId = reloaded.Id,
+            ModuleId = reloaded.ModuleId,
+            ParentId = reloaded.ParentId,
+            Code = reloaded.Code,
+            Title = reloaded.Title,
+            AnchorId = reloaded.AnchorId,
+            ReqChanged = false,
+            Position = reloaded.Position
+        });
+    }
+
+    public async Task<ServiceResult> DeleteSectionAsync(long sectionId, CancellationToken ct = default)
+    {
+        var section = await _db.TestSections
+            .Include(s => s.Module)
+                .ThenInclude(m => m.Plan)
+            .FirstOrDefaultAsync(s => s.Id == sectionId, ct);
+        if (section == null)
+            return ServiceResult.NotFound("SECTION_NOT_FOUND", "Test section not found.");
+
+        var auth = await EnsureProjectPermissionAsync(section.Module.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        if (!auth.IsSuccess) return auth;
+
+        var moduleId = section.ModuleId;
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        await _db.ExecuteInTransactionAsync(async innerCt =>
+        {
+            var childIds = await _db.TestSections
+                .Where(s => s.ParentId == sectionId)
+                .Select(s => s.Id)
+                .ToListAsync(innerCt);
+
+            var allSecIds = new List<long>(childIds) { sectionId };
+
+            var caseIds = await _db.TestCases
+                .Where(tc => allSecIds.Contains(tc.SectionId))
+                .Select(tc => tc.Id)
+                .ToListAsync(innerCt);
+
+            if (caseIds.Count > 0)
+            {
+                await _db.TestActivities.Where(a => a.TestCaseId.HasValue && caseIds.Contains(a.TestCaseId.Value))
+                    .ExecuteUpdateAsync(s => s.SetProperty(a => a.TestCaseId, (long?)null), innerCt);
+                await _db.TestResults.Where(r => caseIds.Contains(r.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestRetestFlags.Where(f => caseIds.Contains(f.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestCaseRequirementLinks.Where(l => caseIds.Contains(l.TestCaseId)).ExecuteDeleteAsync(innerCt);
+                await _db.TestCases.Where(tc => allSecIds.Contains(tc.SectionId)).ExecuteDeleteAsync(innerCt);
+            }
+
+            if (childIds.Count > 0)
+            {
+                await _db.TestSections.Where(s => childIds.Contains(s.Id)).ExecuteDeleteAsync(innerCt);
+            }
+
+            await _db.TestSections.Where(s => s.Id == sectionId).ExecuteDeleteAsync(innerCt);
+            section.Module.Plan.UpdatedAt = now;
+            await _db.SaveChangesAsync(innerCt);
+            return true;
+        }, ct);
+
+        await RecodeModuleSectionsAsync(moduleId, ct);
+        return ServiceResult.NoContent();
+    }
+
+    // =========================================================================
+    // 4. Assignments & Sheet Layout
+    // =========================================================================
+
+    public async Task<ServiceResult<ItemsDto<TestAssignmentDto>>> SetAssignmentAsync(
+        long planId,
+        SetTestAssignmentRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<ItemsDto<TestAssignmentDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestAssignmentDto>>();
+
+        var items = request.Items ?? new List<AssignmentInputItemDto>();
+        if (items.Count == 0 && request.ModuleId.HasValue && request.EnvId.HasValue)
+        {
+            items.Add(new AssignmentInputItemDto
+            {
+                ModuleId = request.ModuleId.Value,
+                EnvId = request.EnvId.Value,
+                AssigneeId = request.AssigneeId
+            });
+        }
+
+        var moduleIds = await _db.TestModules
+            .Where(m => m.PlanId == planId)
+            .ToDictionaryAsync(m => m.Id, m => m.Name, ct);
+
+        var envNames = await _db.TestEnvironments
+            .Where(e => e.PlanId == planId && !e.IsDeleted)
+            .ToDictionaryAsync(e => e.Id, e => e.Name, ct);
+
+        var existingList = await _db.TestAssignments
+            .Where(a => moduleIds.Keys.Contains(a.ModuleId))
+            .ToListAsync(ct);
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var userId = _currentUser.UserId;
+
+        foreach (var item in items)
+        {
+            if (!moduleIds.ContainsKey(item.ModuleId) || !envNames.ContainsKey(item.EnvId))
+                continue;
+
+            var existing = existingList.FirstOrDefault(a => a.ModuleId == item.ModuleId && a.EnvId == item.EnvId);
+            if (!item.AssigneeId.HasValue || item.AssigneeId.Value <= 0)
+            {
+                if (existing != null)
+                {
+                    _db.TestAssignments.Remove(existing);
+                    existingList.Remove(existing);
+                    _db.TestActivities.Add(new TestActivity
+                    {
+                        PlanId = planId,
+                        Type = TestActivityTypes.Assign,
+                        At = now,
+                        ActorId = userId,
+                        EnvId = item.EnvId,
+                        ModuleId = item.ModuleId,
+                        Text = $"Bỏ phân công {moduleIds[item.ModuleId]} trên {envNames[item.EnvId]}"
+                    });
+                }
+            }
+            else
+            {
+                var changed = existing == null || existing.AssigneeId != item.AssigneeId.Value;
+                if (existing == null)
+                {
+                    var created = new TestAssignment
+                    {
+                        ModuleId = item.ModuleId,
+                        EnvId = item.EnvId,
+                        AssigneeId = item.AssigneeId.Value
+                    };
+                    _db.TestAssignments.Add(created);
+                    existingList.Add(created);
+                }
+                else
+                {
+                    existing.AssigneeId = item.AssigneeId.Value;
+                }
+
+                if (changed)
+                {
+                    var assigneeUser = await GetUserRefAsync(item.AssigneeId.Value, ct);
+                    _db.TestActivities.Add(new TestActivity
+                    {
+                        PlanId = planId,
+                        Type = TestActivityTypes.Assign,
+                        At = now,
+                        ActorId = userId,
+                        EnvId = item.EnvId,
+                        ModuleId = item.ModuleId,
+                        Text = $"Giao {moduleIds[item.ModuleId]} trên {envNames[item.EnvId]} cho {assigneeUser.FullName}"
+                    });
+                }
+            }
+        }
+
+        plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var updatedAssigns = await _db.TestAssignments
+            .AsNoTracking()
+            .Include(a => a.Assignee)
+            .Where(a => moduleIds.Keys.Contains(a.ModuleId))
+            .Select(a => new TestAssignmentDto
+            {
+                ModuleId = a.ModuleId,
+                EnvId = a.EnvId,
+                Assignee = MapUserRef(a.Assignee)
+            })
+            .ToListAsync(ct);
+
+        return ServiceResult<ItemsDto<TestAssignmentDto>>.Success(new ItemsDto<TestAssignmentDto>(updatedAssigns));
+    }
+
+    public async Task<ServiceResult<SheetLayoutDto>> SaveSheetLayoutAsync(
+        long planId,
+        SheetLayoutDto request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<SheetLayoutDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<SheetLayoutDto>();
+
+        var layout = NormalizeLayout(request);
+        plan.SheetLayout = JsonSerializer.Serialize(layout, JsonOptions);
+        plan.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        await _db.SaveChangesAsync(ct);
+
+        return ServiceResult<SheetLayoutDto>.Success(layout);
+    }
+
+    // =========================================================================
+    // 5. Test Cases
+    // =========================================================================
+
+    public async Task<ServiceResult<ItemsDto<TestCaseDto>>> ListProjectTestCasesAsync(
+        long projectId,
+        ListTestCasesQuery query,
+        CancellationToken ct = default)
+    {
+        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseView, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
+
+        var dbQuery = _db.TestCases
+            .AsNoTracking()
+            .Where(tc => tc.ProjectId == projectId);
+
+        if (query.PlanId.HasValue)
+            dbQuery = dbQuery.Where(tc => tc.PlanId == query.PlanId.Value);
+
+        if (query.ModuleId.HasValue)
+            dbQuery = dbQuery.Where(tc => tc.ModuleId == query.ModuleId.Value);
+
+        if (!query.IncludeDeleted)
+            dbQuery = dbQuery.Where(tc => tc.Status == TestCaseStatuses.Active);
+
+        if (query.DocumentId.HasValue)
+        {
+            var docId = query.DocumentId.Value;
+            if (!string.IsNullOrWhiteSpace(query.ReqUid))
+            {
+                var uid = query.ReqUid.Trim().ToUpperInvariant();
+                dbQuery = dbQuery.Where(tc => tc.RequirementLinks.Any(l => l.DocumentId == docId && l.ReqUid == uid));
+            }
+            else
+            {
+                dbQuery = dbQuery.Where(tc =>
+                    tc.Module.DocumentId == docId ||
+                    tc.RequirementLinks.Any(l => l.DocumentId == docId));
+            }
+        }
+        else if (!string.IsNullOrWhiteSpace(query.ReqUid))
+        {
+            var uid = query.ReqUid.Trim().ToUpperInvariant();
+            dbQuery = dbQuery.Where(tc => tc.RequirementLinks.Any(l => l.ReqUid == uid));
+        }
+
+        var ids = await dbQuery
+            .OrderBy(tc => tc.ModuleId)
+            .ThenBy(tc => tc.SectionId)
+            .ThenBy(tc => tc.Position)
+            .ThenBy(tc => tc.Id)
+            .Select(tc => tc.Id)
+            .ToListAsync(ct);
+
+        var dtos = await LoadAndMapTestCasesAsync(projectId, ids, ct);
+
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var s = query.Search.Trim();
+            dtos = dtos.Where(c =>
+                c.Code.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                c.ModuleCode.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                c.Title.Contains(s, StringComparison.OrdinalIgnoreCase) ||
+                (c.Preconditions != null && c.Preconditions.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                (c.Actual != null && c.Actual.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                c.Steps.Any(st => st.Action.Contains(s, StringComparison.OrdinalIgnoreCase) || st.Expected.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                c.Requirements.Any(r => r.ReqKey.Contains(s, StringComparison.OrdinalIgnoreCase) || r.Title.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                (c.Bug != null && (c.Bug.Key.Contains(s, StringComparison.OrdinalIgnoreCase) || c.Bug.Title.Contains(s, StringComparison.OrdinalIgnoreCase)))
+            ).ToList();
+        }
+
+        return ServiceResult<ItemsDto<TestCaseDto>>.Success(new ItemsDto<TestCaseDto>(dtos));
+    }
+
+    public async Task<ServiceResult<TestCaseDto>> GetTestCaseAsync(
+        long testCaseId,
+        CancellationToken ct = default)
+    {
+        var tc = await _db.TestCases
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == testCaseId, ct);
+        if (tc == null)
+            return ServiceResult<TestCaseDto>.NotFound("TEST_CASE_NOT_FOUND", "Test case not found.");
+
+        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseView, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestCaseDto>();
+
+        var dtos = await LoadAndMapTestCasesAsync(tc.ProjectId, new List<long> { testCaseId }, ct);
+        return ServiceResult<TestCaseDto>.Success(dtos.First());
+    }
+
+    public async Task<ServiceResult<TestCaseDto>> CreateProjectTestCaseAsync(
+        long projectId,
+        CreateTestCaseRequest request,
+        CancellationToken ct = default)
+    {
+        var section = await _db.TestSections
+            .AsNoTracking()
+            .Include(s => s.Module)
+                .ThenInclude(m => m.Plan)
+            .FirstOrDefaultAsync(s => s.Id == request.SectionId && s.Module.Plan.ProjectId == projectId, ct);
+        if (section == null)
+            return ServiceResult<TestCaseDto>.NotFound("SECTION_NOT_FOUND", "Test section not found in project.");
+
+        return await CreateTestCaseAsync(section.Module.PlanId, request, ct);
+    }
+
+    public async Task<ServiceResult<TestCaseDto>> CreateTestCaseAsync(
+        long planId,
+        CreateTestCaseRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<TestCaseDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestCaseDto>();
+
+        var section = await _db.TestSections
+            .Include(s => s.Module)
+            .FirstOrDefaultAsync(s => s.Id == request.SectionId && s.Module.PlanId == planId, ct);
+        if (section == null)
+            return ServiceResult<TestCaseDto>.NotFound("SECTION_NOT_FOUND", "Test section not found in plan.");
+
+        var priority = TestCasePriorities.Normalize(request.Priority);
+        var category = request.Category != null
+            ? request.Category.Trim()
+            : (section.ParentId.HasValue ? section.Title : string.Empty);
+
+        var code = await AllocateNextTcCodeAsync(planId, ct);
+        section.Module.CaseSeq += 1;
+
+        var siblings = await _db.TestCases
+            .Where(tc => tc.SectionId == section.Id)
+            .OrderBy(tc => tc.Position)
+            .ThenBy(tc => tc.Id)
+            .ToListAsync(ct);
+
+        int newPos;
+        if (request.AfterTestCaseId.HasValue)
+        {
+            var afterCase = siblings.FirstOrDefault(x => x.Id == request.AfterTestCaseId.Value);
+            if (afterCase != null)
+            {
+                newPos = afterCase.Position + 1;
+                foreach (var s in siblings.Where(x => x.Position >= newPos))
+                {
+                    s.Position += 1;
+                }
+            }
+            else
+            {
+                newPos = (siblings.Count == 0 ? 0 : siblings.Max(x => x.Position)) + 1;
+            }
+        }
+        else
+        {
+            newPos = (siblings.Count == 0 ? 0 : siblings.Max(x => x.Position)) + 1;
+        }
+
+        var userId = _currentUser.UserId;
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        var stepsJson = JsonSerializer.Serialize(request.Steps ?? new List<TestStepDto>(), JsonOptions);
+        var customJson = JsonSerializer.Serialize(request.CustomFields ?? new Dictionary<string, object?>(), JsonOptions);
+
+        var tc = new TestCase
+        {
+            ProjectId = plan.ProjectId,
+            PlanId = planId,
+            ModuleId = section.ModuleId,
+            SectionId = section.Id,
+            Code = code,
+            Title = request.Title?.Trim() ?? string.Empty,
+            Preconditions = request.Preconditions?.Trim() ?? string.Empty,
+            Steps = stepsJson,
+            Actual = request.Actual?.Trim() ?? string.Empty,
+            AiSuggestedReqs = request.AiSuggestedReqs == true,
+            Priority = priority,
+            Category = category,
+            Browser = request.Browser?.Trim() ?? string.Empty,
+            CustomFields = customJson,
+            Status = TestCaseStatuses.Active,
+            Position = newPos,
+            CreatedById = userId,
+            CreatedAt = now,
+            UpdatedAt = now
+        };
+        _db.TestCases.Add(tc);
+        await _db.SaveChangesAsync(ct);
+
+        if (request.RequirementRefs != null && request.RequirementRefs.Count > 0)
+        {
+            await SyncTestCaseReqLinksAsync(tc, plan.ProjectId, request.RequirementRefs, now, ct);
+        }
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = planId,
+            Type = TestActivityTypes.TestCase,
+            At = now,
+            ActorId = userId,
+            ModuleId = tc.ModuleId,
+            TestCaseId = tc.Id,
+            Text = $"Tạo {tc.Code} · {tc.Title}"
+        });
+
+        plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var dtos = await LoadAndMapTestCasesAsync(plan.ProjectId, new List<long> { tc.Id }, ct);
+        return ServiceResult<TestCaseDto>.Created(dtos.First());
+    }
+
+    public async Task<ServiceResult<TestCaseDto>> UpdateTestCaseAsync(
+        long testCaseId,
+        UpdateTestCaseRequest request,
+        CancellationToken ct = default)
+    {
+        var tc = await _db.TestCases
+            .Include(x => x.Plan)
+            .Include(x => x.RequirementLinks)
+            .FirstOrDefaultAsync(x => x.Id == testCaseId, ct);
+        if (tc == null)
+            return ServiceResult<TestCaseDto>.NotFound("TEST_CASE_NOT_FOUND", "Test case not found.");
+
+        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestCaseDto>();
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        await ApplyCaseChangesAsync(tc, request, now, ct);
+
+        tc.Plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var dtos = await LoadAndMapTestCasesAsync(tc.ProjectId, new List<long> { tc.Id }, ct);
+        return ServiceResult<TestCaseDto>.Success(dtos.First());
+    }
+
+    public async Task<ServiceResult<ItemsDto<TestCaseDto>>> BulkUpdateTestCasesAsync(
+        long planId,
+        BulkUpdateTestCasesRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
+
+        var items = request.Items ?? new List<BulkUpdateTestCaseItemDto>();
+        if (items.Count == 0)
+            return ServiceResult<ItemsDto<TestCaseDto>>.Success(new ItemsDto<TestCaseDto>());
+
+        var caseIds = items.Select(i => i.TestCaseId).Distinct().ToList();
+        var cases = await _db.TestCases
             .Include(tc => tc.RequirementLinks)
-            .Where(tc => tc.ProjectId == projectId && !tc.IsDeleted)
+            .Where(tc => tc.PlanId == planId && caseIds.Contains(tc.Id))
             .ToListAsync(ct);
+
+        var byId = cases.ToDictionary(c => c.Id);
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        foreach (var item in items)
+        {
+            if (byId.TryGetValue(item.TestCaseId, out var tc) && item.Changes != null)
+            {
+                await ApplyCaseChangesAsync(tc, item.Changes, now, ct);
+            }
+        }
+
+        plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var dtos = await LoadAndMapTestCasesAsync(plan.ProjectId, cases.Select(c => c.Id).ToList(), ct);
+        return ServiceResult<ItemsDto<TestCaseDto>>.Success(new ItemsDto<TestCaseDto>(dtos));
+    }
+
+    public async Task<ServiceResult> DeleteTestCaseAsync(long testCaseId, CancellationToken ct = default)
+    {
+        var tc = await _db.TestCases
+            .Include(x => x.Plan)
+            .FirstOrDefaultAsync(x => x.Id == testCaseId, ct);
+        if (tc == null)
+            return ServiceResult.NotFound("TEST_CASE_NOT_FOUND", "Test case not found.");
+
+        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        if (!auth.IsSuccess) return auth;
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        tc.Status = TestCaseStatuses.Deleted;
+        tc.UpdatedAt = now;
+        tc.Plan.UpdatedAt = now;
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = tc.PlanId,
+            Type = TestActivityTypes.TestCase,
+            At = now,
+            ActorId = _currentUser.UserId,
+            ModuleId = tc.ModuleId,
+            TestCaseId = tc.Id,
+            Text = $"Xoá {tc.Code} · {tc.Title}"
+        });
+
+        await _db.SaveChangesAsync(ct);
+        return ServiceResult.NoContent();
+    }
+
+    // =========================================================================
+    // 6. Execution Results & Bugs
+    // =========================================================================
+
+    public async Task<ServiceResult<RecordTestResultsResponse>> RecordSingleResultAsync(
+        long testCaseId,
+        RecordSingleResultRequest request,
+        CancellationToken ct = default)
+    {
+        var tc = await _db.TestCases
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == testCaseId, ct);
+        if (tc == null)
+            return ServiceResult<RecordTestResultsResponse>.NotFound("TEST_CASE_NOT_FOUND", "Test case not found.");
+
+        return await RecordResultsAsync(tc.PlanId, new RecordTestResultsRequest
+        {
+            EnvId = request.EnvId,
+            TestCaseIds = new List<long> { testCaseId },
+            Result = request.Result
+        }, ct);
+    }
+
+    public async Task<ServiceResult<RecordTestResultsResponse>> RecordResultsAsync(
+        long planId,
+        RecordTestResultsRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<RecordTestResultsResponse>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        if (!auth.IsSuccess) return auth.Cast<RecordTestResultsResponse>();
+
+        var resultVal = request.Result?.Trim().ToUpperInvariant() ?? string.Empty;
+        if (!TestResultValues.IsValid(resultVal))
+        {
+            return ServiceResult<RecordTestResultsResponse>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["result"] = new[] { "Result must be PASS, FAIL, NA, or UNTEST." }
+            });
+        }
+
+        var env = await _db.TestEnvironments
+            .Include(e => e.Builds)
+            .FirstOrDefaultAsync(e => e.Id == request.EnvId && e.PlanId == planId && !e.IsDeleted, ct);
+        if (env == null)
+            return ServiceResult<RecordTestResultsResponse>.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
+
+        var currentBuild = env.Builds
+            .OrderByDescending(b => b.DeployedAt)
+            .ThenByDescending(b => b.Id)
+            .FirstOrDefault()?.Version ?? "v1.0";
+
+        var caseIds = (request.TestCaseIds ?? new List<long>()).Distinct().ToList();
+        if (caseIds.Count == 0)
+            return ServiceResult<RecordTestResultsResponse>.Success(new RecordTestResultsResponse());
+
+        var cases = await _db.TestCases
+            .Include(tc => tc.Results.Where(r => r.EnvId == request.EnvId))
+            .Include(tc => tc.RetestFlags.Where(f => f.EnvId == request.EnvId))
+            .Include(tc => tc.BugIssue)
+                .ThenInclude(i => i!.Status)
+            .Where(tc => tc.PlanId == planId && caseIds.Contains(tc.Id) && tc.Status == TestCaseStatuses.Active)
+            .ToListAsync(ct);
+
+        var moduleIds = cases.Select(c => c.ModuleId).Distinct().ToList();
+        var assignments = await _db.TestAssignments
+            .AsNoTracking()
+            .Where(a => a.EnvId == request.EnvId && moduleIds.Contains(a.ModuleId))
+            .ToDictionaryAsync(a => a.ModuleId, a => a.AssigneeId, ct);
+
+        var userId = _currentUser.UserId;
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        var needBug = new List<long>();
+        var reopened = new List<IssueKeyRefDto>();
+        var reopenedIssueIds = new HashSet<long>();
+
+        foreach (var tc in cases)
+        {
+            var latestRes = tc.Results
+                .OrderByDescending(r => r.At)
+                .ThenByDescending(r => r.Id)
+                .FirstOrDefault();
+
+            var hasFlag = tc.RetestFlags.Any();
+            var prevStatus = hasFlag ? "RETEST" : (latestRes?.Result ?? TestResultValues.Untest);
+
+            // Clear retest flags on this environment
+            if (tc.RetestFlags.Count > 0)
+            {
+                _db.TestRetestFlags.RemoveRange(tc.RetestFlags);
+            }
+
+            long? behalfOfId = null;
+            if (assignments.TryGetValue(tc.ModuleId, out var assigneeId) && assigneeId != userId)
+            {
+                behalfOfId = assigneeId;
+            }
+
+            if (resultVal == TestResultValues.Untest)
+            {
+                if (tc.Results.Count > 0)
+                {
+                    _db.TestResults.RemoveRange(tc.Results);
+                }
+            }
+            else
+            {
+                _db.TestResults.Add(new TestResult
+                {
+                    TestCaseId = tc.Id,
+                    EnvId = request.EnvId,
+                    Build = currentBuild,
+                    Result = resultVal,
+                    ById = userId,
+                    At = now,
+                    BehalfOfId = behalfOfId
+                });
+            }
+
+            tc.UpdatedAt = now;
+
+            _db.TestActivities.Add(new TestActivity
+            {
+                PlanId = planId,
+                Type = TestActivityTypes.Result,
+                At = now,
+                ActorId = userId,
+                EnvId = request.EnvId,
+                ModuleId = tc.ModuleId,
+                TestCaseId = tc.Id,
+                FromStatus = prevStatus,
+                ToResult = resultVal,
+                Build = currentBuild,
+                BehalfOfId = behalfOfId,
+                Text = string.Empty
+            });
+
+            if (resultVal == TestResultValues.Fail)
+            {
+                if (!tc.BugIssueId.HasValue)
+                {
+                    needBug.Add(tc.Id);
+                }
+                else if (tc.BugIssue != null &&
+                         !tc.BugIssue.IsDeleted &&
+                         tc.BugIssue.Status.Category == StatusCategories.Done)
+                {
+                    var reopenStatus = await _db.WorkflowStatuses
+                        .AsNoTracking()
+                        .Where(ws => ws.PhaseId == tc.BugIssue.Status.PhaseId &&
+                                     ws.IsActive &&
+                                     ws.Category != StatusCategories.Done)
+                        .OrderByDescending(ws => ws.Category == StatusCategories.InProgress)
+                        .ThenBy(ws => ws.Position)
+                        .FirstOrDefaultAsync(ct);
+
+                    if (reopenStatus != null)
+                    {
+                        var oldStatusName = tc.BugIssue.Status.Name;
+                        tc.BugIssue.StatusId = reopenStatus.Id;
+                        tc.BugIssue.ResolvedAt = null;
+                        tc.BugIssue.UpdatedAt = now;
+
+                        _db.IssueActivities.Add(new IssueActivity
+                        {
+                            IssueId = tc.BugIssue.Id,
+                            Action = IssueActivityActions.Transitioned,
+                            Note = $"Chuyển trạng thái từ \"{oldStatusName}\" sang \"{reopenStatus.Name}\" — Mở lại tự động do {tc.Code} FAIL trên {env.Name} ({currentBuild})",
+                            ActorId = userId,
+                            CreatedAt = now
+                        });
+                    }
+
+                    if (reopenedIssueIds.Add(tc.BugIssue.Id))
+                    {
+                        reopened.Add(new IssueKeyRefDto
+                        {
+                            IssueId = tc.BugIssue.Id,
+                            Key = tc.BugIssue.Key
+                        });
+                    }
+
+                    _db.TestActivities.Add(new TestActivity
+                    {
+                        PlanId = planId,
+                        Type = TestActivityTypes.Bug,
+                        At = now,
+                        ActorId = userId,
+                        EnvId = request.EnvId,
+                        ModuleId = tc.ModuleId,
+                        TestCaseId = tc.Id,
+                        Text = $"Mở lại {tc.BugIssue.Key} do test lại vẫn FAIL"
+                    });
+                }
+            }
+        }
+
+        plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var dtos = await LoadAndMapTestCasesAsync(plan.ProjectId, cases.Select(c => c.Id).ToList(), ct);
+        return ServiceResult<RecordTestResultsResponse>.Success(new RecordTestResultsResponse
+        {
+            Items = dtos,
+            NeedBug = needBug,
+            Reopened = reopened
+        });
+    }
+
+    public async Task<ServiceResult<ReportTestBugResponse>> ReportBugAsync(
+        long planId,
+        ReportTestBugRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<ReportTestBugResponse>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        if (!auth.IsSuccess) return auth.Cast<ReportTestBugResponse>();
+
+        var caseIds = (request.TestCaseIds ?? new List<long>()).Distinct().ToList();
+        if (caseIds.Count == 0)
+        {
+            return ServiceResult<ReportTestBugResponse>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["testCaseIds"] = new[] { "At least 1 test case is required." }
+            });
+        }
+
+        var cases = await _db.TestCases
+            .Include(tc => tc.RequirementLinks)
+            .Where(tc => tc.PlanId == planId && caseIds.Contains(tc.Id))
+            .ToListAsync(ct);
+
+        if (cases.Count == 0)
+            return ServiceResult<ReportTestBugResponse>.NotFound("TEST_CASE_NOT_FOUND", "Test cases not found.");
+
+        var reqRefs = cases
+            .SelectMany(tc => tc.RequirementLinks)
+            .GroupBy(l => (l.DocumentId, ReqUid: l.ReqUid.ToUpperInvariant()))
+            .Select(g => new RequirementRefInputDto
+            {
+                DocumentId = g.Key.DocumentId,
+                ReqUid = g.Key.ReqUid
+            })
+            .ToList();
+
+        var firstCase = cases[0];
+        var title = !string.IsNullOrWhiteSpace(request.Title)
+            ? request.Title.Trim()
+            : $"[Bug] {firstCase.Code}: {firstCase.Title}";
+
+        var issuePriority = (request.Priority?.Trim().ToUpperInvariant()) switch
+        {
+            "HIGHEST" => IssuePriorities.Highest,
+            "HIGH" => IssuePriorities.High,
+            "LOW" or "LOWEST" => IssuePriorities.Low,
+            _ => IssuePriorities.High
+        };
+
+        var createIssueRes = await _kanbanService.CreateIssueAsync(plan.ProjectId, new CreateIssueRequest
+        {
+            Type = IssueTypes.Bug,
+            Title = title,
+            Description = request.Description,
+            Priority = issuePriority,
+            RequirementRefs = reqRefs
+        }, ct);
+
+        if (!createIssueRes.IsSuccess || createIssueRes.Data == null)
+            return createIssueRes.Cast<ReportTestBugResponse>();
+
+        var createdIssue = createIssueRes.Data;
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var userId = _currentUser.UserId;
+
+        foreach (var tc in cases)
+        {
+            tc.BugIssueId = createdIssue.IssueId;
+            tc.UpdatedAt = now;
+
+            _db.TestActivities.Add(new TestActivity
+            {
+                PlanId = planId,
+                Type = TestActivityTypes.Bug,
+                At = now,
+                ActorId = userId,
+                EnvId = request.EnvId > 0 ? request.EnvId : null,
+                ModuleId = tc.ModuleId,
+                TestCaseId = tc.Id,
+                Text = $"Tạo {createdIssue.Key} trên Kanban"
+            });
+        }
+
+        plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var dtos = await LoadAndMapTestCasesAsync(plan.ProjectId, cases.Select(c => c.Id).ToList(), ct);
+        return ServiceResult<ReportTestBugResponse>.Created(new ReportTestBugResponse
+        {
+            Issue = new IssueKeyRefDto
+            {
+                IssueId = createdIssue.IssueId,
+                Key = createdIssue.Key
+            },
+            Items = dtos
+        });
+    }
+
+    public async Task<ServiceResult<ItemsDto<TestCaseDto>>> LinkBugAsync(
+        long planId,
+        long issueId,
+        LinkTestBugRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
+
+        var issue = await _db.Issues
+            .AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == issueId && i.ProjectId == plan.ProjectId && !i.IsDeleted, ct);
+        if (issue == null)
+            return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("ISSUE_NOT_FOUND", "Bug issue not found.");
+
+        var caseIds = (request.TestCaseIds ?? new List<long>()).Distinct().ToList();
+        var cases = await _db.TestCases
+            .Where(tc => tc.PlanId == planId && caseIds.Contains(tc.Id))
+            .ToListAsync(ct);
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var userId = _currentUser.UserId;
+
+        foreach (var tc in cases)
+        {
+            tc.BugIssueId = issue.Id;
+            tc.UpdatedAt = now;
+
+            _db.TestActivities.Add(new TestActivity
+            {
+                PlanId = planId,
+                Type = TestActivityTypes.Bug,
+                At = now,
+                ActorId = userId,
+                ModuleId = tc.ModuleId,
+                TestCaseId = tc.Id,
+                Text = $"Gắn vào {issue.Key} sẵn có"
+            });
+        }
+
+        plan.UpdatedAt = now;
+        await _db.SaveChangesAsync(ct);
+
+        var dtos = await LoadAndMapTestCasesAsync(plan.ProjectId, cases.Select(c => c.Id).ToList(), ct);
+        return ServiceResult<ItemsDto<TestCaseDto>>.Success(new ItemsDto<TestCaseDto>(dtos));
+    }
+
+    // =========================================================================
+    // 7. Handover & Reopen
+    // =========================================================================
+
+    public async Task<ServiceResult<TestPlanDto>> HandoverPlanAsync(
+        long planId,
+        HandoverTestPlanRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
+
+        var userId = _currentUser.UserId;
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
+
+        plan.Status = TestPlanStatuses.HandedOver;
+        plan.HandoverById = userId;
+        plan.HandoverAt = now;
+        plan.HandoverNote = note;
+        plan.UpdatedAt = now;
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = planId,
+            Type = TestActivityTypes.Handover,
+            At = now,
+            ActorId = userId,
+            Text = $"Xác nhận bàn giao kiểm thử{(note != null ? $" — \"{note}\"" : string.Empty)}"
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await BuildPlanDtoAsync(planId, ct);
+        return ServiceResult<TestPlanDto>.Success(dto!);
+    }
+
+    public async Task<ServiceResult<TestPlanDto>> ReopenPlanAsync(long planId, CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
+
+        var userId = _currentUser.UserId;
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        plan.Status = TestPlanStatuses.Open;
+        plan.HandoverById = null;
+        plan.HandoverAt = null;
+        plan.HandoverNote = null;
+        plan.UpdatedAt = now;
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = planId,
+            Type = TestActivityTypes.Handover,
+            At = now,
+            ActorId = userId,
+            Text = "Mở lại kế hoạch kiểm thử"
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        var dto = await BuildPlanDtoAsync(planId, ct);
+        return ServiceResult<TestPlanDto>.Success(dto!);
+    }
+
+    // =========================================================================
+    // 8. Activities, Traceability & AI
+    // =========================================================================
+
+    public async Task<ServiceResult<ItemsDto<TestActivityDto>>> ListActivitiesAsync(
+        long planId,
+        ListActivitiesQuery query,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<ItemsDto<TestActivityDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestActivityDto>>();
+
+        var dbQuery = _db.TestActivities
+            .AsNoTracking()
+            .Include(a => a.Actor)
+            .Include(a => a.BehalfOf)
+            .Where(a => a.PlanId == planId);
+
+        if (query.TestCaseId.HasValue)
+            dbQuery = dbQuery.Where(a => a.TestCaseId == query.TestCaseId.Value);
+        if (query.ActorId.HasValue)
+            dbQuery = dbQuery.Where(a => a.ActorId == query.ActorId.Value);
+        if (query.ModuleId.HasValue)
+            dbQuery = dbQuery.Where(a => a.ModuleId == query.ModuleId.Value);
+        if (!string.IsNullOrWhiteSpace(query.Type))
+        {
+            var t = query.Type.Trim().ToUpperInvariant();
+            dbQuery = dbQuery.Where(a => a.Type == t);
+        }
+
+        var list = await dbQuery
+            .OrderByDescending(a => a.At)
+            .ThenByDescending(a => a.Id)
+            .Take(200)
+            .ToListAsync(ct);
+
+        var fallbackActor = await GetUserRefAsync(plan.CreatedById, ct);
+
+        var dtos = list.Select(a => new TestActivityDto
+        {
+            ActivityId = a.Id,
+            PlanId = a.PlanId,
+            Type = NormalizeActivityType(a.Type),
+            At = FormatUtc(a.At),
+            Actor = a.Actor != null ? MapUserRef(a.Actor) : fallbackActor,
+            EnvId = a.EnvId,
+            ModuleId = a.ModuleId,
+            TestCaseId = a.TestCaseId,
+            From = a.FromStatus,
+            To = a.ToResult,
+            Build = a.Build,
+            BehalfOf = a.BehalfOf != null ? MapUserRef(a.BehalfOf) : null,
+            Text = a.Text ?? string.Empty
+        }).ToList();
+
+        return ServiceResult<ItemsDto<TestActivityDto>>.Success(new ItemsDto<TestActivityDto>(dtos));
+    }
+
+    public async Task<ServiceResult<ItemsDto<TraceRowDto>>> GetTraceabilityAsync(
+        long planId,
+        long? envId,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<ItemsDto<TraceRowDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TraceRowDto>>();
+
+        var targetEnvId = envId;
+        if (!targetEnvId.HasValue)
+        {
+            targetEnvId = await _db.TestEnvironments
+                .AsNoTracking()
+                .Where(e => e.PlanId == planId && !e.IsDeleted)
+                .OrderBy(e => e.Position)
+                .ThenBy(e => e.Id)
+                .Select(e => (long?)e.Id)
+                .FirstOrDefaultAsync(ct);
+        }
 
         var docs = await _db.DocumentNodes
             .AsNoTracking()
-            .Where(d => d.ProjectId == projectId && !d.IsDeleted && d.Kind == DocumentNodeKinds.Page)
+            .Where(d => d.ProjectId == plan.ProjectId && !d.IsDeleted && d.Kind == DocumentNodeKinds.Page)
             .OrderBy(d => d.SortOrder)
             .ThenBy(d => d.Id)
             .ToListAsync(ct);
 
-        var targetVerIds = docs
+        var verIds = docs
             .Select(d => d.BaselineVersionId ?? d.CurrentVersionId)
             .Where(v => v.HasValue)
             .Select(v => v!.Value)
             .Distinct()
             .ToList();
 
-        var reqItems = targetVerIds.Count == 0
+        var reqItems = verIds.Count == 0
             ? new List<RequirementItem>()
             : await _db.RequirementItems
                 .AsNoTracking()
-                .Where(r => targetVerIds.Contains(r.VersionId))
+                .Where(r => verIds.Contains(r.VersionId))
                 .OrderBy(r => r.SortOrder)
                 .ToListAsync(ct);
 
-        var nodes = new List<TestTreeNodeDto>();
+        var activeCases = await _db.TestCases
+            .AsNoTracking()
+            .Include(tc => tc.RequirementLinks)
+            .Include(tc => tc.Results)
+            .Include(tc => tc.RetestFlags)
+            .Include(tc => tc.BugIssue)
+            .Where(tc => tc.PlanId == planId && tc.Status == TestCaseStatuses.Active)
+            .OrderBy(tc => tc.ModuleId)
+            .ThenBy(tc => tc.SectionId)
+            .ThenBy(tc => tc.Position)
+            .ThenBy(tc => tc.Id)
+            .ToListAsync(ct);
 
-        // 1. Folders
-        foreach (var f in folders)
+        var rows = new List<TraceRowDto>();
+        foreach (var doc in docs)
         {
-            var inFolder = testCases.Where(tc => tc.FolderId == f.Id).ToList();
-            nodes.Add(new TestTreeNodeDto
+            var verId = doc.BaselineVersionId ?? doc.CurrentVersionId;
+            if (!verId.HasValue) continue;
+
+            var docReqs = reqItems.Where(r => r.VersionId == verId.Value).ToList();
+            if (docReqs.Count == 0) continue;
+
+            var docCode = !string.IsNullOrWhiteSpace(doc.Code) ? doc.Code : $"DOC-{doc.Id}";
+            foreach (var r in docReqs)
             {
-                NodeId = $"folder-{f.Id}",
-                Kind = "FOLDER",
-                Label = f.Name,
-                ParentId = f.ParentId.HasValue ? $"folder-{f.ParentId.Value}" : null,
-                FolderId = f.Id,
-                Count = inFolder.Count,
-                PassCount = inFolder.Count(tc => tc.LastResult == TestRunResults.Pass),
-                FailCount = inFolder.Count(tc => tc.LastResult == TestRunResults.Fail),
-                NeedsReviewCount = inFolder.Count(tc => tc.NeedsReview)
-            });
-        }
-
-        // 2. Documents & Requirements
-        var docByVer = docs
-            .Where(d => (d.BaselineVersionId ?? d.CurrentVersionId).HasValue)
-            .ToDictionary(d => (d.BaselineVersionId ?? d.CurrentVersionId)!.Value);
-
-        var reqsByVer = reqItems.GroupBy(r => r.VersionId).ToDictionary(g => g.Key, g => g.ToList());
-
-        foreach (var kvp in docByVer)
-        {
-            var verId = kvp.Key;
-            var doc = kvp.Value;
-            if (!reqsByVer.TryGetValue(verId, out var docReqs) || docReqs.Count == 0) continue;
-
-            var docMatchingCases = testCases
-                .Where(tc => tc.RequirementLinks.Any(rl => rl.DocumentId == doc.Id))
-                .ToList();
-
-            var docNodeId = $"doc-{doc.Id}";
-            nodes.Add(new TestTreeNodeDto
-            {
-                NodeId = docNodeId,
-                Kind = "DOCUMENT",
-                Label = $"{doc.Code} · {doc.Title}",
-                ParentId = null,
-                DocumentId = doc.Id,
-                DocCode = doc.Code,
-                Count = docMatchingCases.Count,
-                PassCount = docMatchingCases.Count(tc => tc.LastResult == TestRunResults.Pass),
-                FailCount = docMatchingCases.Count(tc => tc.LastResult == TestRunResults.Fail),
-                NeedsReviewCount = docMatchingCases.Count(tc => tc.NeedsReview)
-            });
-
-            foreach (var req in docReqs)
-            {
-                var matchingCases = testCases
-                    .Where(tc => tc.RequirementLinks.Any(rl => rl.DocumentId == doc.Id && rl.ReqUid.Equals(req.ReqUid, StringComparison.OrdinalIgnoreCase)))
+                var matchingCases = activeCases
+                    .Where(tc => tc.RequirementLinks.Any(l =>
+                        l.DocumentId == doc.Id &&
+                        string.Equals(l.ReqUid, r.ReqUid, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
 
-                nodes.Add(new TestTreeNodeDto
+                var changed = matchingCases.Any(tc => tc.RequirementLinks.Any(l =>
+                    l.DocumentId == doc.Id &&
+                    string.Equals(l.ReqUid, r.ReqUid, StringComparison.OrdinalIgnoreCase) &&
+                    l.ChangedVersionLabel != null));
+
+                var traceCases = new List<TraceCaseDto>();
+                var bugs = new Dictionary<long, IssueKeyRefDto>();
+
+                foreach (var tc in matchingCases)
                 {
-                    NodeId = $"req-{doc.Id}-{req.ReqUid}",
-                    Kind = "REQUIREMENT",
-                    Label = $"{req.ReqUid} · {req.Title}",
-                    ParentId = docNodeId,
-                    DocumentId = doc.Id,
-                    DocCode = doc.Code,
-                    ReqUid = req.ReqUid,
-                    Requirement = new TestCaseRequirementRefDto
+                    var effStatus = TestResultValues.Untest;
+                    if (targetEnvId.HasValue)
                     {
-                        DocumentId = doc.Id,
-                        DocCode = doc.Code,
-                        DocTitle = doc.Title,
-                        ReqUid = req.ReqUid,
-                        ReqTitle = req.Title,
-                        Changed = matchingCases.Any(tc => tc.RequirementLinks.Any(rl => rl.DocumentId == doc.Id && rl.ReqUid.Equals(req.ReqUid, StringComparison.OrdinalIgnoreCase) && rl.ChangedVersionLabel != null))
-                    },
-                    Count = matchingCases.Count,
-                    PassCount = matchingCases.Count(tc => tc.LastResult == TestRunResults.Pass),
-                    FailCount = matchingCases.Count(tc => tc.LastResult == TestRunResults.Fail),
-                    NeedsReviewCount = matchingCases.Count(tc => tc.NeedsReview)
-                });
-            }
-        }
+                        var hasFlag = tc.RetestFlags.Any(f => f.EnvId == targetEnvId.Value);
+                        var latestRes = tc.Results
+                            .Where(res => res.EnvId == targetEnvId.Value)
+                            .OrderByDescending(res => res.At)
+                            .ThenByDescending(res => res.Id)
+                            .FirstOrDefault()?.Result ?? TestResultValues.Untest;
 
-        // 3. Unlinked node
-        var unlinkedCases = testCases.Where(tc => tc.RequirementLinks.Count == 0).ToList();
-        nodes.Add(new TestTreeNodeDto
-        {
-            NodeId = "unlinked",
-            Kind = "UNLINKED",
-            Label = "Chưa gắn yêu cầu",
-            ParentId = null,
-            Count = unlinkedCases.Count,
-            PassCount = unlinkedCases.Count(tc => tc.LastResult == TestRunResults.Pass),
-            FailCount = unlinkedCases.Count(tc => tc.LastResult == TestRunResults.Fail),
-            NeedsReviewCount = unlinkedCases.Count(tc => tc.NeedsReview)
-        });
+                        effStatus = hasFlag ? "RETEST" : latestRes;
+                    }
 
-        return ServiceResult<ItemsDto<TestTreeNodeDto>>.Success(new ItemsDto<TestTreeNodeDto>(nodes));
-    }
-
-    public async Task<ServiceResult<TestFolderDto>> CreateTestFolderAsync(
-        long projectId,
-        CreateTestFolderRequest request,
-        CancellationToken ct = default)
-    {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestcaseCreate, ct);
-        if (!auth.IsSuccess) return auth.Cast<TestFolderDto>();
-
-        var name = request.Name?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(name) || name.Length > 100)
-        {
-            return ServiceResult<TestFolderDto>.ValidationFailure(new Dictionary<string, string[]>
-            {
-                ["name"] = new[] { "Folder name is required and must be at most 100 characters." }
-            });
-        }
-
-        if (request.ParentId.HasValue)
-        {
-            var parentExists = await _db.TestFolders
-                .AsNoTracking()
-                .AnyAsync(f => f.Id == request.ParentId.Value && f.ProjectId == projectId, ct);
-            if (!parentExists)
-                return ServiceResult<TestFolderDto>.NotFound("FOLDER_NOT_FOUND", "Parent test folder not found.");
-        }
-
-        var maxSort = await _db.TestFolders
-            .Where(f => f.ProjectId == projectId && f.ParentId == request.ParentId)
-            .Select(f => (int?)f.SortOrder)
-            .MaxAsync(ct) ?? -1;
-
-        var folder = new TestFolder
-        {
-            ProjectId = projectId,
-            ParentId = request.ParentId,
-            Name = name,
-            SortOrder = maxSort + 1,
-            CreatedAt = _clock.GetUtcNow().UtcDateTime
-        };
-
-        _db.TestFolders.Add(folder);
-        await _db.SaveChangesAsync(ct);
-
-        return ServiceResult<TestFolderDto>.Created(new TestFolderDto
-        {
-            FolderId = folder.Id,
-            Name = folder.Name,
-            ParentId = folder.ParentId
-        });
-    }
-
-    public async Task<ServiceResult<ItemsDto<TestCaseSummaryDto>>> GetProjectTestCasesAsync(
-        long projectId,
-        TestCaseListQuery query,
-        CancellationToken ct = default)
-    {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestcaseView, ct);
-        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseSummaryDto>>();
-
-        var q = _db.TestCases
-            .AsNoTracking()
-            .Include(tc => tc.LastRunBy)
-            .Include(tc => tc.RequirementLinks)
-            .Include(tc => tc.IssueLinks)
-            .Where(tc => tc.ProjectId == projectId && !tc.IsDeleted);
-
-        if (!string.IsNullOrWhiteSpace(query.ReqUid))
-        {
-            var reqUpper = query.ReqUid.Trim().ToUpperInvariant();
-            if (query.DocumentId.HasValue)
-            {
-                var docId = query.DocumentId.Value;
-                q = q.Where(tc => tc.RequirementLinks.Any(rl => rl.DocumentId == docId && rl.ReqUid == reqUpper));
-            }
-            else
-            {
-                q = q.Where(tc => tc.RequirementLinks.Any(rl => rl.ReqUid == reqUpper));
-            }
-        }
-        else if (query.DocumentId.HasValue)
-        {
-            var docId = query.DocumentId.Value;
-            q = q.Where(tc => tc.RequirementLinks.Any(rl => rl.DocumentId == docId));
-        }
-
-        if (query.FolderId.HasValue)
-        {
-            q = q.Where(tc => tc.FolderId == query.FolderId.Value);
-        }
-
-        if (query.Unlinked == true)
-        {
-            q = q.Where(tc => !tc.RequirementLinks.Any());
-        }
-
-        if (query.NeedsReview.HasValue)
-        {
-            q = q.Where(tc => tc.NeedsReview == query.NeedsReview.Value);
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.LastResult))
-        {
-            var lr = query.LastResult.Trim().ToUpperInvariant();
-            if (lr == TestRunResults.NotRun)
-                q = q.Where(tc => tc.LastResult == null || tc.LastResult == TestRunResults.NotRun);
-            else
-                q = q.Where(tc => tc.LastResult == lr);
-        }
-
-        if (query.IssueId.HasValue)
-        {
-            var issueId = query.IssueId.Value;
-            var issueReqLinks = await _db.IssueRequirementLinks
-                .AsNoTracking()
-                .Where(rl => rl.IssueId == issueId)
-                .Select(rl => new { rl.DocumentId, rl.ReqUid })
-                .ToListAsync(ct);
-
-            var reqUids = issueReqLinks.Select(x => x.ReqUid).Distinct().ToList();
-            q = q.Where(tc => tc.IssueLinks.Any(il => il.IssueId == issueId) ||
-                              (reqUids.Count > 0 && tc.RequirementLinks.Any(rl => reqUids.Contains(rl.ReqUid))));
-        }
-
-        if (!string.IsNullOrWhiteSpace(query.Search))
-        {
-            var s = query.Search.Trim();
-            q = q.Where(tc => tc.Key.Contains(s) || tc.Title.Contains(s) || tc.Preconditions.Contains(s));
-        }
-
-        var testCases = await q.OrderBy(tc => tc.Id).ToListAsync(ct);
-        var dtos = await BuildTestCaseSummaryDtosAsync(testCases, ct);
-
-        return ServiceResult<ItemsDto<TestCaseSummaryDto>>.Success(new ItemsDto<TestCaseSummaryDto>(dtos));
-    }
-
-    public async Task<ServiceResult<TestCaseDetailDto>> CreateTestCaseAsync(
-        long projectId,
-        CreateTestCaseRequest request,
-        CancellationToken ct = default)
-    {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestcaseCreate, ct);
-        if (!auth.IsSuccess) return auth.Cast<TestCaseDetailDto>();
-
-        var errors = new Dictionary<string, string[]>();
-        var title = request.Title?.Trim() ?? string.Empty;
-        var type = request.Type?.Trim().ToUpperInvariant() ?? TestCaseTypes.Functional;
-        var priority = request.Priority?.Trim().ToUpperInvariant() ?? TestCasePriorities.Medium;
-
-        if (string.IsNullOrWhiteSpace(title) || title.Length > 200)
-            errors["title"] = new[] { "Title is required and must be at most 200 characters." };
-        if (!TestCaseTypes.IsValid(type))
-            errors["type"] = new[] { "Invalid test case type." };
-        if (!TestCasePriorities.IsValid(priority))
-            errors["priority"] = new[] { "Priority must be HIGH, MEDIUM, or LOW." };
-        if (request.Steps == null || request.Steps.Count == 0)
-            errors["steps"] = new[] { "At least 1 test step is required." };
-
-        if (errors.Count > 0)
-            return ServiceResult<TestCaseDetailDto>.ValidationFailure(errors);
-
-        if (request.FolderId.HasValue)
-        {
-            var folderExists = await _db.TestFolders
-                .AsNoTracking()
-                .AnyAsync(f => f.Id == request.FolderId.Value && f.ProjectId == projectId, ct);
-            if (!folderExists)
-                return ServiceResult<TestCaseDetailDto>.NotFound("FOLDER_NOT_FOUND", "Test folder not found.");
-        }
-
-        var numberedSteps = NormalizeSteps(request.Steps!);
-        var userId = _currentUser.UserId;
-        var now = _clock.GetUtcNow().UtcDateTime;
-
-        return await _db.ExecuteInTransactionAsync(async innerCt =>
-        {
-            var key = await _db.AllocateTestCaseKeyAsync(projectId, innerCt);
-
-            var tc = new TestCase
-            {
-                ProjectId = projectId,
-                Key = key,
-                Title = title,
-                Type = type,
-                Priority = priority,
-                Preconditions = request.Preconditions?.Trim() ?? string.Empty,
-                Steps = JsonSerializer.Serialize(numberedSteps),
-                StepCount = numberedSteps.Count,
-                FolderId = request.FolderId,
-                NeedsReview = false,
-                CreatedById = userId,
-                CreatedAt = now,
-                UpdatedAt = now
-            };
-
-            _db.TestCases.Add(tc);
-            await _db.SaveChangesAsync(innerCt);
-
-            if (request.RequirementRefs != null && request.RequirementRefs.Count > 0)
-            {
-                var err = await AttachTestCaseRequirementRefsAsync(tc, request.RequirementRefs, now, innerCt);
-                if (!err.IsSuccess) return err.Cast<TestCaseDetailDto>();
-            }
-
-            var issueIdsToLink = request.LinkedIssueIds ?? request.IssueIds;
-            if (issueIdsToLink != null && issueIdsToLink.Count > 0)
-            {
-                var validIssueIds = await _db.Issues
-                    .AsNoTracking()
-                    .Where(i => i.ProjectId == projectId && !i.IsDeleted && issueIdsToLink.Distinct().Contains(i.Id))
-                    .Select(i => i.Id)
-                    .ToListAsync(innerCt);
-
-                foreach (var iid in validIssueIds)
-                {
-                    _db.TestCaseIssueLinks.Add(new TestCaseIssueLink
+                    traceCases.Add(new TraceCaseDto
                     {
                         TestCaseId = tc.Id,
-                        IssueId = iid,
-                        LinkedAt = now
+                        ModuleId = tc.ModuleId,
+                        Code = tc.Code,
+                        Title = tc.Title,
+                        Status = effStatus,
+                        Ai = tc.AiSuggestedReqs
                     });
+
+                    if (tc.BugIssue != null && !tc.BugIssue.IsDeleted)
+                    {
+                        bugs[tc.BugIssue.Id] = new IssueKeyRefDto
+                        {
+                            IssueId = tc.BugIssue.Id,
+                            Key = tc.BugIssue.Key
+                        };
+                    }
                 }
-            }
 
-            await _db.SaveChangesAsync(innerCt);
+                string rowStatus;
+                if (traceCases.Count == 0)
+                    rowStatus = "NO_TESTS";
+                else if (traceCases.Any(c => c.Status == TestResultValues.Fail))
+                    rowStatus = "FAILING";
+                else if (traceCases.All(c => c.Status is TestResultValues.Pass or TestResultValues.Na))
+                    rowStatus = "PASSED";
+                else
+                    rowStatus = "IN_PROGRESS";
 
-            var detailRes = await GetTestCaseDetailAsync(tc.Id, innerCt);
-            return ServiceResult<TestCaseDetailDto>.Created(detailRes.Data!);
-        }, ct);
-    }
-
-    public async Task<ServiceResult<TestCaseDetailDto>> GetTestCaseDetailAsync(
-        long testCaseId,
-        CancellationToken ct = default)
-    {
-        var tc = await _db.TestCases
-            .AsNoTracking()
-            .Include(t => t.CreatedBy)
-            .Include(t => t.LastRunBy)
-            .Include(t => t.RequirementLinks)
-            .Include(t => t.IssueLinks)
-            .FirstOrDefaultAsync(t => t.Id == testCaseId && !t.IsDeleted, ct);
-        if (tc == null)
-            return ServiceResult<TestCaseDetailDto>.NotFound("TESTCASE_NOT_FOUND", "Test case not found.");
-
-        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestcaseView, ct);
-        if (!auth.IsSuccess) return auth.Cast<TestCaseDetailDto>();
-
-        var summaries = await BuildTestCaseSummaryDtosAsync(new List<TestCase> { tc }, ct);
-        var summary = summaries[0];
-
-        var historyRows = await _db.TestRunHistory
-            .AsNoTracking()
-            .Include(h => h.Run)
-                .ThenInclude(r => r.Cycle)
-            .Include(h => h.ExecutedBy)
-            .Include(h => h.DefectIssue)
-            .Where(h => h.TestCaseId == testCaseId)
-            .OrderByDescending(h => h.ExecutedAt)
-            .ThenByDescending(h => h.Id)
-            .ToListAsync(ct);
-
-        var historyDtos = historyRows.Select(h => new TestRunHistoryItemDto
-        {
-            RunId = h.RunId,
-            CycleId = h.Run.CycleId,
-            CycleName = h.Run.Cycle.Name,
-            Result = h.Result,
-            ExecutedBy = MapUserRef(h.ExecutedBy),
-            ExecutedAt = FormatUtc(h.ExecutedAt),
-            Note = h.Note,
-            DefectIssue = h.DefectIssue != null
-                ? new DefectIssueLiteDto { IssueId = h.DefectIssue.Id, Key = h.DefectIssue.Key }
-                : null
-        }).ToList();
-
-        var userId = _currentUser.UserId;
-        var userPerms = await _permissions.GetProjectPermissionsAsync(userId, tc.ProjectId, ct);
-        var permSet = new HashSet<string>(userPerms, StringComparer.OrdinalIgnoreCase);
-
-        var detail = new TestCaseDetailDto
-        {
-            TestCaseId = summary.TestCaseId,
-            ProjectId = summary.ProjectId,
-            Key = summary.Key,
-            Title = summary.Title,
-            Type = summary.Type,
-            Priority = summary.Priority,
-            FolderId = summary.FolderId,
-            Preconditions = tc.Preconditions,
-            Steps = SafeDeserialize<List<TestStepDto>>(tc.Steps) ?? new List<TestStepDto>(),
-            StepCount = summary.StepCount,
-            Requirements = summary.Requirements,
-            LinkedIssues = summary.LinkedIssues,
-            NeedsReview = summary.NeedsReview,
-            LastResult = summary.LastResult,
-            LastRunAt = summary.LastRunAt,
-            LastRunBy = summary.LastRunBy,
-            CreatedBy = MapUserRef(tc.CreatedBy),
-            CreatedAt = FormatUtc(tc.CreatedAt),
-            UpdatedAt = summary.UpdatedAt,
-            RunHistory = historyDtos,
-            Can = new TestCasePermissionsDto
-            {
-                Edit = permSet.Contains(PermissionKeys.TestcaseUpdate),
-                Delete = permSet.Contains(PermissionKeys.TestcaseDelete),
-                Execute = permSet.Contains(PermissionKeys.TestcaseExecute)
-            }
-        };
-
-        return ServiceResult<TestCaseDetailDto>.Success(detail);
-    }
-
-    public async Task<ServiceResult<TestCaseDetailDto>> UpdateTestCaseAsync(
-        long testCaseId,
-        UpdateTestCaseRequest request,
-        CancellationToken ct = default)
-    {
-        var tc = await _db.TestCases
-            .Include(t => t.RequirementLinks)
-            .Include(t => t.IssueLinks)
-            .FirstOrDefaultAsync(t => t.Id == testCaseId && !t.IsDeleted, ct);
-        if (tc == null)
-            return ServiceResult<TestCaseDetailDto>.NotFound("TESTCASE_NOT_FOUND", "Test case not found.");
-
-        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestcaseUpdate, ct);
-        if (!auth.IsSuccess) return auth.Cast<TestCaseDetailDto>();
-
-        var now = _clock.GetUtcNow().UtcDateTime;
-
-        if (request.Title != null)
-        {
-            var t = request.Title.Trim();
-            if (string.IsNullOrWhiteSpace(t) || t.Length > 200)
-                return ServiceResult<TestCaseDetailDto>.ValidationFailure(new Dictionary<string, string[]> { ["title"] = new[] { "Title must be 1..200 chars." } });
-            tc.Title = t;
-        }
-
-        if (request.Type != null)
-        {
-            var t = request.Type.Trim().ToUpperInvariant();
-            if (!TestCaseTypes.IsValid(t))
-                return ServiceResult<TestCaseDetailDto>.ValidationFailure(new Dictionary<string, string[]> { ["type"] = new[] { "Invalid test case type." } });
-            tc.Type = t;
-        }
-
-        if (request.Priority != null)
-        {
-            var p = request.Priority.Trim().ToUpperInvariant();
-            if (!TestCasePriorities.IsValid(p))
-                return ServiceResult<TestCaseDetailDto>.ValidationFailure(new Dictionary<string, string[]> { ["priority"] = new[] { "Invalid priority." } });
-            tc.Priority = p;
-        }
-
-        if (request.Preconditions != null)
-        {
-            tc.Preconditions = request.Preconditions.Trim();
-        }
-
-        if (request.FolderIdSpecified)
-        {
-            if (request.FolderId.HasValue)
-            {
-                var folderExists = await _db.TestFolders
-                    .AsNoTracking()
-                    .AnyAsync(f => f.Id == request.FolderId.Value && f.ProjectId == tc.ProjectId, ct);
-                if (!folderExists)
-                    return ServiceResult<TestCaseDetailDto>.NotFound("FOLDER_NOT_FOUND", "Test folder not found.");
-            }
-            tc.FolderId = request.FolderId;
-        }
-
-        if (request.Steps != null)
-        {
-            if (request.Steps.Count == 0)
-                return ServiceResult<TestCaseDetailDto>.ValidationFailure(new Dictionary<string, string[]> { ["steps"] = new[] { "At least 1 step is required." } });
-            var numbered = NormalizeSteps(request.Steps);
-            tc.Steps = JsonSerializer.Serialize(numbered);
-            tc.StepCount = numbered.Count;
-        }
-
-        if (request.RequirementRefs != null)
-        {
-            _db.TestCaseRequirementLinks.RemoveRange(tc.RequirementLinks);
-            tc.RequirementLinks.Clear();
-            var err = await AttachTestCaseRequirementRefsAsync(tc, request.RequirementRefs, now, ct);
-            if (!err.IsSuccess) return err.Cast<TestCaseDetailDto>();
-            tc.NeedsReview = false;
-        }
-        else if (request.MarkReviewed == true || request.NeedsReview == false || request.Steps != null)
-        {
-            tc.NeedsReview = false;
-            foreach (var link in tc.RequirementLinks)
-            {
-                var doc = await _db.DocumentNodes.AsNoTracking().FirstOrDefaultAsync(d => d.Id == link.DocumentId, ct);
-                var verId = doc?.BaselineVersionId ?? doc?.CurrentVersionId;
-                if (verId.HasValue)
+                rows.Add(new TraceRowDto
                 {
-                    var req = await _db.RequirementItems
-                        .AsNoTracking()
-                        .FirstOrDefaultAsync(r => r.VersionId == verId.Value && r.ReqUid == link.ReqUid, ct);
-                    if (req != null) link.ReqHash = req.ContentHash;
-                }
-                link.ChangedVersionLabel = null;
-            }
-        }
-
-        var issueIdsToUpdate = request.LinkedIssueIds ?? request.IssueIds;
-        if (issueIdsToUpdate != null)
-        {
-            _db.TestCaseIssueLinks.RemoveRange(tc.IssueLinks);
-            tc.IssueLinks.Clear();
-
-            var validIssueIds = await _db.Issues
-                .AsNoTracking()
-                .Where(i => i.ProjectId == tc.ProjectId && !i.IsDeleted && issueIdsToUpdate.Distinct().Contains(i.Id))
-                .Select(i => i.Id)
-                .ToListAsync(ct);
-
-            foreach (var iid in validIssueIds)
-            {
-                _db.TestCaseIssueLinks.Add(new TestCaseIssueLink
-                {
-                    TestCaseId = tc.Id,
-                    IssueId = iid,
-                    LinkedAt = now
+                    DocumentId = doc.Id,
+                    DocumentCode = docCode,
+                    DocumentTitle = doc.Title,
+                    ReqUid = r.ReqUid,
+                    ReqKey = $"{docCode}:{r.ReqUid}",
+                    Title = r.Title,
+                    AnchorId = r.AnchorId,
+                    Changed = changed,
+                    Status = rowStatus,
+                    Cases = traceCases,
+                    Bugs = bugs.Values.ToList()
                 });
             }
         }
 
-        tc.UpdatedAt = now;
-        await _db.SaveChangesAsync(ct);
-
-        return await GetTestCaseDetailAsync(tc.Id, ct);
-    }
-
-    public async Task<ServiceResult> DeleteTestCaseAsync(long testCaseId, CancellationToken ct = default)
-    {
-        var tc = await _db.TestCases.FirstOrDefaultAsync(t => t.Id == testCaseId && !t.IsDeleted, ct);
-        if (tc == null)
-            return ServiceResult.NotFound("TESTCASE_NOT_FOUND", "Test case not found.");
-
-        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestcaseDelete, ct);
-        if (!auth.IsSuccess) return auth;
-
-        tc.IsDeleted = true;
-        tc.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
-
-        var pendingRuns = await _db.TestRuns
-            .Include(r => r.Cycle)
-            .Where(r => r.TestCaseId == testCaseId && r.Cycle.Status == TestCycleStatuses.Open && r.Result == TestRunResults.NotRun)
-            .ToListAsync(ct);
-
-        if (pendingRuns.Count > 0)
-        {
-            _db.TestRuns.RemoveRange(pendingRuns);
-        }
-
-        await _db.SaveChangesAsync(ct);
-        return ServiceResult.NoContent();
+        return ServiceResult<ItemsDto<TraceRowDto>>.Success(new ItemsDto<TraceRowDto>(rows));
     }
 
     public async Task<ServiceResult<ItemsDto<SuggestedTestCaseDto>>> SuggestTestCasesAsync(
@@ -639,614 +2097,603 @@ public class TestingService : ITestingService
         SuggestTestCasesRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestcaseCreate, ct);
+        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<SuggestedTestCaseDto>>();
 
-        if (request.Refs == null || request.Refs.Count == 0)
+        var refs = request.Refs ?? new List<RequirementRefInputDto>();
+        if (refs.Count == 0)
+            return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>());
+
+        var planDto = request.PlanId.HasValue
+            ? await BuildPlanDtoAsync(request.PlanId.Value, ct)
+            : null;
+
+        var docIds = refs.Select(r => r.DocumentId).Distinct().ToList();
+        var docs = await _db.DocumentNodes
+            .AsNoTracking()
+            .Where(d => d.ProjectId == projectId && docIds.Contains(d.Id) && !d.IsDeleted)
+            .ToDictionaryAsync(d => d.Id, ct);
+
+        var verIds = docs.Values
+            .Select(d => d.BaselineVersionId ?? d.CurrentVersionId)
+            .Where(v => v.HasValue)
+            .Select(v => v!.Value)
+            .Distinct()
+            .ToList();
+
+        var reqItems = verIds.Count == 0
+            ? new List<RequirementItem>()
+            : await _db.RequirementItems
+                .AsNoTracking()
+                .Where(r => verIds.Contains(r.VersionId))
+                .ToListAsync(ct);
+
+        var docHeadingsByDoc = new Dictionary<long, List<DocSectionDto>>();
+        if (verIds.Count > 0)
         {
-            return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.ValidationFailure(new Dictionary<string, string[]>
+            var versions = await _db.DocumentVersions
+                .AsNoTracking()
+                .Where(v => verIds.Contains(v.Id))
+                .ToListAsync(ct);
+
+            foreach (var v in versions)
             {
-                ["refs"] = new[] { "At least 1 requirement reference is required." }
-            });
+                docHeadingsByDoc[v.DocumentId] = DocumentContentHelper.ExtractDocSections(v.Content);
+            }
         }
 
         var suggestions = new List<SuggestedTestCaseDto>();
-        int idx = 1;
+        var seq = 1;
 
-        foreach (var r in request.Refs)
+        foreach (var rf in refs)
         {
-            var doc = await _db.DocumentNodes
-                .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == r.DocumentId && d.ProjectId == projectId && !d.IsDeleted, ct);
-            if (doc == null) continue;
+            if (!docs.TryGetValue(rf.DocumentId, out var doc))
+                continue;
 
             var verId = doc.BaselineVersionId ?? doc.CurrentVersionId;
             if (!verId.HasValue) continue;
 
-            var reqUidUpper = r.ReqUid.Trim().ToUpperInvariant();
-            var req = await _db.RequirementItems
-                .AsNoTracking()
-                .FirstOrDefaultAsync(ri => ri.VersionId == verId.Value && ri.ReqUid == reqUidUpper, ct);
+            var req = reqItems.FirstOrDefault(r =>
+                r.VersionId == verId.Value &&
+                string.Equals(r.ReqUid, rf.ReqUid, StringComparison.OrdinalIgnoreCase));
             if (req == null) continue;
 
-            var acList = SafeDeserialize<List<string>>(req.AcceptanceCriteria) ?? new List<string>();
-            var firstAc = acList.FirstOrDefault() ?? $"Hệ thống xử lý thành công yêu cầu {req.Title}.";
-            var secondAc = acList.Skip(1).FirstOrDefault() ?? "Hiển thị thông báo lỗi khi dữ liệu không hợp lệ.";
+            var docSections = docHeadingsByDoc.GetValueOrDefault(doc.Id) ?? new List<DocSectionDto>();
+            var parentHeading = FindParentHeading(docSections, req.AnchorId, req.ReqUid);
+            var sectionAnchor = parentHeading?.AnchorId ?? req.AnchorId;
+            var sectionTitle = parentHeading != null
+                ? StripHeadingNumber(parentHeading.Title)
+                : req.Title;
 
-            // 1. Happy path
-            suggestions.Add(new SuggestedTestCaseDto
+            var criteria = SafeDeserialize<List<string>>(req.AcceptanceCriteria) ?? new List<string>();
+            if (criteria.Count > 0)
             {
-                TempId = $"sug-{idx++}",
-                ReqUid = req.ReqUid,
-                DocumentId = doc.Id,
-                Title = $"[{req.ReqUid}] Kiểm tra luồng chính: {req.Title}",
-                Type = TestCaseTypes.Functional,
-                Priority = TestCasePriorities.High,
-                Preconditions = "Người dùng đã đăng nhập và có quyền truy cập chức năng.",
-                FromCriterion = firstAc,
-                Steps = new List<TestStepDto>
+                foreach (var ac in criteria)
                 {
-                    new() { StepNumber = 1, Action = $"Truy cập màn hình chức năng của {req.Title}", TestData = null, Expected = "Hiển thị đầy đủ các trường thông tin hợp lệ." },
-                    new() { StepNumber = 2, Action = "Nhập dữ liệu hợp lệ và thực hiện thao tác chính", TestData = "Dữ liệu chuẩn theo đặc tả", Expected = firstAc }
+                    var cat = ClassifyCriterionCategory(ac);
+                    suggestions.Add(new SuggestedTestCaseDto
+                    {
+                        TempId = $"sg-{seq++}",
+                        Title = $"{req.Title} — {TruncateTitle(ac, 90)}",
+                        Preconditions = $"Tài liệu {doc.Code ?? $"DOC-{doc.Id}"} · {req.ReqUid}",
+                        Priority = cat == "Validate" ? TestCasePriorities.Medium : TestCasePriorities.High,
+                        Category = cat,
+                        Steps = new List<TestStepDto>
+                        {
+                            new() { Action = $"Thực hiện chức năng \"{req.Title}\"", Expected = "Màn hình hiển thị sẵn sàng" },
+                            new() { Action = $"Kiểm tra điều kiện: {ac}", Expected = ac }
+                        },
+                        RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
+                        FromCriterion = ac,
+                        Placement = ComputePlacement(planDto, doc.Id, doc.Title, sectionAnchor, sectionTitle, cat)
+                    });
                 }
-            });
+            }
+            else
+            {
+                var catFunc = "Chức năng";
+                suggestions.Add(new SuggestedTestCaseDto
+                {
+                    TempId = $"sg-{seq++}",
+                    Title = $"{req.Title} — dữ liệu hợp lệ",
+                    Preconditions = $"Người dùng có quyền truy cập chức năng {req.Title}",
+                    Priority = TestCasePriorities.High,
+                    Category = catFunc,
+                    Steps = new List<TestStepDto>
+                    {
+                        new() { Action = $"Mở màn hình \"{req.Title}\"", Expected = "Hiển thị đầy đủ các trường theo đặc tả" },
+                        new() { Action = "Nhập dữ liệu hợp lệ và bấm Lưu / Thực hiện", Expected = "Xử lý thành công và hiển thị thông báo" }
+                    },
+                    RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
+                    FromCriterion = null,
+                    Placement = ComputePlacement(planDto, doc.Id, doc.Title, sectionAnchor, sectionTitle, catFunc)
+                });
 
-            // 2. Negative / Validation path
-            suggestions.Add(new SuggestedTestCaseDto
-            {
-                TempId = $"sug-{idx++}",
-                ReqUid = req.ReqUid,
-                DocumentId = doc.Id,
-                Title = $"[{req.ReqUid}] Kiểm tra dữ liệu không hợp lệ / bắt buộc: {req.Title}",
-                Type = TestCaseTypes.Functional,
-                Priority = TestCasePriorities.Medium,
-                Preconditions = "Người dùng đang ở màn hình thao tác chức năng.",
-                FromCriterion = secondAc,
-                Steps = new List<TestStepDto>
+                var catVal = "Validate";
+                suggestions.Add(new SuggestedTestCaseDto
                 {
-                    new() { StepNumber = 1, Action = "Bỏ trống hoặc nhập sai định dạng các trường bắt buộc", TestData = "Trường bắt buộc = rỗng", Expected = secondAc },
-                    new() { StepNumber = 2, Action = "Kiểm tra dữ liệu không bị lưu sai vào hệ thống", TestData = null, Expected = "Trạng thái dữ liệu giữ nguyên, không phát sinh bản ghi lỗi." }
-                }
-            });
+                    TempId = $"sg-{seq++}",
+                    Title = $"{req.Title} — bỏ trống trường bắt buộc",
+                    Preconditions = $"Người dùng ở màn hình {req.Title}",
+                    Priority = TestCasePriorities.Medium,
+                    Category = catVal,
+                    Steps = new List<TestStepDto>
+                    {
+                        new() { Action = "Để trống trường bắt buộc và bấm Lưu / Thực hiện", Expected = "Hệ thống chặn lưu và hiển thị thông báo lỗi tương ứng" }
+                    },
+                    RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
+                    FromCriterion = null,
+                    Placement = ComputePlacement(planDto, doc.Id, doc.Title, sectionAnchor, sectionTitle, catVal)
+                });
+            }
         }
 
         return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>(suggestions));
     }
 
-    public async Task<ServiceResult<ItemsDto<TestCycleDto>>> GetProjectTestCyclesAsync(
-        long projectId,
-        string? status,
+    public async Task<ServiceResult<ItemsDto<TestCaseDto>>> AiApplyTestCasesAsync(
+        long planId,
+        AiApplyTestCasesRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestcaseView, ct);
-        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCycleDto>>();
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var q = _db.TestCycles
-            .AsNoTracking()
-            .Include(c => c.Sprint)
-            .Include(c => c.CreatedBy)
-            .Include(c => c.Runs)
-            .Where(c => c.ProjectId == projectId);
+        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
 
-        if (!string.IsNullOrWhiteSpace(status))
+        var items = request.Items ?? new List<AiApplyItemDto>();
+        if (items.Count == 0)
+            return ServiceResult<ItemsDto<TestCaseDto>>.Success(new ItemsDto<TestCaseDto>());
+
+        var createdIds = new List<long>();
+
+        foreach (var item in items)
         {
-            var stUpper = status.Trim().ToUpperInvariant();
-            q = q.Where(c => c.Status == stUpper);
+            var p = item.Placement ?? new TestPlacementDto
+            {
+                DocumentId = item.RequirementRef?.DocumentId ?? 0,
+                SectionTitle = "Mục kiểm thử",
+                Category = item.Category ?? "Chức năng"
+            };
+
+            // 1. Ensure Module
+            long? moduleId = p.ModuleId;
+            if (!moduleId.HasValue || !await _db.TestModules.AnyAsync(m => m.Id == moduleId.Value && m.PlanId == planId, ct))
+            {
+                var existingMod = p.DocumentId > 0
+                    ? await _db.TestModules.FirstOrDefaultAsync(m => m.PlanId == planId && m.DocumentId == p.DocumentId, ct)
+                    : await _db.TestModules.FirstOrDefaultAsync(m => m.PlanId == planId, ct);
+
+                if (existingMod != null)
+                {
+                    moduleId = existingMod.Id;
+                }
+                else
+                {
+                    var modRes = await CreateModuleAsync(planId, new CreateTestModuleRequest
+                    {
+                        DocumentId = p.DocumentId > 0 ? p.DocumentId : null,
+                        AnchorIds = !string.IsNullOrWhiteSpace(p.AnchorId) ? new List<string> { p.AnchorId! } : null
+                    }, ct);
+                    moduleId = modRes.Data!.ModuleId;
+                }
+            }
+
+            // 2. Ensure Top-Level Section
+            long? sectionId = p.SectionId;
+            if (!sectionId.HasValue || !await _db.TestSections.AnyAsync(s => s.Id == sectionId.Value && s.ModuleId == moduleId.Value, ct))
+            {
+                var modSections = await _db.TestSections
+                    .Where(s => s.ModuleId == moduleId.Value && s.ParentId == null)
+                    .ToListAsync(ct);
+
+                var matchedSec = (!string.IsNullOrWhiteSpace(p.AnchorId)
+                        ? modSections.FirstOrDefault(s => string.Equals(s.AnchorId, p.AnchorId, StringComparison.OrdinalIgnoreCase))
+                        : null)
+                    ?? modSections.FirstOrDefault(s => string.Equals(s.Title.Trim(), (p.SectionTitle ?? "").Trim(), StringComparison.OrdinalIgnoreCase));
+
+                if (matchedSec != null)
+                {
+                    sectionId = matchedSec.Id;
+                }
+                else
+                {
+                    var secRes = await CreateSectionAsync(moduleId.Value, new CreateTestSectionRequest
+                    {
+                        ParentId = null,
+                        Title = !string.IsNullOrWhiteSpace(p.SectionTitle) ? p.SectionTitle : "Mục kiểm thử",
+                        AnchorId = p.AnchorId
+                    }, ct);
+                    sectionId = secRes.Data!.SectionId;
+                }
+            }
+
+            // 3. Ensure Group (child section)
+            long? groupId = p.GroupId;
+            var groupCategory = !string.IsNullOrWhiteSpace(p.Category)
+                ? p.Category.Trim()
+                : (!string.IsNullOrWhiteSpace(item.Category) ? item.Category.Trim() : "Chức năng");
+
+            if (!groupId.HasValue || !await _db.TestSections.AnyAsync(s => s.Id == groupId.Value && s.ModuleId == moduleId.Value, ct))
+            {
+                var childGroup = await _db.TestSections
+                    .FirstOrDefaultAsync(s => s.ModuleId == moduleId.Value &&
+                                              s.ParentId == sectionId.Value &&
+                                              s.Title.ToLower() == groupCategory.ToLower(), ct);
+                if (childGroup != null)
+                {
+                    groupId = childGroup.Id;
+                }
+                else
+                {
+                    var grpRes = await CreateSectionAsync(moduleId.Value, new CreateTestSectionRequest
+                    {
+                        ParentId = sectionId.Value,
+                        Title = groupCategory
+                    }, ct);
+                    groupId = grpRes.Data!.SectionId;
+                }
+            }
+
+            var reqRefs = item.RequirementRef != null && item.RequirementRef.DocumentId > 0 && !string.IsNullOrWhiteSpace(item.RequirementRef.ReqUid)
+                ? new List<RequirementRefInputDto> { item.RequirementRef }
+                : new List<RequirementRefInputDto>();
+
+            var tcRes = await CreateTestCaseAsync(planId, new CreateTestCaseRequest
+            {
+                SectionId = groupId.Value,
+                Title = item.Title,
+                Preconditions = item.Preconditions,
+                Priority = item.Priority,
+                Category = item.Category ?? groupCategory,
+                Steps = item.Steps,
+                RequirementRefs = reqRefs,
+                AiSuggestedReqs = true
+            }, ct);
+
+            if (tcRes.IsSuccess && tcRes.Data != null)
+            {
+                createdIds.Add(tcRes.Data.TestCaseId);
+            }
         }
 
-        var cycles = await q
-            .OrderByDescending(c => c.Status == TestCycleStatuses.Open)
-            .ThenByDescending(c => c.CreatedAt)
+        if (createdIds.Count > 0)
+        {
+            _db.TestActivities.Add(new TestActivity
+            {
+                PlanId = planId,
+                Type = TestActivityTypes.TestCase,
+                At = _clock.GetUtcNow().UtcDateTime,
+                ActorId = _currentUser.UserId,
+                Text = $"Sinh {createdIds.Count} test case từ yêu cầu (AI)"
+            });
+            await _db.SaveChangesAsync(ct);
+        }
+
+        var dtos = await LoadAndMapTestCasesAsync(plan.ProjectId, createdIds, ct);
+        return ServiceResult<ItemsDto<TestCaseDto>>.Created(new ItemsDto<TestCaseDto>(dtos));
+    }
+
+    // =========================================================================
+    // Internal Builders & Helpers
+    // =========================================================================
+
+    private async Task<TestPlanDto?> BuildPlanDtoAsync(long planId, CancellationToken ct)
+    {
+        var plan = await _db.TestPlans
+            .AsNoTracking()
+            .Include(p => p.HandoverBy)
+            .FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null) return null;
+
+        var envs = await _db.TestEnvironments
+            .AsNoTracking()
+            .Include(e => e.Builds)
+                .ThenInclude(b => b.DeployedBy)
+            .Where(e => e.PlanId == planId && !e.IsDeleted)
+            .OrderBy(e => e.Position)
+            .ThenBy(e => e.Id)
             .ToListAsync(ct);
 
-        var dtos = cycles.Select(MapTestCycleDto).ToList();
-        return ServiceResult<ItemsDto<TestCycleDto>>.Success(new ItemsDto<TestCycleDto>(dtos));
-    }
-
-    public async Task<ServiceResult<TestCycleDto>> CreateTestCycleAsync(
-        long projectId,
-        CreateTestCycleRequest request,
-        CancellationToken ct = default)
-    {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestcaseCreate, ct);
-        if (!auth.IsSuccess)
+        var envDtos = new List<TestEnvironmentDto>(envs.Count);
+        foreach (var e in envs)
         {
-            auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestcaseExecute, ct);
-        }
-        if (!auth.IsSuccess) return auth.Cast<TestCycleDto>();
-
-        var name = request.Name?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(name) || name.Length > 150)
-        {
-            return ServiceResult<TestCycleDto>.ValidationFailure(new Dictionary<string, string[]>
-            {
-                ["name"] = new[] { "Cycle name is required and must be at most 150 characters." }
-            });
+            envDtos.Add(await MapEnvironmentDtoAsync(e, ct));
         }
 
-        var tcQuery = _db.TestCases
-            .AsNoTracking()
-            .Include(tc => tc.RequirementLinks)
-            .Where(tc => tc.ProjectId == projectId && !tc.IsDeleted);
+        var modules = await BuildPlanModulesDtoAsync(plan.ProjectId, planId, ct);
+        var moduleIds = modules.Select(m => m.ModuleId).ToList();
 
-        var f = request.Filter;
-        var explicitTestCaseIds = f?.TestCaseIds ?? request.TestCaseIds;
-        if (explicitTestCaseIds != null && explicitTestCaseIds.Count > 0)
-        {
-            tcQuery = tcQuery.Where(tc => explicitTestCaseIds.Contains(tc.Id));
-        }
-        if (f != null)
-        {
-            if (f.ReqUids != null && f.ReqUids.Count > 0)
-            {
-                var upperUids = f.ReqUids.Select(u => u.Trim().ToUpperInvariant()).ToList();
-                tcQuery = tcQuery.Where(tc => tc.RequirementLinks.Any(rl => upperUids.Contains(rl.ReqUid)));
-            }
-            if (f.FolderId.HasValue)
-            {
-                tcQuery = tcQuery.Where(tc => tc.FolderId == f.FolderId.Value);
-            }
-        }
-
-        var selectedIds = await tcQuery.OrderBy(tc => tc.Id).Select(tc => tc.Id).ToListAsync(ct);
-        if (selectedIds.Count == 0)
-        {
-            return ServiceResult<TestCycleDto>.BadRequest(
-                "EMPTY_TEST_CYCLE",
-                "Không tìm thấy test case nào thoả mãn bộ lọc để đưa vào chu kỳ kiểm thử.");
-        }
-
-        var userId = _currentUser.UserId;
-        var now = _clock.GetUtcNow().UtcDateTime;
-
-        var cycle = new TestCycle
-        {
-            ProjectId = projectId,
-            Name = name,
-            SprintId = request.SprintId,
-            Status = TestCycleStatuses.Open,
-            CreatedById = userId,
-            CreatedAt = now,
-            UpdatedAt = now
-        };
-
-        _db.TestCycles.Add(cycle);
-        await _db.SaveChangesAsync(ct);
-
-        var defaultAssigneeId = f?.DefaultAssigneeId ?? request.DefaultAssigneeId;
-        foreach (var tcId in selectedIds)
-        {
-            _db.TestRuns.Add(new TestRun
-            {
-                CycleId = cycle.Id,
-                TestCaseId = tcId,
-                AssigneeId = defaultAssigneeId,
-                Result = TestRunResults.NotRun,
-                NeedsRerun = false
-            });
-        }
-
-        await _db.SaveChangesAsync(ct);
-
-        var loaded = await _db.TestCycles
-            .AsNoTracking()
-            .Include(c => c.Sprint)
-            .Include(c => c.CreatedBy)
-            .Include(c => c.Runs)
-            .FirstAsync(c => c.Id == cycle.Id, ct);
-
-        return ServiceResult<TestCycleDto>.Created(MapTestCycleDto(loaded));
-    }
-
-    public async Task<ServiceResult<TestCycleDto>> UpdateTestCycleAsync(
-        long cycleId,
-        UpdateTestCycleRequest request,
-        CancellationToken ct = default)
-    {
-        var cycle = await _db.TestCycles
-            .Include(c => c.Runs)
-            .FirstOrDefaultAsync(c => c.Id == cycleId, ct);
-        if (cycle == null)
-            return ServiceResult<TestCycleDto>.NotFound("CYCLE_NOT_FOUND", "Test cycle not found.");
-
-        var auth = await EnsureProjectPermissionAsync(cycle.ProjectId, PermissionKeys.TestcaseUpdate, ct);
-        if (!auth.IsSuccess)
-        {
-            auth = await EnsureProjectPermissionAsync(cycle.ProjectId, PermissionKeys.TestcaseExecute, ct);
-        }
-        if (!auth.IsSuccess) return auth.Cast<TestCycleDto>();
-
-        if (request.Name != null)
-        {
-            var n = request.Name.Trim();
-            if (string.IsNullOrWhiteSpace(n) || n.Length > 150)
-                return ServiceResult<TestCycleDto>.ValidationFailure(new Dictionary<string, string[]> { ["name"] = new[] { "Name must be 1..150 chars." } });
-            cycle.Name = n;
-        }
-
-        if (request.Status != null)
-        {
-            var st = request.Status.Trim().ToUpperInvariant();
-            if (!TestCycleStatuses.IsValid(st))
-                return ServiceResult<TestCycleDto>.ValidationFailure(new Dictionary<string, string[]> { ["status"] = new[] { "Status must be OPEN or CLOSED." } });
-            cycle.Status = st;
-        }
-
-        if (request.AddTestCaseIds != null && request.AddTestCaseIds.Count > 0)
-        {
-            var existingTcIds = cycle.Runs.Select(r => r.TestCaseId).ToHashSet();
-            var validNewTcIds = await _db.TestCases
+        var assignments = moduleIds.Count == 0
+            ? new List<TestAssignmentDto>()
+            : await _db.TestAssignments
                 .AsNoTracking()
-                .Where(tc => tc.ProjectId == cycle.ProjectId && !tc.IsDeleted && request.AddTestCaseIds.Distinct().Contains(tc.Id))
-                .Select(tc => tc.Id)
+                .Include(a => a.Assignee)
+                .Where(a => moduleIds.Contains(a.ModuleId) && !a.Environment.IsDeleted)
+                .Select(a => new TestAssignmentDto
+                {
+                    ModuleId = a.ModuleId,
+                    EnvId = a.EnvId,
+                    Assignee = MapUserRef(a.Assignee)
+                })
                 .ToListAsync(ct);
 
-            foreach (var tcId in validNewTcIds.Where(id => !existingTcIds.Contains(id)))
-            {
-                _db.TestRuns.Add(new TestRun
-                {
-                    CycleId = cycle.Id,
-                    TestCaseId = tcId,
-                    Result = TestRunResults.NotRun
-                });
-            }
-        }
-
-        cycle.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
-        await _db.SaveChangesAsync(ct);
-
-        var loaded = await _db.TestCycles
+        var members = await _db.ProjectMembers
             .AsNoTracking()
-            .Include(c => c.Sprint)
-            .Include(c => c.CreatedBy)
-            .Include(c => c.Runs)
-            .FirstAsync(c => c.Id == cycle.Id, ct);
+            .Include(pm => pm.User)
+            .Include(pm => pm.Role)
+            .Where(pm => pm.ProjectId == plan.ProjectId && pm.IsActive)
+            .OrderBy(pm => pm.JoinedAt)
+            .ToListAsync(ct);
 
-        return ServiceResult<TestCycleDto>.Success(MapTestCycleDto(loaded));
+        var people = members.Select(pm =>
+        {
+            var roleCode = pm.Role?.Code ?? string.Empty;
+            var roleName = pm.Role?.Name ?? string.Empty;
+            var isQa = Regex.IsMatch(roleCode + " " + roleName, "qa|test|kiểm thử", RegexOptions.IgnoreCase);
+            return new TestPersonDto
+            {
+                UserId = pm.UserId,
+                FullName = pm.User.FullName,
+                Email = pm.User.Email,
+                AvatarUrl = pm.User.AvatarUrl,
+                Qa = isQa
+            };
+        }).ToList();
+
+        TestHandoverDto? handover = null;
+        if (plan.Status == TestPlanStatuses.HandedOver && plan.HandoverAt.HasValue && plan.HandoverBy != null)
+        {
+            handover = new TestHandoverDto
+            {
+                By = MapUserRef(plan.HandoverBy),
+                At = FormatUtc(plan.HandoverAt.Value),
+                Note = plan.HandoverNote
+            };
+        }
+
+        return new TestPlanDto
+        {
+            PlanId = plan.Id,
+            ProjectId = plan.ProjectId,
+            Name = plan.Name,
+            StartDate = FormatOptionalDate(plan.StartDate),
+            EndDate = FormatOptionalDate(plan.EndDate),
+            Status = plan.Status,
+            CreatedAt = FormatUtc(plan.CreatedAt),
+            Handover = handover,
+            Environments = envDtos,
+            Modules = modules,
+            Assignments = assignments,
+            Layout = ParseLayout(plan.SheetLayout),
+            People = people
+        };
     }
 
-    public async Task<ServiceResult<ItemsDto<TestRunDto>>> GetCycleRunsAsync(
-        long cycleId,
-        TestRunListQuery query,
-        CancellationToken ct = default)
+    private async Task<TestEnvironmentDto> MapEnvironmentDtoAsync(TestEnvironment env, CancellationToken ct)
     {
-        var cycle = await _db.TestCycles
-            .AsNoTracking()
-            .FirstOrDefaultAsync(c => c.Id == cycleId, ct);
-        if (cycle == null)
-            return ServiceResult<ItemsDto<TestRunDto>>.NotFound("CYCLE_NOT_FOUND", "Test cycle not found.");
+        var builds = env.Builds
+            .OrderByDescending(b => b.DeployedAt)
+            .ThenByDescending(b => b.Id)
+            .ToList();
 
-        var auth = await EnsureProjectPermissionAsync(cycle.ProjectId, PermissionKeys.TestcaseView, ct);
-        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestRunDto>>();
-
-        var q = _db.TestRuns
-            .AsNoTracking()
-            .Include(r => r.TestCase)
-                .ThenInclude(tc => tc.RequirementLinks)
-            .Include(r => r.TestCase)
-                .ThenInclude(tc => tc.IssueLinks)
-            .Include(r => r.TestCase)
-                .ThenInclude(tc => tc.LastRunBy)
-            .Include(r => r.Assignee)
-            .Include(r => r.ExecutedBy)
-            .Include(r => r.Defects)
-                .ThenInclude(d => d.Issue)
-                    .ThenInclude(i => i.Status)
-            .Where(r => r.CycleId == cycleId);
-
-        if (!string.IsNullOrWhiteSpace(query.AssigneeId))
+        var allIssueIds = new HashSet<long>();
+        var parsedIssueIdsByBuild = new Dictionary<long, List<long>>();
+        foreach (var b in builds)
         {
-            var aVal = query.AssigneeId.Trim();
-            if (aVal.Equals("me", StringComparison.OrdinalIgnoreCase))
-            {
-                var myId = _currentUser.UserId;
-                q = q.Where(r => r.AssigneeId == myId);
-            }
-            else if (long.TryParse(aVal, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedAssigneeId))
-            {
-                q = q.Where(r => r.AssigneeId == parsedAssigneeId);
-            }
+            var ids = SafeDeserialize<List<long>>(b.FixedIssueIds) ?? new List<long>();
+            parsedIssueIdsByBuild[b.Id] = ids;
+            foreach (var id in ids) allIssueIds.Add(id);
         }
 
-        if (!string.IsNullOrWhiteSpace(query.Result))
-        {
-            var resUpper = query.Result.Trim().ToUpperInvariant();
-            q = q.Where(r => r.Result == resUpper);
-        }
-
-        if (query.NeedsRerun.HasValue)
-        {
-            q = q.Where(r => r.NeedsRerun == query.NeedsRerun.Value);
-        }
-
-        var runs = await q.OrderBy(r => r.Id).ToListAsync(ct);
-        var dtos = await BuildTestRunDtosAsync(runs, ct);
-
-        return ServiceResult<ItemsDto<TestRunDto>>.Success(new ItemsDto<TestRunDto>(dtos));
-    }
-
-    public async Task<ServiceResult<TestRunDto>> UpdateTestRunAsync(
-        long runId,
-        UpdateTestRunRequest request,
-        CancellationToken ct = default)
-    {
-        var run = await _db.TestRuns
-            .Include(r => r.Cycle)
-            .FirstOrDefaultAsync(r => r.Id == runId, ct);
-        if (run == null)
-            return ServiceResult<TestRunDto>.NotFound("RUN_NOT_FOUND", "Test run not found.");
-
-        var auth = await EnsureProjectPermissionAsync(run.Cycle.ProjectId, PermissionKeys.TestcaseExecute, ct);
-        if (!auth.IsSuccess)
-        {
-            auth = await EnsureProjectPermissionAsync(run.Cycle.ProjectId, PermissionKeys.TestcaseUpdate, ct);
-        }
-        if (!auth.IsSuccess) return auth.Cast<TestRunDto>();
-
-        run.AssigneeId = request.AssigneeId;
-        await _db.SaveChangesAsync(ct);
-
-        return await GetSingleRunDtoAsync(runId, ct);
-    }
-
-    public async Task<ServiceResult<TestRunDto>> RecordTestRunResultAsync(
-        long runId,
-        RecordTestRunResultRequest request,
-        CancellationToken ct = default)
-    {
-        var run = await _db.TestRuns
-            .Include(r => r.Cycle)
-            .Include(r => r.TestCase)
-                .ThenInclude(tc => tc.RequirementLinks)
-            .Include(r => r.Defects)
-            .FirstOrDefaultAsync(r => r.Id == runId, ct);
-        if (run == null)
-            return ServiceResult<TestRunDto>.NotFound("RUN_NOT_FOUND", "Test run not found.");
-
-        var auth = await EnsureProjectPermissionAsync(run.Cycle.ProjectId, PermissionKeys.TestcaseExecute, ct);
-        if (!auth.IsSuccess) return auth.Cast<TestRunDto>();
-
-        if (run.Cycle.Status == TestCycleStatuses.Closed)
-        {
-            return ServiceResult<TestRunDto>.Conflict(
-                "CYCLE_CLOSED",
-                "Chu kỳ kiểm thử đã đóng, không thể ghi nhận kết quả mới.");
-        }
-
-        var resultUpper = request.Result?.Trim().ToUpperInvariant() ?? string.Empty;
-        if (!TestRunResults.IsValid(resultUpper))
-        {
-            return ServiceResult<TestRunDto>.ValidationFailure(new Dictionary<string, string[]>
-            {
-                ["result"] = new[] { "result must be NOT_RUN, PASS, FAIL, or BLOCKED." }
-            });
-        }
-
-        var userId = _currentUser.UserId;
-        var now = _clock.GetUtcNow().UtcDateTime;
-        var projectId = run.Cycle.ProjectId;
-
-        return await _db.ExecuteInTransactionAsync(async innerCt =>
-        {
-            run.Result = resultUpper;
-            run.Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
-            run.ExecutedAt = now;
-            run.ExecutedById = userId;
-            run.NeedsRerun = false;
-
-            run.TestCase.LastResult = resultUpper;
-            run.TestCase.LastRunAt = now;
-            run.TestCase.LastRunById = userId;
-            run.TestCase.UpdatedAt = now;
-
-            long? primaryDefectIssueId = null;
-
-            // Inline defect creation
-            if (request.CreateDefect != null && !string.IsNullOrWhiteSpace(request.CreateDefect.Title))
-            {
-                var project = await _db.Projects.AsNoTracking().FirstAsync(p => p.Id == projectId, innerCt);
-                var initialStatus = await _db.WorkflowStatuses
-                    .AsNoTracking()
-                    .Include(s => s.Phase)
-                    .Where(s => s.ProjectId == projectId && s.IsActive)
-                    .OrderByDescending(s => s.IsInitial)
-                    .ThenBy(s => s.Phase.Position)
-                    .ThenBy(s => s.Position)
-                    .FirstAsync(innerCt);
-
-                var activeSprintId = await _db.Sprints
-                    .AsNoTracking()
-                    .Where(s => s.ProjectId == projectId && s.Status == SprintStatuses.Active)
-                    .Select(s => (long?)s.Id)
-                    .FirstOrDefaultAsync(innerCt);
-
-                var bugKey = await _db.AllocateIssueKeyAsync(projectId, project.Key, innerCt);
-                var bugPriority = request.CreateDefect.Priority?.Trim().ToUpperInvariant() ?? IssuePriorities.High;
-                if (!IssuePriorities.IsValid(bugPriority)) bugPriority = IssuePriorities.High;
-
-                var bugSprintId = request.CreateDefect.SprintId ?? run.Cycle.SprintId ?? activeSprintId;
-
-                var bug = new Issue
-                {
-                    ProjectId = projectId,
-                    Key = bugKey,
-                    Type = IssueTypes.Bug,
-                    Title = request.CreateDefect.Title.Trim(),
-                    Description = request.CreateDefect.Description?.Trim()
-                                  ?? $"Phát hiện lỗi khi chạy test case {run.TestCase.Key} ({run.TestCase.Title}) trong chu kỳ {run.Cycle.Name}.\n{run.Note}",
-                    StatusId = initialStatus.Id,
-                    Priority = bugPriority,
-                    AssigneeId = request.CreateDefect.AssigneeId,
-                    ReporterId = userId,
-                    SprintId = bugSprintId,
-                    Rank = "00999000",
-                    Labels = "[\"defect\"]",
-                    CreatedAt = now,
-                    UpdatedAt = now
-                };
-
-                _db.Issues.Add(bug);
-                await _db.SaveChangesAsync(innerCt);
-
-                primaryDefectIssueId = bug.Id;
-
-                // Copy requirement links from testCase to bug
-                foreach (var rl in run.TestCase.RequirementLinks)
-                {
-                    _db.IssueRequirementLinks.Add(new IssueRequirementLink
-                    {
-                        IssueId = bug.Id,
-                        DocumentId = rl.DocumentId,
-                        ReqUid = rl.ReqUid,
-                        ReqHash = rl.ReqHash,
-                        LinkedAt = now,
-                        LinkedById = userId
-                    });
-                }
-
-                _db.IssueActivities.Add(new IssueActivity
-                {
-                    IssueId = bug.Id,
-                    Action = IssueActivityActions.Created,
-                    ActorId = userId,
-                    Note = $"Tạo lỗi từ lần chạy kiểm thử {run.TestCase.Key}",
-                    CreatedAt = now
-                });
-
-                _db.TestRunDefects.Add(new TestRunDefect
-                {
-                    RunId = run.Id,
-                    IssueId = bug.Id,
-                    CreatedAt = now
-                });
-
-                var linkExists = await _db.TestCaseIssueLinks
-                    .AnyAsync(l => l.TestCaseId == run.TestCaseId && l.IssueId == bug.Id, innerCt);
-                if (!linkExists)
-                {
-                    _db.TestCaseIssueLinks.Add(new TestCaseIssueLink
-                    {
-                        TestCaseId = run.TestCaseId,
-                        IssueId = bug.Id,
-                        LinkedAt = now
-                    });
-                }
-            }
-
-            if (request.DefectIssueIds != null && request.DefectIssueIds.Count > 0)
-            {
-                var existingDefectIds = run.Defects.Select(d => d.IssueId).ToHashSet();
-                foreach (var iid in request.DefectIssueIds.Distinct())
-                {
-                    primaryDefectIssueId ??= iid;
-                    if (!existingDefectIds.Contains(iid))
-                    {
-                        _db.TestRunDefects.Add(new TestRunDefect
-                        {
-                            RunId = run.Id,
-                            IssueId = iid,
-                            CreatedAt = now
-                        });
-                    }
-
-                    var tcLinkExists = await _db.TestCaseIssueLinks
-                        .AnyAsync(l => l.TestCaseId == run.TestCaseId && l.IssueId == iid, innerCt);
-                    if (!tcLinkExists)
-                    {
-                        _db.TestCaseIssueLinks.Add(new TestCaseIssueLink
-                        {
-                            TestCaseId = run.TestCaseId,
-                            IssueId = iid,
-                            LinkedAt = now
-                        });
-                    }
-                }
-            }
-
-            if (resultUpper is TestRunResults.Pass or TestRunResults.Fail or TestRunResults.Blocked)
-            {
-                _db.TestRunHistory.Add(new TestRunHistory
-                {
-                    RunId = run.Id,
-                    TestCaseId = run.TestCaseId,
-                    Result = resultUpper,
-                    Note = run.Note,
-                    DefectIssueId = primaryDefectIssueId,
-                    ExecutedById = userId,
-                    ExecutedAt = now
-                });
-            }
-
-            await _db.SaveChangesAsync(innerCt);
-            return await GetSingleRunDtoAsync(run.Id, innerCt);
-        }, ct);
-    }
-
-    // --- Helpers ---
-
-    private async Task<ServiceResult> EnsureProjectPermissionAsync(long projectId, string permission, CancellationToken ct)
-    {
-        if (!_currentUser.IsAuthenticated || _currentUser.UserIdOrNull is null)
-            return ServiceResult.Unauthorized();
-
-        var projectExists = await _db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct);
-        if (!projectExists)
-            return ServiceResult.NotFound("PROJECT_NOT_FOUND", "Project not found.");
-
-        var hasPerm = await _permissions.HasProjectPermissionAsync(_currentUser.UserId, projectId, permission, ct);
-        if (!hasPerm)
-            return ServiceResult.PermissionDenied(permission);
-
-        return ServiceResult.Success();
-    }
-
-    private async Task<ServiceResult> AttachTestCaseRequirementRefsAsync(
-        TestCase tc,
-        List<RequirementRefInputDto> refs,
-        DateTime now,
-        CancellationToken ct)
-    {
-        foreach (var r in refs.DistinctBy(x => (x.DocumentId, x.ReqUid.Trim().ToUpperInvariant())))
-        {
-            var doc = await _db.DocumentNodes
+        var issueKeys = allIssueIds.Count == 0
+            ? new Dictionary<long, string>()
+            : await _db.Issues
                 .AsNoTracking()
-                .FirstOrDefaultAsync(d => d.Id == r.DocumentId && d.ProjectId == tc.ProjectId && !d.IsDeleted, ct);
-            if (doc == null)
-                return ServiceResult.NotFound("DOCUMENT_NOT_FOUND", $"Document {r.DocumentId} not found.");
+                .Where(i => allIssueIds.Contains(i.Id))
+                .ToDictionaryAsync(i => i.Id, i => i.Key, ct);
 
-            var verId = doc.BaselineVersionId ?? doc.CurrentVersionId;
-            var reqUidUpper = r.ReqUid.Trim().ToUpperInvariant();
-            var req = verId.HasValue
-                ? await _db.RequirementItems
-                    .AsNoTracking()
-                    .FirstOrDefaultAsync(ri => ri.VersionId == verId.Value && ri.ReqUid == reqUidUpper, ct)
-                : null;
+        var resultCounts = await _db.TestResults
+            .AsNoTracking()
+            .Where(r => r.EnvId == env.Id)
+            .GroupBy(r => r.Build)
+            .Select(g => new { Build = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.Build, x => x.Count, StringComparer.OrdinalIgnoreCase, ct);
 
-            if (req == null)
-                return ServiceResult.NotFound("REQUIREMENT_NOT_FOUND", $"Requirement {reqUidUpper} not found.");
+        var buildDtos = builds.Select(b => new TestBuildDto
+        {
+            BuildId = b.Id,
+            Version = b.Version,
+            DeployedAt = FormatUtc(b.DeployedAt),
+            DeployedBy = b.DeployedBy != null ? MapUserRef(b.DeployedBy) : null,
+            FixedBugs = parsedIssueIdsByBuild[b.Id]
+                .Select(id => new IssueKeyRefDto
+                {
+                    IssueId = id,
+                    Key = issueKeys.GetValueOrDefault(id, $"#{id}")
+                })
+                .ToList(),
+            ResultCount = resultCounts.GetValueOrDefault(b.Version, 0)
+        }).ToList();
 
-            _db.TestCaseRequirementLinks.Add(new TestCaseRequirementLink
-            {
-                TestCaseId = tc.Id,
-                DocumentId = doc.Id,
-                ReqUid = req.ReqUid,
-                ReqHash = req.ContentHash,
-                ChangedVersionLabel = null,
-                LinkedAt = now
-            });
-        }
-
-        return ServiceResult.Success();
+        return new TestEnvironmentDto
+        {
+            EnvId = env.Id,
+            Name = env.Name,
+            Url = NullIfEmpty(env.Url),
+            Note = NullIfEmpty(env.Note),
+            Position = env.Position,
+            CurrentBuild = builds.FirstOrDefault()?.Version,
+            Builds = buildDtos
+        };
     }
 
-    private async Task<List<TestCaseSummaryDto>> BuildTestCaseSummaryDtosAsync(
-        List<TestCase> testCases,
+    private async Task<List<TestModuleDto>> BuildPlanModulesDtoAsync(long projectId, long planId, CancellationToken ct)
+    {
+        var modules = await _db.TestModules
+            .AsNoTracking()
+            .Include(m => m.Document)
+            .Include(m => m.Sections)
+            .Where(m => m.PlanId == planId)
+            .OrderBy(m => m.Position)
+            .ThenBy(m => m.Id)
+            .ToListAsync(ct);
+
+        if (modules.Count == 0) return new List<TestModuleDto>();
+
+        var staleSecIds = await _db.TestCases
+            .AsNoTracking()
+            .Where(tc => tc.PlanId == planId &&
+                         tc.Status == TestCaseStatuses.Active &&
+                         tc.RequirementLinks.Any(l => l.ChangedVersionLabel != null))
+            .Select(tc => tc.SectionId)
+            .Distinct()
+            .ToListAsync(ct);
+        var staleSecSet = staleSecIds.ToHashSet();
+
+        return modules.Select(m => MapModuleDto(m, staleSecSet)).ToList();
+    }
+
+    private async Task<TestModuleDto?> BuildSingleModuleDtoAsync(long moduleId, CancellationToken ct)
+    {
+        var module = await _db.TestModules
+            .AsNoTracking()
+            .Include(m => m.Document)
+            .Include(m => m.Sections)
+            .FirstOrDefaultAsync(m => m.Id == moduleId, ct);
+        if (module == null) return null;
+
+        var staleSecIds = await _db.TestCases
+            .AsNoTracking()
+            .Where(tc => tc.ModuleId == moduleId &&
+                         tc.Status == TestCaseStatuses.Active &&
+                         tc.RequirementLinks.Any(l => l.ChangedVersionLabel != null))
+            .Select(tc => tc.SectionId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        return MapModuleDto(module, staleSecIds.ToHashSet());
+    }
+
+    private static TestModuleDto MapModuleDto(TestModule m, HashSet<long> staleSecIds)
+    {
+        var docCode = m.Document != null && !string.IsNullOrWhiteSpace(m.Document.Code)
+            ? m.Document.Code
+            : (m.DocumentId.HasValue ? $"DOC-{m.DocumentId.Value}" : m.ShortCode);
+        var docTitle = m.Document?.Title ?? m.Name;
+
+        var allSecs = m.Sections
+            .OrderBy(s => s.Position)
+            .ThenBy(s => s.Id)
+            .ToList();
+
+        var topSecs = allSecs.Where(s => s.ParentId == null).ToList();
+        var childrenByParent = allSecs
+            .Where(s => s.ParentId.HasValue)
+            .GroupBy(s => s.ParentId!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var sectionDtos = new List<TestSectionDto>(allSecs.Count);
+        foreach (var top in topSecs)
+        {
+            var children = childrenByParent.GetValueOrDefault(top.Id) ?? new List<TestSection>();
+            var topReqChanged = staleSecIds.Contains(top.Id) || children.Any(c => staleSecIds.Contains(c.Id));
+            sectionDtos.Add(new TestSectionDto
+            {
+                SectionId = top.Id,
+                ModuleId = top.ModuleId,
+                ParentId = null,
+                Code = top.Code,
+                Title = top.Title,
+                AnchorId = top.AnchorId,
+                ReqChanged = topReqChanged,
+                Position = top.Position
+            });
+
+            foreach (var ch in children)
+            {
+                sectionDtos.Add(new TestSectionDto
+                {
+                    SectionId = ch.Id,
+                    ModuleId = ch.ModuleId,
+                    ParentId = ch.ParentId,
+                    Code = ch.Code,
+                    Title = ch.Title,
+                    AnchorId = ch.AnchorId,
+                    ReqChanged = staleSecIds.Contains(ch.Id),
+                    Position = ch.Position
+                });
+            }
+        }
+
+        return new TestModuleDto
+        {
+            ModuleId = m.Id,
+            DocumentId = m.DocumentId ?? 0,
+            DocumentCode = docCode,
+            DocumentTitle = docTitle,
+            Name = m.Name,
+            ShortCode = m.ShortCode,
+            Position = m.Position,
+            Sections = sectionDtos
+        };
+    }
+
+    private async Task<List<TestCaseDto>> LoadAndMapTestCasesAsync(
+        long projectId,
+        List<long> caseIds,
         CancellationToken ct)
     {
-        if (testCases.Count == 0) return new List<TestCaseSummaryDto>();
+        if (caseIds.Count == 0) return new List<TestCaseDto>();
 
-        var docIds = testCases
-            .SelectMany(tc => tc.RequirementLinks.Select(rl => rl.DocumentId))
+        var cases = await _db.TestCases
+            .AsNoTracking()
+            .Include(tc => tc.Module)
+            .Include(tc => tc.RequirementLinks)
+                .ThenInclude(l => l.Document)
+            .Include(tc => tc.BugIssue)
+                .ThenInclude(i => i!.Status)
+            .Include(tc => tc.Results)
+                .ThenInclude(r => r.By)
+            .Include(tc => tc.Results)
+                .ThenInclude(r => r.BehalfOf)
+            .Include(tc => tc.RetestFlags)
+                .ThenInclude(f => f.BugIssue)
+            .Where(tc => caseIds.Contains(tc.Id))
+            .ToListAsync(ct);
+
+        if (cases.Count == 0) return new List<TestCaseDto>();
+
+        // Compute ModuleCode per module (e.g. PHI-1, PHI-2) matching testMockStore.ts
+        var moduleIds = cases.Select(c => c.ModuleId).Distinct().ToList();
+        var allModuleCases = await _db.TestCases
+            .AsNoTracking()
+            .Include(tc => tc.Module)
+            .Include(tc => tc.Section)
+            .Where(tc => moduleIds.Contains(tc.ModuleId) && tc.Status == TestCaseStatuses.Active)
+            .OrderBy(tc => tc.ModuleId)
+            .ThenBy(tc => tc.Section.ParentId ?? tc.SectionId)
+            .ThenBy(tc => tc.Section.Position)
+            .ThenBy(tc => tc.Position)
+            .ThenBy(tc => tc.Id)
+            .Select(tc => new { tc.Id, tc.ModuleId, tc.Module.ShortCode })
+            .ToListAsync(ct);
+
+        var moduleCodeMap = new Dictionary<long, string>();
+        foreach (var grp in allModuleCases.GroupBy(x => x.ModuleId))
+        {
+            var idx = 1;
+            foreach (var item in grp)
+            {
+                moduleCodeMap[item.Id] = $"{item.ShortCode}-{idx++}";
+            }
+        }
+
+        // Load requirement details for linked requirements
+        var docIds = cases
+            .SelectMany(tc => tc.RequirementLinks.Select(l => l.DocumentId))
             .Distinct()
             .ToList();
 
@@ -1271,124 +2718,216 @@ public class TestingService : ITestingService
                 .Where(r => verIds.Contains(r.VersionId))
                 .ToListAsync(ct);
 
-        var reqLookup = reqItems.ToDictionary(r => (r.VersionId, r.ReqUid.ToUpperInvariant()));
-
-        var issueIds = testCases
-            .SelectMany(tc => tc.IssueLinks.Select(il => il.IssueId))
-            .Distinct()
-            .ToList();
-
-        var issues = issueIds.Count == 0
-            ? new Dictionary<long, Issue>()
-            : await _db.Issues
-                .AsNoTracking()
-                .Include(i => i.Status)
-                .Where(i => issueIds.Contains(i.Id) && !i.IsDeleted)
-                .ToDictionaryAsync(i => i.Id, ct);
-
-        var dtos = new List<TestCaseSummaryDto>(testCases.Count);
-        foreach (var tc in testCases)
+        var reqLookup = new Dictionary<(long DocId, string ReqUid), RequirementItem>();
+        foreach (var r in reqItems)
         {
-            var reqRefs = new List<TestCaseRequirementRefDto>();
-            foreach (var rl in tc.RequirementLinks)
-            {
-                if (!docs.TryGetValue(rl.DocumentId, out var doc)) continue;
-                var targetVerId = doc.BaselineVersionId ?? doc.CurrentVersionId;
-                RequirementItem? reqItem = null;
-                if (targetVerId.HasValue)
-                {
-                    reqLookup.TryGetValue((targetVerId.Value, rl.ReqUid.ToUpperInvariant()), out reqItem);
-                }
-
-                reqRefs.Add(new TestCaseRequirementRefDto
-                {
-                    DocumentId = rl.DocumentId,
-                    DocCode = doc.Code,
-                    DocTitle = doc.Title,
-                    ReqUid = rl.ReqUid,
-                    ReqTitle = reqItem?.Title ?? rl.ReqUid,
-                    Changed = rl.ChangedVersionLabel != null,
-                    ChangedVersionLabel = rl.ChangedVersionLabel
-                });
-            }
-
-            var linkedIssueRefs = new List<TestCaseIssueRefDto>();
-            foreach (var il in tc.IssueLinks)
-            {
-                if (!issues.TryGetValue(il.IssueId, out var iss)) continue;
-                linkedIssueRefs.Add(new TestCaseIssueRefDto
-                {
-                    IssueId = iss.Id,
-                    Key = iss.Key,
-                    Title = iss.Title,
-                    Type = iss.Type,
-                    StatusCategory = iss.Status.Category
-                });
-            }
-
-            dtos.Add(new TestCaseSummaryDto
-            {
-                TestCaseId = tc.Id,
-                ProjectId = tc.ProjectId,
-                Key = tc.Key,
-                Title = tc.Title,
-                Type = tc.Type,
-                Priority = tc.Priority,
-                FolderId = tc.FolderId,
-                StepCount = tc.StepCount,
-                Requirements = reqRefs,
-                LinkedIssues = linkedIssueRefs,
-                NeedsReview = tc.NeedsReview,
-                LastResult = tc.LastResult,
-                LastRunAt = tc.LastRunAt.HasValue ? FormatUtc(tc.LastRunAt.Value) : null,
-                LastRunBy = tc.LastRunBy != null ? MapUserRef(tc.LastRunBy) : null,
-                UpdatedAt = FormatUtc(tc.UpdatedAt)
-            });
+            reqLookup[(r.DocumentId, r.ReqUid.ToUpperInvariant())] = r;
         }
 
-        return dtos;
+        var orderMap = caseIds
+            .Select((id, index) => (id, index))
+            .ToDictionary(x => x.id, x => x.index);
+
+        return cases
+            .OrderBy(c => orderMap.GetValueOrDefault(c.Id, int.MaxValue))
+            .Select(tc =>
+            {
+                var steps = SafeDeserialize<List<TestStepDto>>(tc.Steps) ?? new List<TestStepDto>();
+                var customFields = SafeDeserialize<Dictionary<string, object?>>(tc.CustomFields) ?? new Dictionary<string, object?>();
+
+                var reqDtos = tc.RequirementLinks
+                    .OrderBy(l => l.LinkedAt)
+                    .Select(l =>
+                    {
+                        var doc = docs.GetValueOrDefault(l.DocumentId) ?? l.Document;
+                        var docCode = doc != null && !string.IsNullOrWhiteSpace(doc.Code)
+                            ? doc.Code
+                            : $"DOC-{l.DocumentId}";
+                        var docTitle = doc?.Title ?? string.Empty;
+                        reqLookup.TryGetValue((l.DocumentId, l.ReqUid.ToUpperInvariant()), out var rItem);
+
+                        return new ReqRefDto
+                        {
+                            DocumentId = l.DocumentId,
+                            DocumentCode = docCode,
+                            DocumentTitle = docTitle,
+                            ReqUid = l.ReqUid,
+                            ReqKey = $"{docCode}:{l.ReqUid}",
+                            Title = rItem?.Title ?? l.ReqUid,
+                            AnchorId = rItem?.AnchorId,
+                            Changed = l.ChangedVersionLabel != null
+                        };
+                    })
+                    .ToList();
+
+                TestBugRefDto? bugDto = null;
+                if (tc.BugIssue != null && !tc.BugIssue.IsDeleted)
+                {
+                    bugDto = new TestBugRefDto
+                    {
+                        IssueId = tc.BugIssue.Id,
+                        Key = tc.BugIssue.Key,
+                        Title = tc.BugIssue.Title,
+                        Priority = tc.BugIssue.Priority,
+                        StatusName = tc.BugIssue.Status?.Name ?? "Open",
+                        StatusCategory = tc.BugIssue.Status?.Category ?? StatusCategories.Todo
+                    };
+                }
+
+                // Results sorted chronologically (old -> new) so results[results.length - 1] is the latest!
+                var resultDtos = tc.Results
+                    .OrderBy(r => r.At)
+                    .ThenBy(r => r.Id)
+                    .Select(r => new TestResultDto
+                    {
+                        ResultId = r.Id,
+                        EnvId = r.EnvId,
+                        Build = r.Build,
+                        Result = r.Result,
+                        By = MapUserRef(r.By),
+                        At = FormatUtc(r.At),
+                        BehalfOf = r.BehalfOf != null ? MapUserRef(r.BehalfOf) : null
+                    })
+                    .ToList();
+
+                var retestDtos = tc.RetestFlags
+                    .OrderBy(f => f.EnvId)
+                    .Select(f => new RetestFlagDto
+                    {
+                        EnvId = f.EnvId,
+                        Reason = NormalizeRetestReason(f.Reason),
+                        Bug = f.BugIssue != null
+                            ? new IssueKeyRefDto { IssueId = f.BugIssue.Id, Key = f.BugIssue.Key }
+                            : null,
+                        Build = f.Build,
+                        ReqKey = f.ReqKey,
+                        At = FormatUtc(f.At)
+                    })
+                    .ToList();
+
+                var modCode = moduleCodeMap.GetValueOrDefault(tc.Id, $"{tc.Module?.ShortCode ?? "TC"}-0");
+
+                return new TestCaseDto
+                {
+                    TestCaseId = tc.Id,
+                    PlanId = tc.PlanId,
+                    ModuleId = tc.ModuleId,
+                    SectionId = tc.SectionId,
+                    Code = tc.Code,
+                    ModuleCode = modCode,
+                    Title = tc.Title,
+                    Preconditions = NullIfEmpty(tc.Preconditions),
+                    Steps = steps,
+                    Actual = NullIfEmpty(tc.Actual),
+                    Requirements = reqDtos,
+                    AiSuggestedReqs = tc.AiSuggestedReqs,
+                    Priority = TestCasePriorities.Normalize(tc.Priority),
+                    Category = NullIfEmpty(tc.Category),
+                    Browser = NullIfEmpty(tc.Browser),
+                    CustomFields = customFields,
+                    Status = tc.Status,
+                    Position = tc.Position,
+                    Bug = bugDto,
+                    Results = resultDtos,
+                    Retest = retestDtos,
+                    UpdatedAt = FormatUtc(tc.UpdatedAt)
+                };
+            })
+            .ToList();
     }
 
-    private async Task<ServiceResult<TestRunDto>> GetSingleRunDtoAsync(long runId, CancellationToken ct)
+    private async Task ApplyCaseChangesAsync(
+        TestCase tc,
+        UpdateTestCaseRequest changes,
+        DateTime now,
+        CancellationToken ct)
     {
-        var run = await _db.TestRuns
-            .AsNoTracking()
-            .Include(r => r.TestCase)
-                .ThenInclude(tc => tc.RequirementLinks)
-            .Include(r => r.TestCase)
-                .ThenInclude(tc => tc.IssueLinks)
-            .Include(r => r.TestCase)
-                .ThenInclude(tc => tc.LastRunBy)
-            .Include(r => r.Assignee)
-            .Include(r => r.ExecutedBy)
-            .Include(r => r.Defects)
-                .ThenInclude(d => d.Issue)
-                    .ThenInclude(i => i.Status)
-            .FirstAsync(r => r.Id == runId, ct);
+        if (changes.SectionId.HasValue && changes.SectionId.Value != tc.SectionId)
+        {
+            var targetSec = await _db.TestSections
+                .AsNoTracking()
+                .FirstOrDefaultAsync(s => s.Id == changes.SectionId.Value && s.Module.PlanId == tc.PlanId, ct);
+            if (targetSec != null)
+            {
+                tc.SectionId = targetSec.Id;
+                tc.ModuleId = targetSec.ModuleId;
+            }
+        }
 
-        var dtos = await BuildTestRunDtosAsync(new List<TestRun> { run }, ct);
-        return ServiceResult<TestRunDto>.Success(dtos[0]);
+        if (changes.Title != null)
+            tc.Title = changes.Title.Trim();
+
+        if (changes.PreconditionsSpecified)
+            tc.Preconditions = changes.Preconditions?.Trim() ?? string.Empty;
+
+        if (changes.Steps != null)
+            tc.Steps = JsonSerializer.Serialize(changes.Steps, JsonOptions);
+
+        if (changes.ActualSpecified)
+            tc.Actual = changes.Actual?.Trim() ?? string.Empty;
+
+        if (changes.AiSuggestedReqs.HasValue)
+            tc.AiSuggestedReqs = changes.AiSuggestedReqs.Value;
+
+        if (!string.IsNullOrWhiteSpace(changes.Priority))
+            tc.Priority = TestCasePriorities.Normalize(changes.Priority);
+
+        if (changes.CategorySpecified)
+            tc.Category = changes.Category?.Trim() ?? string.Empty;
+
+        if (changes.BrowserSpecified)
+            tc.Browser = changes.Browser?.Trim() ?? string.Empty;
+
+        if (changes.CustomFields != null)
+            tc.CustomFields = JsonSerializer.Serialize(changes.CustomFields, JsonOptions);
+
+        if (!string.IsNullOrWhiteSpace(changes.Status))
+        {
+            var st = changes.Status.Trim().ToUpperInvariant();
+            if (TestCaseStatuses.IsValid(st))
+                tc.Status = st;
+        }
+
+        if (changes.Position.HasValue)
+            tc.Position = changes.Position.Value;
+
+        if (changes.RequirementRefs != null)
+        {
+            await SyncTestCaseReqLinksAsync(tc, tc.ProjectId, changes.RequirementRefs, now, ct);
+        }
+
+        tc.UpdatedAt = now;
     }
 
-    private async Task<List<TestRunDto>> BuildTestRunDtosAsync(List<TestRun> runs, CancellationToken ct)
+    private async Task SyncTestCaseReqLinksAsync(
+        TestCase tc,
+        long projectId,
+        List<RequirementRefInputDto> refs,
+        DateTime now,
+        CancellationToken ct)
     {
-        if (runs.Count == 0) return new List<TestRunDto>();
+        var existing = await _db.TestCaseRequirementLinks
+            .Where(l => l.TestCaseId == tc.Id)
+            .ToListAsync(ct);
 
-        var distinctCases = runs.Select(r => r.TestCase).GroupBy(tc => tc.Id).Select(g => g.First()).ToList();
-        var caseSummaries = await BuildTestCaseSummaryDtosAsync(distinctCases, ct);
-        var caseSummaryMap = caseSummaries.ToDictionary(s => s.TestCaseId);
+        if (existing.Count > 0)
+        {
+            _db.TestCaseRequirementLinks.RemoveRange(existing);
+        }
 
-        var docIds = runs
-            .SelectMany(r => r.TestCase.RequirementLinks.Select(rl => rl.DocumentId))
+        var normalizedRefs = refs
+            .Where(r => r.DocumentId > 0 && !string.IsNullOrWhiteSpace(r.ReqUid))
+            .Select(r => (DocumentId: r.DocumentId, ReqUid: r.ReqUid.Trim().ToUpperInvariant()))
             .Distinct()
             .ToList();
 
-        var docs = docIds.Count == 0
-            ? new Dictionary<long, DocumentNode>()
-            : await _db.DocumentNodes
-                .AsNoTracking()
-                .Where(d => docIds.Contains(d.Id))
-                .ToDictionaryAsync(d => d.Id, ct);
+        if (normalizedRefs.Count == 0) return;
+
+        var docIds = normalizedRefs.Select(r => r.DocumentId).Distinct().ToList();
+        var docs = await _db.DocumentNodes
+            .AsNoTracking()
+            .Where(d => d.ProjectId == projectId && docIds.Contains(d.Id) && !d.IsDeleted)
+            .ToDictionaryAsync(d => d.Id, ct);
 
         var verIds = docs.Values
             .Select(d => d.BaselineVersionId ?? d.CurrentVersionId)
@@ -1401,118 +2940,340 @@ public class TestingService : ITestingService
             ? new List<RequirementItem>()
             : await _db.RequirementItems
                 .AsNoTracking()
-                .Where(ri => verIds.Contains(ri.VersionId))
+                .Where(r => verIds.Contains(r.VersionId))
                 .ToListAsync(ct);
 
-        var reqLookup = reqItems.ToDictionary(ri => (ri.VersionId, ri.ReqUid.ToUpperInvariant()));
-
-        var dtos = new List<TestRunDto>(runs.Count);
-        foreach (var r in runs)
+        foreach (var (docId, reqUid) in normalizedRefs)
         {
-            var reqLites = new List<TestRunReqLiteDto>();
-            foreach (var rl in r.TestCase.RequirementLinks)
-            {
-                docs.TryGetValue(rl.DocumentId, out var doc);
-                var verId = doc?.BaselineVersionId ?? doc?.CurrentVersionId;
-                RequirementItem? reqItem = null;
-                if (verId.HasValue)
-                {
-                    reqLookup.TryGetValue((verId.Value, rl.ReqUid.ToUpperInvariant()), out reqItem);
-                }
-                reqLites.Add(new TestRunReqLiteDto
-                {
-                    DocCode = doc?.Code,
-                    ReqUid = rl.ReqUid,
-                    ReqTitle = reqItem?.Title ?? rl.ReqUid
-                });
-            }
+            if (!docs.TryGetValue(docId, out var doc)) continue;
+            var verId = doc.BaselineVersionId ?? doc.CurrentVersionId;
+            var rItem = verId.HasValue
+                ? reqItems.FirstOrDefault(r => r.VersionId == verId.Value && string.Equals(r.ReqUid, reqUid, StringComparison.OrdinalIgnoreCase))
+                : null;
 
-            caseSummaryMap.TryGetValue(r.TestCaseId, out var tcSummary);
-
-            dtos.Add(new TestRunDto
+            _db.TestCaseRequirementLinks.Add(new TestCaseRequirementLink
             {
-                RunId = r.Id,
-                CycleId = r.CycleId,
-                TestCaseId = r.TestCaseId,
-                TestCaseKey = r.TestCase.Key,
-                TestCaseTitle = r.TestCase.Title,
-                TestCasePriority = r.TestCase.Priority,
-                TestCaseType = r.TestCase.Type,
-                StepCount = r.TestCase.StepCount,
-                Requirements = reqLites,
-                TestCase = tcSummary,
-                Assignee = r.Assignee != null ? MapUserRef(r.Assignee) : null,
-                Result = r.Result,
-                Note = r.Note,
-                ExecutedAt = r.ExecutedAt.HasValue ? FormatUtc(r.ExecutedAt.Value) : null,
-                ExecutedBy = r.ExecutedBy != null ? MapUserRef(r.ExecutedBy) : null,
-                Defects = r.Defects
-                    .Where(d => !d.Issue.IsDeleted)
-                    .Select(d => new TestRunDefectRefDto
-                    {
-                        IssueId = d.IssueId,
-                        Key = d.Issue.Key,
-                        Title = d.Issue.Title,
-                        StatusId = d.Issue.StatusId,
-                        StatusCategory = d.Issue.Status.Category
-                    })
-                    .ToList(),
-                NeedsRerun = r.NeedsRerun
+                TestCaseId = tc.Id,
+                DocumentId = docId,
+                ReqUid = reqUid,
+                ReqHash = rItem?.ContentHash ?? string.Empty,
+                ChangedVersionLabel = null,
+                LinkedAt = now
             });
         }
 
-        return dtos;
+        // Also clear any REQ_CHANGED retest flags on this test case when requirements are explicitly re-linked/acknowledged
+        var reqFlags = await _db.TestRetestFlags
+            .Where(f => f.TestCaseId == tc.Id && f.Reason == TestRetestReasons.ReqChanged)
+            .ToListAsync(ct);
+        if (reqFlags.Count > 0)
+        {
+            _db.TestRetestFlags.RemoveRange(reqFlags);
+        }
     }
 
-    private static TestCycleDto MapTestCycleDto(TestCycle c)
+    private async Task<string> AllocateNextTcCodeAsync(long planId, CancellationToken ct)
     {
-        var runs = c.Runs;
-        return new TestCycleDto
+        var codes = await _db.TestCases
+            .AsNoTracking()
+            .Where(tc => tc.PlanId == planId)
+            .Select(tc => tc.Code)
+            .ToListAsync(ct);
+
+        var maxNum = 0;
+        foreach (var c in codes)
         {
-            CycleId = c.Id,
-            ProjectId = c.ProjectId,
-            Name = c.Name,
-            SprintId = c.SprintId,
-            SprintName = c.Sprint?.Name,
-            Status = c.Status,
-            Stats = new TestCycleStatsDto
+            var m = Regex.Match(c ?? string.Empty, @"^TC[_-](\d+)$", RegexOptions.IgnoreCase);
+            if (m.Success && int.TryParse(m.Groups[1].Value, out var n) && n > maxNum)
             {
-                Total = runs.Count,
-                Pass = runs.Count(r => r.Result == TestRunResults.Pass),
-                Fail = runs.Count(r => r.Result == TestRunResults.Fail),
-                Blocked = runs.Count(r => r.Result == TestRunResults.Blocked),
-                NotRun = runs.Count(r => r.Result == TestRunResults.NotRun),
-                NeedsRerun = runs.Count(r => r.NeedsRerun)
-            },
-            CreatedBy = MapUserRef(c.CreatedBy),
-            CreatedAt = FormatUtc(c.CreatedAt)
+                maxNum = n;
+            }
+        }
+
+        if (maxNum == 0 && codes.Count > 0)
+            maxNum = codes.Count;
+
+        return $"TC_{maxNum + 1}";
+    }
+
+    private async Task RecodeModuleSectionsAsync(long moduleId, CancellationToken ct)
+    {
+        var all = await _db.TestSections
+            .Where(s => s.ModuleId == moduleId)
+            .OrderBy(s => s.Position)
+            .ThenBy(s => s.Id)
+            .ToListAsync(ct);
+
+        var tops = all.Where(s => s.ParentId == null).ToList();
+        for (var i = 0; i < tops.Count; i++)
+        {
+            var top = tops[i];
+            top.Code = $"{i + 1}.";
+            top.Position = i + 1;
+
+            var children = all.Where(s => s.ParentId == top.Id).ToList();
+            for (var j = 0; j < children.Count; j++)
+            {
+                children[j].Code = $"{i + 1}.{j + 1}";
+                children[j].Position = j + 1;
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+    }
+
+    private static List<DocSectionDto> DefaultModuleSections(List<DocSectionDto> all)
+    {
+        if (all.Count == 0) return new List<DocSectionDto>();
+
+        var withReq = all.Where(s => s.ReqUids != null && s.ReqUids.Count > 0).ToList();
+        if (withReq.Count > 0) return withReq;
+
+        var top = all.Where(s => s.Level <= 2).ToList();
+        return top.Count > 0 ? top : all;
+    }
+
+    private static DocSectionDto? FindParentHeading(List<DocSectionDto> sections, string? reqAnchorId, string reqUid)
+    {
+        if (sections.Count == 0) return null;
+
+        var byReqUid = sections.FirstOrDefault(s =>
+            s.ReqUids != null && s.ReqUids.Any(u => string.Equals(u, reqUid, StringComparison.OrdinalIgnoreCase)));
+        if (byReqUid != null) return byReqUid;
+
+        var byAnchor = !string.IsNullOrWhiteSpace(reqAnchorId)
+            ? sections.FirstOrDefault(s => string.Equals(s.AnchorId, reqAnchorId, StringComparison.OrdinalIgnoreCase))
+            : null;
+        if (byAnchor != null) return byAnchor;
+
+        return sections.FirstOrDefault();
+    }
+
+    private static TestPlacementDto ComputePlacement(
+        TestPlanDto? plan,
+        long documentId,
+        string documentTitle,
+        string? anchorId,
+        string sectionTitle,
+        string category)
+    {
+        var cleanSectionTitle = string.IsNullOrWhiteSpace(sectionTitle) ? documentTitle : StripHeadingNumber(sectionTitle);
+        var cleanCategory = string.IsNullOrWhiteSpace(category) ? "Chức năng" : category.Trim();
+
+        var mod = plan?.Modules.FirstOrDefault(m => m.DocumentId == documentId);
+        var topSections = mod?.Sections.Where(s => s.ParentId == null).ToList() ?? new List<TestSectionDto>();
+        var sec = (!string.IsNullOrWhiteSpace(anchorId)
+                ? topSections.FirstOrDefault(s => string.Equals(s.AnchorId, anchorId, StringComparison.OrdinalIgnoreCase))
+                : null)
+            ?? topSections.FirstOrDefault(s => string.Equals(s.Title.Trim(), cleanSectionTitle.Trim(), StringComparison.OrdinalIgnoreCase));
+
+        var grp = sec != null && mod != null
+            ? mod.Sections.FirstOrDefault(s => s.ParentId == sec.SectionId && string.Equals(s.Title.Trim(), cleanCategory, StringComparison.OrdinalIgnoreCase))
+            : null;
+
+        return new TestPlacementDto
+        {
+            ModuleId = mod?.ModuleId,
+            SectionId = sec?.SectionId,
+            GroupId = grp?.SectionId,
+            DocumentId = documentId,
+            AnchorId = anchorId,
+            SectionTitle = sec?.Title ?? cleanSectionTitle,
+            Category = grp?.Title ?? cleanCategory
         };
     }
 
-    private static List<TestStepDto> NormalizeSteps(List<TestStepInputDto> inputs) =>
-        inputs.Select((s, idx) => new TestStepDto
-        {
-            StepNumber = idx + 1,
-            Action = s.Action?.Trim() ?? string.Empty,
-            TestData = string.IsNullOrWhiteSpace(s.TestData) ? null : s.TestData.Trim(),
-            Expected = s.Expected?.Trim() ?? string.Empty
-        }).ToList();
-
-    private static UserRefDto MapUserRef(User u) => new()
+    private static string ClassifyCriterionCategory(string text)
     {
-        UserId = u.Id,
-        FullName = u.FullName,
-        Email = u.Email,
-        AvatarUrl = u.AvatarUrl
-    };
+        var lower = text.ToLowerInvariant();
+        if (Regex.IsMatch(lower, "lỗi|báo|không cho|chặn|trống|âm|quá hạn|hết hạn|tối đa|tối thiểu|bắt buộc|hợp lệ|≥|<=|>|<"))
+            return "Validate";
+        if (Regex.IsMatch(lower, "quyền|role|đăng nhập|otp|xác thực"))
+            return "Phân quyền";
+        if (Regex.IsMatch(lower, "hiển thị|màn hình|giao diện|placeholder|mặc định|màu|nút"))
+            return "Giao diện";
+        return "Chức năng";
+    }
 
-    private static string FormatUtc(DateTime dt) =>
-        DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
+    private static string TruncateTitle(string s, int maxLen)
+    {
+        var clean = s.Trim().TrimEnd('.', ';');
+        return clean.Length <= maxLen ? clean : clean[..(maxLen - 1)] + "…";
+    }
+
+    private static string StripHeadingNumber(string title)
+    {
+        if (string.IsNullOrWhiteSpace(title)) return string.Empty;
+        return Regex.Replace(title.Trim(), @"^\d+(\.\d+)*\.?\s+", string.Empty);
+    }
+
+    private static string MakeShortCode(string name, HashSet<string> existing)
+    {
+        var normalized = RemoveDiacritics(name).ToUpperInvariant();
+        var words = Regex.Matches(normalized, @"[A-Z0-9]+")
+            .Select(m => m.Value)
+            .ToList();
+
+        var baseCode = words.Count >= 2
+            ? string.Concat(words.Select(w => w[0]))
+            : (words.FirstOrDefault() ?? "MOD");
+
+        if (baseCode.Length > 4) baseCode = baseCode[..4];
+        if (string.IsNullOrWhiteSpace(baseCode)) baseCode = "MOD";
+
+        var code = baseCode;
+        var idx = 2;
+        while (existing.Contains(code))
+        {
+            code = $"{baseCode}{idx++}";
+        }
+        return code;
+    }
+
+    private static string RemoveDiacritics(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return string.Empty;
+        var formD = text.Normalize(NormalizationForm.FormD);
+        var sb = new StringBuilder(formD.Length);
+        foreach (var ch in formD)
+        {
+            var uc = CharUnicodeInfo.GetUnicodeCategory(ch);
+            if (uc != UnicodeCategory.NonSpacingMark)
+            {
+                sb.Append(ch switch
+                {
+                    'đ' => 'd',
+                    'Đ' => 'D',
+                    _ => ch
+                });
+            }
+        }
+        return sb.ToString().Normalize(NormalizationForm.FormC);
+    }
+
+    private static SheetLayoutDto ParseLayout(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new SheetLayoutDto();
+
+        try
+        {
+            var parsed = JsonSerializer.Deserialize<SheetLayoutDto>(json, JsonOptions);
+            return NormalizeLayout(parsed);
+        }
+        catch
+        {
+            return new SheetLayoutDto();
+        }
+    }
+
+    private static SheetLayoutDto NormalizeLayout(SheetLayoutDto? input)
+    {
+        var def = new SheetLayoutDto();
+        if (input == null) return def;
+
+        var order = (input.Order ?? new List<string>())
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Distinct()
+            .ToList();
+
+        if (order.Count == 0)
+            order = def.Order;
+
+        return new SheetLayoutDto
+        {
+            Order = order,
+            Labels = input.Labels ?? new Dictionary<string, string>(),
+            Widths = input.Widths ?? new Dictionary<string, int>(),
+            CustomColumns = input.CustomColumns ?? new List<CustomColumnDto>()
+        };
+    }
+
+    private static DateOnly ParseOptionalDate(string? dateStr)
+    {
+        if (string.IsNullOrWhiteSpace(dateStr))
+            return DateOnly.MinValue;
+
+        if (DateOnly.TryParseExact(dateStr.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var d))
+            return d;
+
+        if (DateOnly.TryParse(dateStr.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var d2))
+            return d2;
+
+        return DateOnly.MinValue;
+    }
+
+    private static string? FormatOptionalDate(DateOnly d)
+        => d == DateOnly.MinValue || d.Year <= 1900
+            ? null
+            : d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static string FormatUtc(DateTime dt)
+        => DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+
+    private static string? NullIfEmpty(string? s)
+        => string.IsNullOrWhiteSpace(s) ? null : s;
+
+    private static string NormalizeRetestReason(string? reason)
+        => (reason?.Trim().ToUpperInvariant()) switch
+        {
+            "BUG_FIXED" => "BUG_FIXED",
+            "REQ_CHANGED" => "REQ_CHANGED",
+            _ => "REGRESSION"
+        };
+
+    private static string NormalizeActivityType(string? type)
+        => (type?.Trim().ToUpperInvariant()) switch
+        {
+            "DEPLOY" => "BUILD",
+            "CASE" => "TESTCASE",
+            var t when !string.IsNullOrWhiteSpace(t) => t,
+            _ => "SETUP"
+        };
 
     private static T? SafeDeserialize<T>(string? json)
     {
         if (string.IsNullOrWhiteSpace(json)) return default;
-        try { return JsonSerializer.Deserialize<T>(json); }
-        catch { return default; }
+        try
+        {
+            return JsonSerializer.Deserialize<T>(json, JsonOptions);
+        }
+        catch
+        {
+            return default;
+        }
+    }
+
+    private static UserRefDto MapUserRef(User user)
+        => new()
+        {
+            UserId = user.Id,
+            FullName = user.FullName,
+            Email = user.Email,
+            AvatarUrl = user.AvatarUrl
+        };
+
+    private async Task<UserRefDto> GetUserRefAsync(long userId, CancellationToken ct)
+    {
+        var u = await _db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId, ct);
+        return u != null
+            ? MapUserRef(u)
+            : new UserRefDto { UserId = userId, FullName = "System", Email = "" };
+    }
+
+    private async Task<ServiceResult> EnsureProjectPermissionAsync(long projectId, string permission, CancellationToken ct)
+    {
+        if (!_currentUser.IsAuthenticated || _currentUser.UserIdOrNull is null)
+            return ServiceResult.Unauthorized();
+
+        var projectExists = await _db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct);
+        if (!projectExists)
+            return ServiceResult.NotFound("PROJECT_NOT_FOUND", "Project not found.");
+
+        var hasPerm = await _permissions.HasProjectPermissionAsync(_currentUser.UserId, projectId, permission, ct);
+        if (!hasPerm)
+            return ServiceResult.PermissionDenied(permission);
+
+        return ServiceResult.Success();
     }
 }

@@ -81,6 +81,7 @@ public static class PermissionKeys
     public const string TestCaseView = "testcase.view";
     public const string TestCaseManage = "testcase.manage";
     public const string TestCaseExecute = "testcase.execute";
+    public const string TestCasePlan = "testcase.plan";
     // 7. Bình luận & Cộng tác
     public const string CommentView = "comment.view";
     public const string CommentWrite = "comment.write";
@@ -158,6 +159,7 @@ public static class PermissionKeys
         TestCaseView,
         TestCaseManage,
         TestCaseExecute,
+        TestCasePlan,
         CommentView,
         CommentWrite,
         ActivityView,

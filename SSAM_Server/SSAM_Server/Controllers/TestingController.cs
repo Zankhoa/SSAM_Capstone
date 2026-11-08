@@ -7,185 +7,361 @@ using SSAM_Server.Services;
 namespace SSAM_Server.Controllers;
 
 [ApiController]
-[Authorize]
 [Route("api/v1")]
+[Authorize]
 public class TestingController : ControllerBase
 {
-    private readonly ITestingService _testing;
+    private readonly ITestingService _testingService;
 
-    public TestingController(ITestingService testing)
+    public TestingController(ITestingService testingService)
     {
-        _testing = testing;
+        _testingService = testingService;
     }
 
-    // #45 GET /projects/{projectId}/test-tree
-    [HttpGet("projects/{projectId:long}/test-tree")]
-    public async Task<IActionResult> GetTestTree(long projectId, CancellationToken ct)
+    private IActionResult FromResult(ServiceResult result) => result.ToActionResult(this);
+    private IActionResult FromResult<T>(ServiceResult<T> result) => result.ToActionResult(this);
+
+    // --- Test Plans ---
+
+    [HttpGet("projects/{projectId:long}/test-plans")]
+    public async Task<IActionResult> GetProjectTestPlans(long projectId, CancellationToken ct)
     {
-        var result = await _testing.GetTestTreeAsync(projectId, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.GetProjectTestPlansAsync(projectId, ct);
+        return FromResult(result);
     }
 
-    // #46 POST /projects/{projectId}/test-folders
-    [HttpPost("projects/{projectId:long}/test-folders")]
-    public async Task<IActionResult> CreateTestFolder(
+    [HttpPost("projects/{projectId:long}/test-plans")]
+    public async Task<IActionResult> CreateTestPlan(
         long projectId,
-        [FromBody] CreateTestFolderRequest request,
+        [FromBody] CreateTestPlanRequest request,
         CancellationToken ct)
     {
-        var result = await _testing.CreateTestFolderAsync(projectId, request, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.CreateTestPlanAsync(projectId, request, ct);
+        return FromResult(result);
     }
 
-    // #47 GET /projects/{projectId}/testcases
+    [HttpGet("test-plans/{planId:long}")]
+    public async Task<IActionResult> GetTestPlan(long planId, CancellationToken ct)
+    {
+        var result = await _testingService.GetTestPlanAsync(planId, ct);
+        return FromResult(result);
+    }
+
+    [HttpPatch("test-plans/{planId:long}")]
+    public async Task<IActionResult> UpdateTestPlan(
+        long planId,
+        [FromBody] UpdateTestPlanRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.UpdateTestPlanAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpDelete("test-plans/{planId:long}")]
+    public async Task<IActionResult> DeleteTestPlan(long planId, CancellationToken ct)
+    {
+        var result = await _testingService.DeleteTestPlanAsync(planId, ct);
+        return FromResult(result);
+    }
+
+    // --- Environments & Builds ---
+
+    [HttpPost("test-plans/{planId:long}/environments")]
+    public async Task<IActionResult> CreateEnvironment(
+        long planId,
+        [FromBody] CreateTestEnvironmentRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.CreateEnvironmentAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpPatch("test-environments/{envId:long}")]
+    public async Task<IActionResult> UpdateEnvironment(
+        long envId,
+        [FromBody] UpdateTestEnvironmentRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.UpdateEnvironmentAsync(envId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpDelete("test-environments/{envId:long}")]
+    public async Task<IActionResult> DeleteEnvironment(long envId, CancellationToken ct)
+    {
+        var result = await _testingService.DeleteEnvironmentAsync(envId, ct);
+        return FromResult(result);
+    }
+
+    [HttpPost("test-environments/{envId:long}/builds")]
+    public async Task<IActionResult> DeployBuild(
+        long envId,
+        [FromBody] DeployTestBuildRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.DeployBuildAsync(envId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpPost("test-environments/{envId:long}/regression")]
+    public async Task<IActionResult> TriggerRegression(
+        long envId,
+        [FromBody] TriggerRegressionRequest? request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.TriggerRegressionAsync(envId, request ?? new TriggerRegressionRequest(), ct);
+        return FromResult(result);
+    }
+
+    // --- Modules & Sections ---
+
+    [HttpPost("test-plans/{planId:long}/modules")]
+    public async Task<IActionResult> CreateModule(
+        long planId,
+        [FromBody] CreateTestModuleRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.CreateModuleAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpPatch("test-modules/{moduleId:long}")]
+    public async Task<IActionResult> UpdateModule(
+        long moduleId,
+        [FromBody] UpdateTestModuleRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.UpdateModuleAsync(moduleId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpDelete("test-modules/{moduleId:long}")]
+    public async Task<IActionResult> DeleteModule(long moduleId, CancellationToken ct)
+    {
+        var result = await _testingService.DeleteModuleAsync(moduleId, ct);
+        return FromResult(result);
+    }
+
+    [HttpPost("test-modules/{moduleId:long}/sections")]
+    public async Task<IActionResult> CreateSection(
+        long moduleId,
+        [FromBody] CreateTestSectionRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.CreateSectionAsync(moduleId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpPatch("test-sections/{sectionId:long}")]
+    public async Task<IActionResult> UpdateSection(
+        long sectionId,
+        [FromBody] UpdateTestSectionRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.UpdateSectionAsync(sectionId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpDelete("test-sections/{sectionId:long}")]
+    public async Task<IActionResult> DeleteSection(long sectionId, CancellationToken ct)
+    {
+        var result = await _testingService.DeleteSectionAsync(sectionId, ct);
+        return FromResult(result);
+    }
+
+    // --- Assignments & Layout ---
+
+    [HttpPut("test-plans/{planId:long}/assignments")]
+    public async Task<IActionResult> SetAssignment(
+        long planId,
+        [FromBody] SetTestAssignmentRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.SetAssignmentAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpPut("test-plans/{planId:long}/sheet-layout")]
+    [HttpPut("test-plans/{planId:long}/layout")]
+    public async Task<IActionResult> SaveSheetLayout(
+        long planId,
+        [FromBody] SheetLayoutDto request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.SaveSheetLayoutAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
+    // --- Test Cases ---
+
     [HttpGet("projects/{projectId:long}/testcases")]
-    public async Task<IActionResult> GetProjectTestCases(
+    public async Task<IActionResult> ListProjectTestCases(
         long projectId,
-        [FromQuery] string? reqUid,
-        [FromQuery] long? documentId,
-        [FromQuery] long? folderId,
-        [FromQuery] bool? unlinked,
-        [FromQuery] bool? needsReview,
-        [FromQuery] string? lastResult,
-        [FromQuery] long? issueId,
-        [FromQuery] string? search,
+        [FromQuery] ListTestCasesQuery query,
         CancellationToken ct)
     {
-        var query = new TestCaseListQuery
-        {
-            ReqUid = reqUid,
-            DocumentId = documentId,
-            FolderId = folderId,
-            Unlinked = unlinked,
-            NeedsReview = needsReview,
-            LastResult = lastResult,
-            IssueId = issueId,
-            Search = search
-        };
-        var result = await _testing.GetProjectTestCasesAsync(projectId, query, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.ListProjectTestCasesAsync(projectId, query ?? new ListTestCasesQuery(), ct);
+        return FromResult(result);
     }
 
-    // #48 POST /projects/{projectId}/testcases
     [HttpPost("projects/{projectId:long}/testcases")]
-    public async Task<IActionResult> CreateTestCase(
+    public async Task<IActionResult> CreateProjectTestCase(
         long projectId,
         [FromBody] CreateTestCaseRequest request,
         CancellationToken ct)
     {
-        var result = await _testing.CreateTestCaseAsync(projectId, request, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.CreateProjectTestCaseAsync(projectId, request, ct);
+        return FromResult(result);
     }
 
-    // #49 GET /testcases/{testCaseId}
     [HttpGet("testcases/{testCaseId:long}")]
-    public async Task<IActionResult> GetTestCaseDetail(long testCaseId, CancellationToken ct)
+    public async Task<IActionResult> GetTestCase(long testCaseId, CancellationToken ct)
     {
-        var result = await _testing.GetTestCaseDetailAsync(testCaseId, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.GetTestCaseAsync(testCaseId, ct);
+        return FromResult(result);
     }
 
-    // #50 PATCH /testcases/{testCaseId}
+    [HttpPost("test-plans/{planId:long}/testcases")]
+    public async Task<IActionResult> CreateTestCase(
+        long planId,
+        [FromBody] CreateTestCaseRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.CreateTestCaseAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
     [HttpPatch("testcases/{testCaseId:long}")]
     public async Task<IActionResult> UpdateTestCase(
         long testCaseId,
         [FromBody] UpdateTestCaseRequest request,
         CancellationToken ct)
     {
-        var result = await _testing.UpdateTestCaseAsync(testCaseId, request, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.UpdateTestCaseAsync(testCaseId, request, ct);
+        return FromResult(result);
     }
 
-    // #51 DELETE /testcases/{testCaseId}
+    [HttpPost("test-plans/{planId:long}/testcases/bulk-update")]
+    [HttpPost("test-plans/{planId:long}/testcases/bulk")]
+    public async Task<IActionResult> BulkUpdateTestCases(
+        long planId,
+        [FromBody] BulkUpdateTestCasesRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.BulkUpdateTestCasesAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
     [HttpDelete("testcases/{testCaseId:long}")]
     public async Task<IActionResult> DeleteTestCase(long testCaseId, CancellationToken ct)
     {
-        var result = await _testing.DeleteTestCaseAsync(testCaseId, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.DeleteTestCaseAsync(testCaseId, ct);
+        return FromResult(result);
     }
 
-    // #52 POST /projects/{projectId}/testcases/suggest
+    // --- Execution Results & Bugs ---
+
+    [HttpPost("testcases/{testCaseId:long}/results")]
+    public async Task<IActionResult> RecordSingleResult(
+        long testCaseId,
+        [FromBody] RecordSingleResultRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.RecordSingleResultAsync(testCaseId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpPost("test-plans/{planId:long}/results")]
+    public async Task<IActionResult> RecordResults(
+        long planId,
+        [FromBody] RecordTestResultsRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.RecordResultsAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpPost("test-plans/{planId:long}/bugs")]
+    public async Task<IActionResult> ReportBug(
+        long planId,
+        [FromBody] ReportTestBugRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.ReportBugAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
+    [HttpPost("test-plans/{planId:long}/bugs/{issueId:long}/links")]
+    public async Task<IActionResult> LinkBug(
+        long planId,
+        long issueId,
+        [FromBody] LinkTestBugRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.LinkBugAsync(planId, issueId, request, ct);
+        return FromResult(result);
+    }
+
+    // --- Handover & Reopen ---
+
+    [HttpPost("test-plans/{planId:long}/handover")]
+    public async Task<IActionResult> HandoverPlan(
+        long planId,
+        [FromBody] HandoverTestPlanRequest? request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.HandoverPlanAsync(planId, request ?? new HandoverTestPlanRequest(), ct);
+        return FromResult(result);
+    }
+
+    [HttpPost("test-plans/{planId:long}/reopen")]
+    public async Task<IActionResult> ReopenPlan(long planId, CancellationToken ct)
+    {
+        var result = await _testingService.ReopenPlanAsync(planId, ct);
+        return FromResult(result);
+    }
+
+    // --- Activities, Traceability & AI ---
+
+    [HttpGet("test-plans/{planId:long}/activity")]
+    [HttpGet("test-plans/{planId:long}/activities")]
+    public async Task<IActionResult> ListActivities(
+        long planId,
+        [FromQuery] ListActivitiesQuery query,
+        CancellationToken ct)
+    {
+        var result = await _testingService.ListActivitiesAsync(planId, query ?? new ListActivitiesQuery(), ct);
+        return FromResult(result);
+    }
+
+    [HttpGet("test-plans/{planId:long}/traceability")]
+    public async Task<IActionResult> GetTraceability(
+        long planId,
+        [FromQuery] long? envId,
+        CancellationToken ct)
+    {
+        var result = await _testingService.GetTraceabilityAsync(planId, envId, ct);
+        return FromResult(result);
+    }
+
     [HttpPost("projects/{projectId:long}/testcases/suggest")]
     public async Task<IActionResult> SuggestTestCases(
         long projectId,
         [FromBody] SuggestTestCasesRequest request,
         CancellationToken ct)
     {
-        var result = await _testing.SuggestTestCasesAsync(projectId, request, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.SuggestTestCasesAsync(projectId, request, ct);
+        return FromResult(result);
     }
 
-    // #53 GET /projects/{projectId}/test-cycles?status=
-    [HttpGet("projects/{projectId:long}/test-cycles")]
-    public async Task<IActionResult> GetProjectTestCycles(
-        long projectId,
-        [FromQuery] string? status,
+    [HttpPost("test-plans/{planId:long}/testcases/ai-apply")]
+    [HttpPost("test-plans/{planId:long}/ai-apply")]
+    public async Task<IActionResult> AiApplyTestCases(
+        long planId,
+        [FromBody] AiApplyTestCasesRequest request,
         CancellationToken ct)
     {
-        var result = await _testing.GetProjectTestCyclesAsync(projectId, status, ct);
-        return result.ToActionResult(this);
-    }
-
-    // #54 POST /projects/{projectId}/test-cycles
-    [HttpPost("projects/{projectId:long}/test-cycles")]
-    public async Task<IActionResult> CreateTestCycle(
-        long projectId,
-        [FromBody] CreateTestCycleRequest request,
-        CancellationToken ct)
-    {
-        var result = await _testing.CreateTestCycleAsync(projectId, request, ct);
-        return result.ToActionResult(this);
-    }
-
-    // #55 PATCH /test-cycles/{cycleId}
-    [HttpPatch("test-cycles/{cycleId:long}")]
-    public async Task<IActionResult> UpdateTestCycle(
-        long cycleId,
-        [FromBody] UpdateTestCycleRequest request,
-        CancellationToken ct)
-    {
-        var result = await _testing.UpdateTestCycleAsync(cycleId, request, ct);
-        return result.ToActionResult(this);
-    }
-
-    // #56 GET /test-cycles/{cycleId}/runs
-    [HttpGet("test-cycles/{cycleId:long}/runs")]
-    public async Task<IActionResult> GetCycleRuns(
-        long cycleId,
-        [FromQuery] string? assigneeId,
-        [FromQuery] string? result,
-        [FromQuery] bool? needsRerun,
-        CancellationToken ct)
-    {
-        var query = new TestRunListQuery
-        {
-            AssigneeId = assigneeId,
-            Result = result,
-            NeedsRerun = needsRerun
-        };
-        var res = await _testing.GetCycleRunsAsync(cycleId, query, ct);
-        return res.ToActionResult(this);
-    }
-
-    // #57 PATCH /test-runs/{runId}
-    [HttpPatch("test-runs/{runId:long}")]
-    public async Task<IActionResult> UpdateTestRun(
-        long runId,
-        [FromBody] UpdateTestRunRequest request,
-        CancellationToken ct)
-    {
-        var result = await _testing.UpdateTestRunAsync(runId, request, ct);
-        return result.ToActionResult(this);
-    }
-
-    // #58 POST /test-runs/{runId}/result
-    [HttpPost("test-runs/{runId:long}/result")]
-    public async Task<IActionResult> RecordTestRunResult(
-        long runId,
-        [FromBody] RecordTestRunResultRequest request,
-        CancellationToken ct)
-    {
-        var result = await _testing.RecordTestRunResultAsync(runId, request, ct);
-        return result.ToActionResult(this);
+        var result = await _testingService.AiApplyTestCasesAsync(planId, request, ct);
+        return FromResult(result);
     }
 }

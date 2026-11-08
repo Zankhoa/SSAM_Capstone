@@ -1,662 +1,588 @@
+using System.Text.Json;
 using System.Text.Json.Serialization;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Kanban;
 
 namespace SSAM_Server.DTOs.Testing;
 
-public class TestTreeNodeDto
+// =========================================================================
+// Shared / Nested Value DTOs
+// =========================================================================
+
+public class TestPersonDto
 {
-    [JsonPropertyName("id")]
-    public string Id => NodeId;
+    public long UserId { get; set; }
+    public string FullName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string? AvatarUrl { get; set; }
+    public bool Qa { get; set; }
+}
 
-    [JsonPropertyName("nodeId")]
-    public string NodeId { get; set; } = string.Empty;
+public class TestHandoverDto
+{
+    public UserRefDto By { get; set; } = null!;
+    public string At { get; set; } = string.Empty;
+    public string? Note { get; set; }
+}
 
-    [JsonPropertyName("kind")]
-    public string Kind { get; set; } = string.Empty;
+public class IssueKeyRefDto
+{
+    public long IssueId { get; set; }
+    public string Key { get; set; } = string.Empty;
+}
 
-    [JsonPropertyName("label")]
+public class TestBugRefDto
+{
+    public long IssueId { get; set; }
+    public string Key { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Priority { get; set; } = "MEDIUM";
+    public string StatusName { get; set; } = string.Empty;
+    public string StatusCategory { get; set; } = "TODO";
+}
+
+public class CustomColumnDto
+{
+    public string Key { get; set; } = string.Empty;
     public string Label { get; set; } = string.Empty;
-
-    [JsonPropertyName("parentId")]
-    public string? ParentId { get; set; }
-
-    [JsonPropertyName("folderId")]
-    public long? FolderId { get; set; }
-
-    [JsonPropertyName("documentId")]
-    public long? DocumentId { get; set; }
-
-    [JsonPropertyName("docCode")]
-    public string? DocCode { get; set; }
-
-    [JsonPropertyName("reqUid")]
-    public string? ReqUid { get; set; }
-
-    [JsonPropertyName("requirement")]
-    public TestCaseRequirementRefDto? Requirement { get; set; }
-
-    [JsonPropertyName("count")]
-    public int Count { get; set; }
-
-    [JsonPropertyName("testCount")]
-    public int TestCount => Count;
-
-    [JsonPropertyName("passCount")]
-    public int PassCount { get; set; }
-
-    [JsonPropertyName("failCount")]
-    public int FailCount { get; set; }
-
-    [JsonPropertyName("needsReviewCount")]
-    public int NeedsReviewCount { get; set; }
+    public string Type { get; set; } = "TEXT"; // "TEXT" | "SELECT"
+    public List<string>? Options { get; set; }
+    public int Width { get; set; } = 130;
 }
 
-public class TestFolderDto
+public class SheetLayoutDto
 {
-    [JsonPropertyName("id")]
-    public string Id => $"folder-{FolderId}";
+    public List<string> Order { get; set; } = new()
+    {
+        "code",
+        "title",
+        "req",
+        "preconditions",
+        "steps",
+        "expected",
+        "actual",
+        "result",
+        "build",
+        "bug",
+        "bugStatus",
+        "priority",
+        "category",
+        "browser"
+    };
 
-    [JsonPropertyName("nodeId")]
-    public string NodeId => $"folder-{FolderId}";
-
-    [JsonPropertyName("kind")]
-    public string Kind => "FOLDER";
-
-    [JsonPropertyName("label")]
-    public string Label => Name;
-
-    [JsonPropertyName("folderId")]
-    public long FolderId { get; set; }
-
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    [JsonPropertyName("parentId")]
-    public long? ParentId { get; set; }
-
-    [JsonPropertyName("requirement")]
-    public TestCaseRequirementRefDto? Requirement => null;
-
-    [JsonPropertyName("testCount")]
-    public int TestCount => 0;
-
-    [JsonPropertyName("needsReviewCount")]
-    public int NeedsReviewCount => 0;
+    public Dictionary<string, string> Labels { get; set; } = new();
+    public Dictionary<string, int> Widths { get; set; } = new();
+    public List<CustomColumnDto> CustomColumns { get; set; } = new();
 }
+
+// =========================================================================
+// Plan, Environment, Build, Module, Section, Assignment DTOs
+// =========================================================================
+
+public class TestBuildDto
+{
+    public long BuildId { get; set; }
+    public string Version { get; set; } = string.Empty;
+    public string DeployedAt { get; set; } = string.Empty;
+    public UserRefDto? DeployedBy { get; set; }
+    public List<IssueKeyRefDto> FixedBugs { get; set; } = new();
+    public int ResultCount { get; set; }
+}
+
+public class TestEnvironmentDto
+{
+    public long EnvId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Url { get; set; }
+    public string? Note { get; set; }
+    public int Position { get; set; }
+    public string? CurrentBuild { get; set; }
+    public List<TestBuildDto> Builds { get; set; } = new();
+}
+
+public class TestSectionDto
+{
+    public long SectionId { get; set; }
+    public long ModuleId { get; set; }
+    public long? ParentId { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? AnchorId { get; set; }
+    public bool ReqChanged { get; set; }
+    public int Position { get; set; }
+}
+
+public class TestModuleDto
+{
+    public long ModuleId { get; set; }
+    public long DocumentId { get; set; }
+    public string DocumentCode { get; set; } = string.Empty;
+    public string DocumentTitle { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string ShortCode { get; set; } = string.Empty;
+    public int Position { get; set; }
+    public List<TestSectionDto> Sections { get; set; } = new();
+}
+
+public class TestAssignmentDto
+{
+    public long ModuleId { get; set; }
+    public long EnvId { get; set; }
+    public UserRefDto? Assignee { get; set; }
+}
+
+public class TestPlanDto
+{
+    public long PlanId { get; set; }
+    public long ProjectId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? StartDate { get; set; }
+    public string? EndDate { get; set; }
+    public string Status { get; set; } = "OPEN";
+    public string CreatedAt { get; set; } = string.Empty;
+    public TestHandoverDto? Handover { get; set; }
+    public List<TestEnvironmentDto> Environments { get; set; } = new();
+    public List<TestModuleDto> Modules { get; set; } = new();
+    public List<TestAssignmentDto> Assignments { get; set; } = new();
+    public SheetLayoutDto Layout { get; set; } = new();
+    public List<TestPersonDto> People { get; set; } = new();
+}
+
+// =========================================================================
+// Test Case, Result, Retest, Activity, Traceability DTOs
+// =========================================================================
 
 public class TestStepDto
 {
-    [JsonPropertyName("stepNumber")]
-    public int StepNumber { get; set; }
-
-    [JsonPropertyName("action")]
     public string Action { get; set; } = string.Empty;
-
-    [JsonPropertyName("testData")]
-    public string? TestData { get; set; }
-
-    [JsonPropertyName("expected")]
     public string Expected { get; set; } = string.Empty;
 }
 
-public class TestCaseRequirementRefDto
+public class ReqRefDto
 {
-    [JsonPropertyName("documentId")]
     public long DocumentId { get; set; }
-
-    [JsonPropertyName("docCode")]
-    public string? DocCode { get; set; }
-
-    [JsonPropertyName("documentCode")]
-    public string DocumentCode => DocCode ?? DocTitle;
-
-    [JsonPropertyName("docTitle")]
-    public string DocTitle { get; set; } = string.Empty;
-
-    [JsonPropertyName("reqUid")]
+    public string DocumentCode { get; set; } = string.Empty;
+    public string DocumentTitle { get; set; } = string.Empty;
     public string ReqUid { get; set; } = string.Empty;
-
-    [JsonPropertyName("reqKey")]
-    public string ReqKey => ReqUid.StartsWith("REQ-", StringComparison.OrdinalIgnoreCase) && ReqUid.Length <= 8
-        ? ReqUid.ToUpperInvariant()
-        : (ReqUid.Length > 8 ? ReqUid[..8].ToUpperInvariant() : ReqUid.ToUpperInvariant());
-
-    [JsonPropertyName("reqTitle")]
-    public string ReqTitle { get; set; } = string.Empty;
-
-    [JsonPropertyName("title")]
-    public string Title => ReqTitle;
-
-    [JsonPropertyName("changed")]
+    public string ReqKey { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? AnchorId { get; set; }
     public bool Changed { get; set; }
-
-    [JsonPropertyName("freshness")]
-    public string Freshness => Changed ? "STALE" : "FRESH";
-
-    [JsonPropertyName("changedVersionLabel")]
-    public string? ChangedVersionLabel { get; set; }
-
-    [JsonPropertyName("changedNote")]
-    public string? ChangedNote => ChangedVersionLabel != null ? $"Đổi trong bản v{ChangedVersionLabel}" : null;
 }
 
-public class TestCaseIssueRefDto
+public class TestResultDto
 {
-    [JsonPropertyName("issueId")]
-    public long IssueId { get; set; }
-
-    [JsonPropertyName("key")]
-    public string Key { get; set; } = string.Empty;
-
-    [JsonPropertyName("title")]
-    public string Title { get; set; } = string.Empty;
-
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = string.Empty;
-
-    [JsonPropertyName("statusCategory")]
-    public string StatusCategory { get; set; } = string.Empty;
+    public long ResultId { get; set; }
+    public long EnvId { get; set; }
+    public string Build { get; set; } = string.Empty;
+    public string Result { get; set; } = "UNTEST";
+    public UserRefDto By { get; set; } = null!;
+    public string At { get; set; } = string.Empty;
+    public UserRefDto? BehalfOf { get; set; }
 }
 
-public class TestCaseSummaryDto
+public class RetestFlagDto
 {
-    [JsonPropertyName("testCaseId")]
+    public long EnvId { get; set; }
+    public string Reason { get; set; } = "REGRESSION";
+    public IssueKeyRefDto? Bug { get; set; }
+    public string? Build { get; set; }
+    public string? ReqKey { get; set; }
+    public string At { get; set; } = string.Empty;
+}
+
+public class TestCaseDto
+{
     public long TestCaseId { get; set; }
-
-    [JsonPropertyName("projectId")]
-    public long ProjectId { get; set; }
-
-    [JsonPropertyName("key")]
-    public string Key { get; set; } = string.Empty;
-
-    [JsonPropertyName("title")]
+    public long PlanId { get; set; }
+    public long ModuleId { get; set; }
+    public long SectionId { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string ModuleCode { get; set; } = string.Empty;
     public string Title { get; set; } = string.Empty;
-
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = string.Empty;
-
-    [JsonPropertyName("priority")]
-    public string Priority { get; set; } = string.Empty;
-
-    [JsonPropertyName("folderId")]
-    public long? FolderId { get; set; }
-
-    [JsonPropertyName("stepCount")]
-    public int StepCount { get; set; }
-
-    [JsonPropertyName("requirements")]
-    public List<TestCaseRequirementRefDto> Requirements { get; set; } = new();
-
-    [JsonPropertyName("linkedIssues")]
-    public List<TestCaseIssueRefDto> LinkedIssues { get; set; } = new();
-
-    [JsonPropertyName("issues")]
-    public List<TestCaseIssueRefDto> Issues => LinkedIssues;
-
-    [JsonPropertyName("needsReview")]
-    public bool NeedsReview { get; set; }
-
-    [JsonPropertyName("lastResult")]
-    public string? LastResult { get; set; }
-
-    [JsonPropertyName("lastRunAt")]
-    public string? LastRunAt { get; set; }
-
-    [JsonPropertyName("lastRunBy")]
-    public UserRefDto? LastRunBy { get; set; }
-
-    [JsonPropertyName("updatedAt")]
+    public string? Preconditions { get; set; }
+    public List<TestStepDto> Steps { get; set; } = new();
+    public string? Actual { get; set; }
+    public List<ReqRefDto> Requirements { get; set; } = new();
+    public bool AiSuggestedReqs { get; set; }
+    public string Priority { get; set; } = "MEDIUM";
+    public string? Category { get; set; }
+    public string? Browser { get; set; }
+    public Dictionary<string, object?> CustomFields { get; set; } = new();
+    public string Status { get; set; } = "ACTIVE";
+    public int Position { get; set; }
+    public TestBugRefDto? Bug { get; set; }
+    public List<TestResultDto> Results { get; set; } = new();
+    public List<RetestFlagDto> Retest { get; set; } = new();
     public string UpdatedAt { get; set; } = string.Empty;
 }
 
-public class DefectIssueLiteDto
+public class TestActivityDto
 {
-    [JsonPropertyName("issueId")]
-    public long IssueId { get; set; }
-
-    [JsonPropertyName("key")]
-    public string Key { get; set; } = string.Empty;
+    public long ActivityId { get; set; }
+    public long PlanId { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public string At { get; set; } = string.Empty;
+    public UserRefDto Actor { get; set; } = null!;
+    public long? EnvId { get; set; }
+    public long? ModuleId { get; set; }
+    public long? TestCaseId { get; set; }
+    public string? From { get; set; }
+    public string? To { get; set; }
+    public string? Build { get; set; }
+    public UserRefDto? BehalfOf { get; set; }
+    public string Text { get; set; } = string.Empty;
 }
 
-public class TestRunHistoryItemDto
+public class TraceCaseDto
 {
-    [JsonPropertyName("runId")]
-    public long RunId { get; set; }
-
-    [JsonPropertyName("cycleId")]
-    public long CycleId { get; set; }
-
-    [JsonPropertyName("cycleName")]
-    public string CycleName { get; set; } = string.Empty;
-
-    [JsonPropertyName("result")]
-    public string Result { get; set; } = string.Empty;
-
-    [JsonPropertyName("executedBy")]
-    public UserRefDto ExecutedBy { get; set; } = new();
-
-    [JsonPropertyName("executedAt")]
-    public string ExecutedAt { get; set; } = string.Empty;
-
-    [JsonPropertyName("note")]
-    public string? Note { get; set; }
-
-    [JsonPropertyName("defectIssue")]
-    public DefectIssueLiteDto? DefectIssue { get; set; }
-
-    [JsonPropertyName("defects")]
-    public List<DefectIssueLiteDto> Defects => DefectIssue != null ? new List<DefectIssueLiteDto> { DefectIssue } : new List<DefectIssueLiteDto>();
+    public long TestCaseId { get; set; }
+    public long ModuleId { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Status { get; set; } = "UNTEST";
+    public bool Ai { get; set; }
 }
 
-public class TestCasePermissionsDto
+public class TraceRowDto
 {
-    [JsonPropertyName("edit")]
-    public bool Edit { get; set; }
-
-    [JsonPropertyName("delete")]
-    public bool Delete { get; set; }
-
-    [JsonPropertyName("execute")]
-    public bool Execute { get; set; }
+    public long DocumentId { get; set; }
+    public string DocumentCode { get; set; } = string.Empty;
+    public string DocumentTitle { get; set; } = string.Empty;
+    public string ReqUid { get; set; } = string.Empty;
+    public string ReqKey { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string? AnchorId { get; set; }
+    public bool Changed { get; set; }
+    public string Status { get; set; } = "NO_TESTS";
+    public List<TraceCaseDto> Cases { get; set; } = new();
+    public List<IssueKeyRefDto> Bugs { get; set; } = new();
 }
 
-public class TestCaseDetailDto : TestCaseSummaryDto
+public class TestPlacementDto
 {
-    [JsonPropertyName("preconditions")]
-    public string Preconditions { get; set; } = string.Empty;
-
-    [JsonPropertyName("steps")]
-    public List<TestStepDto> Steps { get; set; } = new();
-
-    [JsonPropertyName("createdBy")]
-    public UserRefDto CreatedBy { get; set; } = new();
-
-    [JsonPropertyName("createdAt")]
-    public string CreatedAt { get; set; } = string.Empty;
-
-    [JsonPropertyName("runHistory")]
-    public List<TestRunHistoryItemDto> RunHistory { get; set; } = new();
-
-    [JsonPropertyName("history")]
-    public List<TestRunHistoryItemDto> History => RunHistory;
-
-    [JsonPropertyName("can")]
-    public TestCasePermissionsDto Can { get; set; } = new();
+    public long? ModuleId { get; set; }
+    public long? SectionId { get; set; }
+    public long? GroupId { get; set; }
+    public long DocumentId { get; set; }
+    public string? AnchorId { get; set; }
+    public string SectionTitle { get; set; } = string.Empty;
+    public string Category { get; set; } = string.Empty;
 }
 
 public class SuggestedTestCaseDto
 {
-    [JsonPropertyName("tempId")]
     public string TempId { get; set; } = string.Empty;
-
-    [JsonPropertyName("reqUid")]
-    public string ReqUid { get; set; } = string.Empty;
-
-    [JsonPropertyName("documentId")]
-    public long DocumentId { get; set; }
-
-    [JsonPropertyName("requirementRef")]
-    public RequirementRefInputDto RequirementRef => new() { DocumentId = DocumentId, ReqUid = ReqUid };
-
-    [JsonPropertyName("fromCriterion")]
-    public string? FromCriterion { get; set; }
-
-    [JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
-
-    [JsonPropertyName("type")]
-    public string Type { get; set; } = string.Empty;
-
-    [JsonPropertyName("priority")]
-    public string Priority { get; set; } = string.Empty;
-
-    [JsonPropertyName("preconditions")]
-    public string Preconditions { get; set; } = string.Empty;
-
-    [JsonPropertyName("steps")]
+    public string? Preconditions { get; set; }
+    public string Priority { get; set; } = "MEDIUM";
+    public string Category { get; set; } = "Chức năng";
     public List<TestStepDto> Steps { get; set; } = new();
+    public RequirementRefInputDto RequirementRef { get; set; } = new();
+    public string? FromCriterion { get; set; }
+    public TestPlacementDto Placement { get; set; } = new();
 }
 
-public class TestCycleStatsDto
+// =========================================================================
+// Request & Response Payloads
+// =========================================================================
+
+public class CreateTestPlanRequest
 {
-    [JsonPropertyName("total")]
-    public int Total { get; set; }
-
-    [JsonPropertyName("pass")]
-    public int Pass { get; set; }
-
-    [JsonPropertyName("fail")]
-    public int Fail { get; set; }
-
-    [JsonPropertyName("blocked")]
-    public int Blocked { get; set; }
-
-    [JsonPropertyName("notRun")]
-    public int NotRun { get; set; }
-
-    [JsonPropertyName("needsRerun")]
-    public int NeedsRerun { get; set; }
-}
-
-public class TestCycleDto
-{
-    [JsonPropertyName("cycleId")]
-    public long CycleId { get; set; }
-
-    [JsonPropertyName("projectId")]
-    public long ProjectId { get; set; }
-
-    [JsonPropertyName("name")]
     public string Name { get; set; } = string.Empty;
-
-    [JsonPropertyName("sprintId")]
-    public long? SprintId { get; set; }
-
-    [JsonPropertyName("sprintName")]
-    public string? SprintName { get; set; }
-
-    [JsonPropertyName("status")]
-    public string Status { get; set; } = string.Empty;
-
-    [JsonPropertyName("stats")]
-    public TestCycleStatsDto Stats { get; set; } = new();
-
-    [JsonPropertyName("counts")]
-    public TestCycleStatsDto Counts => Stats;
-
-    [JsonPropertyName("createdBy")]
-    public UserRefDto CreatedBy { get; set; } = new();
-
-    [JsonPropertyName("createdAt")]
-    public string CreatedAt { get; set; } = string.Empty;
+    public string? StartDate { get; set; }
+    public string? EndDate { get; set; }
+    public List<string>? Environments { get; set; }
 }
 
-public class TestRunReqLiteDto
+public class UpdateTestPlanRequest
 {
-    [JsonPropertyName("docCode")]
-    public string? DocCode { get; set; }
+    public string? Name { get; set; }
 
-    [JsonPropertyName("reqUid")]
-    public string ReqUid { get; set; } = string.Empty;
+    [JsonIgnore]
+    public bool StartDateSpecified { get; private set; }
+    private string? _startDate;
+    public string? StartDate
+    {
+        get => _startDate;
+        set
+        {
+            _startDate = value;
+            StartDateSpecified = true;
+        }
+    }
 
-    [JsonPropertyName("reqTitle")]
-    public string ReqTitle { get; set; } = string.Empty;
+    [JsonIgnore]
+    public bool EndDateSpecified { get; private set; }
+    private string? _endDate;
+    public string? EndDate
+    {
+        get => _endDate;
+        set
+        {
+            _endDate = value;
+            EndDateSpecified = true;
+        }
+    }
 }
 
-public class TestRunDefectRefDto
+public class CreateTestEnvironmentRequest
 {
-    [JsonPropertyName("issueId")]
-    public long IssueId { get; set; }
-
-    [JsonPropertyName("key")]
-    public string Key { get; set; } = string.Empty;
-
-    [JsonPropertyName("title")]
-    public string Title { get; set; } = string.Empty;
-
-    [JsonPropertyName("statusId")]
-    public long StatusId { get; set; }
-
-    [JsonPropertyName("statusCategory")]
-    public string StatusCategory { get; set; } = string.Empty;
-}
-
-public class TestRunDto
-{
-    [JsonPropertyName("runId")]
-    public long RunId { get; set; }
-
-    [JsonPropertyName("cycleId")]
-    public long CycleId { get; set; }
-
-    [JsonPropertyName("testCaseId")]
-    public long TestCaseId { get; set; }
-
-    [JsonPropertyName("testCase")]
-    public TestCaseSummaryDto TestCase { get; set; } = new();
-
-    [JsonPropertyName("testCaseKey")]
-    public string TestCaseKey { get; set; } = string.Empty;
-
-    [JsonPropertyName("testCaseTitle")]
-    public string TestCaseTitle { get; set; } = string.Empty;
-
-    [JsonPropertyName("testCasePriority")]
-    public string TestCasePriority { get; set; } = string.Empty;
-
-    [JsonPropertyName("testCaseType")]
-    public string TestCaseType { get; set; } = string.Empty;
-
-    [JsonPropertyName("stepCount")]
-    public int StepCount { get; set; }
-
-    [JsonPropertyName("requirements")]
-    public List<TestRunReqLiteDto> Requirements { get; set; } = new();
-
-    [JsonPropertyName("assignee")]
-    public UserRefDto? Assignee { get; set; }
-
-    [JsonPropertyName("result")]
-    public string Result { get; set; } = string.Empty;
-
-    [JsonPropertyName("note")]
+    public string Name { get; set; } = string.Empty;
+    public string? Url { get; set; }
     public string? Note { get; set; }
-
-    [JsonPropertyName("executedAt")]
-    public string? ExecutedAt { get; set; }
-
-    [JsonPropertyName("executedBy")]
-    public UserRefDto? ExecutedBy { get; set; }
-
-    [JsonPropertyName("defects")]
-    public List<TestRunDefectRefDto> Defects { get; set; } = new();
-
-    [JsonPropertyName("needsRerun")]
-    public bool NeedsRerun { get; set; }
 }
 
-// --- Request DTOs ---
-
-public class CreateTestFolderRequest
+public class UpdateTestEnvironmentRequest
 {
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
+    public string? Name { get; set; }
+    public string? Url { get; set; }
+    public string? Note { get; set; }
+    public int? Position { get; set; }
+}
 
-    [JsonPropertyName("parentId")]
+public class DeployTestBuildRequest
+{
+    public string Version { get; set; } = string.Empty;
+    public List<long>? FixedIssueIds { get; set; }
+}
+
+public class DeployTestBuildResponse
+{
+    public TestBuildDto Build { get; set; } = null!;
+    public int RetestCount { get; set; }
+}
+
+public class TriggerRegressionRequest
+{
+    public List<long>? ModuleIds { get; set; }
+}
+
+public class TriggerRegressionResponse
+{
+    public int RetestCount { get; set; }
+}
+
+public class CreateTestModuleRequest
+{
+    public long? DocumentId { get; set; }
+    public string? Name { get; set; }
+    public string? ShortCode { get; set; }
+    public List<string>? AnchorIds { get; set; }
+}
+
+public class UpdateTestModuleRequest
+{
+    public string? Name { get; set; }
+    public string? ShortCode { get; set; }
+    public int? Position { get; set; }
+}
+
+public class CreateTestSectionRequest
+{
     public long? ParentId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string? AnchorId { get; set; }
 }
 
-public class TestStepInputDto
+public class UpdateTestSectionRequest
 {
-    [JsonPropertyName("action")]
-    public string Action { get; set; } = string.Empty;
+    public string? Title { get; set; }
+    public string? AnchorId { get; set; }
+    public int? Position { get; set; }
+}
 
-    [JsonPropertyName("testData")]
-    public string? TestData { get; set; }
+public class AssignmentInputItemDto
+{
+    public long ModuleId { get; set; }
+    public long EnvId { get; set; }
+    public long? AssigneeId { get; set; }
+}
 
-    [JsonPropertyName("expected")]
-    public string Expected { get; set; } = string.Empty;
+public class SetTestAssignmentRequest
+{
+    public List<AssignmentInputItemDto>? Items { get; set; }
+    public long? ModuleId { get; set; }
+    public long? EnvId { get; set; }
+    public long? AssigneeId { get; set; }
+}
+
+public class ListTestCasesQuery
+{
+    public long? PlanId { get; set; }
+    public long? ModuleId { get; set; }
+    public long? DocumentId { get; set; }
+    public string? ReqUid { get; set; }
+    public string? Search { get; set; }
+    public bool IncludeDeleted { get; set; }
 }
 
 public class CreateTestCaseRequest
 {
-    [JsonPropertyName("title")]
-    public string Title { get; set; } = string.Empty;
-
-    [JsonPropertyName("type")]
-    public string? Type { get; set; }
-
-    [JsonPropertyName("priority")]
-    public string? Priority { get; set; }
-
-    [JsonPropertyName("preconditions")]
+    public long SectionId { get; set; }
+    public string? Title { get; set; }
     public string? Preconditions { get; set; }
-
-    [JsonPropertyName("steps")]
-    public List<TestStepInputDto> Steps { get; set; } = new();
-
-    [JsonPropertyName("folderId")]
-    public long? FolderId { get; set; }
-
-    [JsonPropertyName("requirementRefs")]
+    public List<TestStepDto>? Steps { get; set; }
+    public string? Actual { get; set; }
     public List<RequirementRefInputDto>? RequirementRefs { get; set; }
-
-    [JsonPropertyName("linkedIssueIds")]
-    public List<long>? LinkedIssueIds { get; set; }
-
-    [JsonPropertyName("issueIds")]
-    public List<long>? IssueIds { get; set; }
+    public bool? AiSuggestedReqs { get; set; }
+    public string? Priority { get; set; }
+    public string? Category { get; set; }
+    public string? Browser { get; set; }
+    public Dictionary<string, object?>? CustomFields { get; set; }
+    public long? AfterTestCaseId { get; set; }
 }
 
 public class UpdateTestCaseRequest
 {
-    private long? _folderId;
-
-    [JsonPropertyName("title")]
+    public long? SectionId { get; set; }
     public string? Title { get; set; }
 
-    [JsonPropertyName("type")]
-    public string? Type { get; set; }
+    [JsonIgnore]
+    public bool PreconditionsSpecified { get; private set; }
+    private string? _preconditions;
+    public string? Preconditions
+    {
+        get => _preconditions;
+        set
+        {
+            _preconditions = value;
+            PreconditionsSpecified = true;
+        }
+    }
 
-    [JsonPropertyName("priority")]
+    public List<TestStepDto>? Steps { get; set; }
+
+    [JsonIgnore]
+    public bool ActualSpecified { get; private set; }
+    private string? _actual;
+    public string? Actual
+    {
+        get => _actual;
+        set
+        {
+            _actual = value;
+            ActualSpecified = true;
+        }
+    }
+
+    public List<RequirementRefInputDto>? RequirementRefs { get; set; }
+    public bool? AiSuggestedReqs { get; set; }
     public string? Priority { get; set; }
 
-    [JsonPropertyName("preconditions")]
-    public string? Preconditions { get; set; }
-
-    [JsonPropertyName("steps")]
-    public List<TestStepInputDto>? Steps { get; set; }
-
-    [JsonPropertyName("folderId")]
-    public long? FolderId
+    [JsonIgnore]
+    public bool CategorySpecified { get; private set; }
+    private string? _category;
+    public string? Category
     {
-        get => _folderId;
-        set { _folderId = value; FolderIdSpecified = true; }
+        get => _category;
+        set
+        {
+            _category = value;
+            CategorySpecified = true;
+        }
     }
-    [JsonIgnore] public bool FolderIdSpecified { get; private set; }
 
-    [JsonPropertyName("requirementRefs")]
-    public List<RequirementRefInputDto>? RequirementRefs { get; set; }
+    [JsonIgnore]
+    public bool BrowserSpecified { get; private set; }
+    private string? _browser;
+    public string? Browser
+    {
+        get => _browser;
+        set
+        {
+            _browser = value;
+            BrowserSpecified = true;
+        }
+    }
 
-    [JsonPropertyName("linkedIssueIds")]
-    public List<long>? LinkedIssueIds { get; set; }
+    public Dictionary<string, object?>? CustomFields { get; set; }
+    public string? Status { get; set; }
+    public int? Position { get; set; }
+}
 
-    [JsonPropertyName("issueIds")]
-    public List<long>? IssueIds { get; set; }
+public class BulkUpdateTestCaseItemDto
+{
+    public long TestCaseId { get; set; }
+    public UpdateTestCaseRequest Changes { get; set; } = new();
+}
 
-    [JsonPropertyName("markReviewed")]
-    public bool? MarkReviewed { get; set; }
+public class BulkUpdateTestCasesRequest
+{
+    public List<BulkUpdateTestCaseItemDto> Items { get; set; } = new();
+}
 
-    [JsonPropertyName("needsReview")]
-    public bool? NeedsReview { get; set; }
+public class RecordSingleResultRequest
+{
+    public long EnvId { get; set; }
+    public string Result { get; set; } = string.Empty;
+}
+
+public class RecordTestResultsRequest
+{
+    public long EnvId { get; set; }
+    public List<long> TestCaseIds { get; set; } = new();
+    public string Result { get; set; } = string.Empty;
+}
+
+public class RecordTestResultsResponse
+{
+    public List<TestCaseDto> Items { get; set; } = new();
+    public List<long> NeedBug { get; set; } = new();
+    public List<IssueKeyRefDto> Reopened { get; set; } = new();
+}
+
+public class ReportTestBugRequest
+{
+    public long EnvId { get; set; }
+    public List<long> TestCaseIds { get; set; } = new();
+    public string Title { get; set; } = string.Empty;
+    public string? Priority { get; set; }
+    public string? Description { get; set; }
+}
+
+public class ReportTestBugResponse
+{
+    public IssueKeyRefDto Issue { get; set; } = null!;
+    public List<TestCaseDto> Items { get; set; } = new();
+}
+
+public class LinkTestBugRequest
+{
+    public List<long> TestCaseIds { get; set; } = new();
+}
+
+public class HandoverTestPlanRequest
+{
+    public string? Note { get; set; }
+}
+
+public class ListActivitiesQuery
+{
+    public long? TestCaseId { get; set; }
+    public long? ActorId { get; set; }
+    public string? Type { get; set; }
+    public long? ModuleId { get; set; }
 }
 
 public class SuggestTestCasesRequest
 {
-    [JsonPropertyName("refs")]
+    public long? PlanId { get; set; }
     public List<RequirementRefInputDto> Refs { get; set; } = new();
 }
 
-public class TestCycleFilterInputDto
+public class AiApplyItemDto
 {
-    [JsonPropertyName("testCaseIds")]
-    public List<long>? TestCaseIds { get; set; }
-
-    [JsonPropertyName("reqUids")]
-    public List<string>? ReqUids { get; set; }
-
-    [JsonPropertyName("folderId")]
-    public long? FolderId { get; set; }
-
-    [JsonPropertyName("defaultAssigneeId")]
-    public long? DefaultAssigneeId { get; set; }
-}
-
-public class CreateTestCycleRequest
-{
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    [JsonPropertyName("sprintId")]
-    public long? SprintId { get; set; }
-
-    [JsonPropertyName("testCaseIds")]
-    public List<long>? TestCaseIds { get; set; }
-
-    [JsonPropertyName("defaultAssigneeId")]
-    public long? DefaultAssigneeId { get; set; }
-
-    [JsonPropertyName("filter")]
-    public TestCycleFilterInputDto? Filter { get; set; }
-}
-
-public class UpdateTestCycleRequest
-{
-    [JsonPropertyName("name")]
-    public string? Name { get; set; }
-
-    [JsonPropertyName("status")]
-    public string? Status { get; set; }
-
-    [JsonPropertyName("addTestCaseIds")]
-    public List<long>? AddTestCaseIds { get; set; }
-}
-
-public class UpdateTestRunRequest
-{
-    [JsonPropertyName("assigneeId")]
-    public long? AssigneeId { get; set; }
-}
-
-public class CreateDefectInlineInputDto
-{
-    [JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
-
-    [JsonPropertyName("description")]
-    public string? Description { get; set; }
-
-    [JsonPropertyName("priority")]
+    public string? Preconditions { get; set; }
     public string? Priority { get; set; }
-
-    [JsonPropertyName("assigneeId")]
-    public long? AssigneeId { get; set; }
-
-    [JsonPropertyName("sprintId")]
-    public long? SprintId { get; set; }
+    public string? Category { get; set; }
+    public List<TestStepDto>? Steps { get; set; }
+    public RequirementRefInputDto? RequirementRef { get; set; }
+    public TestPlacementDto? Placement { get; set; }
 }
 
-public class RecordTestRunResultRequest
+public class AiApplyTestCasesRequest
 {
-    [JsonPropertyName("result")]
-    public string Result { get; set; } = string.Empty;
-
-    [JsonPropertyName("note")]
-    public string? Note { get; set; }
-
-    [JsonPropertyName("defectIssueIds")]
-    public List<long>? DefectIssueIds { get; set; }
-
-    [JsonPropertyName("createDefect")]
-    public CreateDefectInlineInputDto? CreateDefect { get; set; }
-}
-
-public class TestCaseListQuery
-{
-    public string? ReqUid { get; set; }
-    public long? DocumentId { get; set; }
-    public long? FolderId { get; set; }
-    public bool? Unlinked { get; set; }
-    public bool? NeedsReview { get; set; }
-    public string? LastResult { get; set; }
-    public long? IssueId { get; set; }
-    public string? Search { get; set; }
-}
-
-public class TestRunListQuery
-{
-    public string? AssigneeId { get; set; }
-    public string? Result { get; set; }
-    public bool? NeedsRerun { get; set; }
+    public List<AiApplyItemDto> Items { get; set; } = new();
 }
