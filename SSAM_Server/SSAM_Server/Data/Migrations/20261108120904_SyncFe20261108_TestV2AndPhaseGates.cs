@@ -11,274 +11,20 @@ namespace SSAM_Server.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCaseRequirementLinks_Document",
-                table: "TestCaseRequirementLinks");
+            migrationBuilder.DropTable(name: "TestCaseIssueLinks");
+            migrationBuilder.DropTable(name: "TestCaseRequirementLinks");
+            migrationBuilder.DropTable(name: "TestRunDefects");
+            migrationBuilder.DropTable(name: "TestRunHistory");
+            migrationBuilder.DropTable(name: "TestRuns");
+            migrationBuilder.DropTable(name: "TestCycles");
+            migrationBuilder.DropTable(name: "TestCases");
+            migrationBuilder.DropTable(name: "TestFolders");
 
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCaseRequirementLinks_TestCase",
-                table: "TestCaseRequirementLinks");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCases_Folder",
-                table: "TestCases");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCases_LastRunBy",
-                table: "TestCases");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCases_Projects",
-                table: "TestCases");
-
-            migrationBuilder.DropTable(
-                name: "TestCaseIssueLinks");
-
-            migrationBuilder.DropTable(
-                name: "TestFolders");
-
-            migrationBuilder.DropTable(
-                name: "TestRunDefects");
-
-            migrationBuilder.DropTable(
-                name: "TestRunHistory");
-
-            migrationBuilder.DropTable(
-                name: "TestRuns");
-
-            migrationBuilder.DropTable(
-                name: "TestCycles");
-
-            migrationBuilder.Sql("DELETE FROM TestCaseRequirementLinks; DELETE FROM TestCases; DELETE FROM ProjectSequences WHERE scope = 'TESTCASE';");
-
-            migrationBuilder.DropIndex(
-                name: "IX_TestCases_folder_id",
-                table: "TestCases");
-
-            migrationBuilder.DropIndex(
-                name: "IX_TestCases_last_run_by_id",
-                table: "TestCases");
-
-            migrationBuilder.DropIndex(
-                name: "IX_TestCases_Project_Folder",
-                table: "TestCases");
-
-            migrationBuilder.DropIndex(
-                name: "UQ_TestCases_Project_Key",
-                table: "TestCases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_TestCases_LastResult",
-                table: "TestCases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_TestCases_Priority",
-                table: "TestCases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_TestCases_Type",
-                table: "TestCases");
+            migrationBuilder.Sql("DELETE FROM ProjectSequences WHERE scope = 'TESTCASE';");
 
             migrationBuilder.DropCheckConstraint(
                 name: "CK_DocumentNodes_DocType",
                 table: "DocumentNodes");
-
-            migrationBuilder.DropColumn(
-                name: "folder_id",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "is_deleted",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "key",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "last_result",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "last_run_at",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "type",
-                table: "TestCases");
-
-            migrationBuilder.RenameColumn(
-                name: "step_count",
-                table: "TestCases",
-                newName: "position");
-
-            migrationBuilder.RenameColumn(
-                name: "needs_review",
-                table: "TestCases",
-                newName: "ai_suggested_reqs");
-
-            migrationBuilder.RenameColumn(
-                name: "last_run_by_id",
-                table: "TestCases",
-                newName: "bug_issue_id");
-
-            migrationBuilder.RenameIndex(
-                name: "IX_TestCaseRequirementLinks_Doc_Req",
-                table: "TestCaseRequirementLinks",
-                newName: "IX_TestCaseReqLinks_Req");
-
-            migrationBuilder.AlterColumn<DateTime>(
-                name: "updated_at",
-                table: "TestCases",
-                type: "datetime2(3)",
-                nullable: false,
-                defaultValueSql: "SYSUTCDATETIME()",
-                oldClrType: typeof(DateTime),
-                oldType: "datetime2",
-                oldDefaultValueSql: "GETUTCDATE()");
-
-            migrationBuilder.AlterColumn<string>(
-                name: "title",
-                table: "TestCases",
-                type: "nvarchar(500)",
-                maxLength: 500,
-                nullable: false,
-                defaultValue: "",
-                oldClrType: typeof(string),
-                oldType: "nvarchar(200)",
-                oldMaxLength: 200);
-
-            migrationBuilder.AlterColumn<string>(
-                name: "priority",
-                table: "TestCases",
-                type: "nvarchar(10)",
-                maxLength: 10,
-                nullable: false,
-                defaultValue: "P1",
-                oldClrType: typeof(string),
-                oldType: "varchar(10)",
-                oldUnicode: false,
-                oldMaxLength: 10);
-
-            migrationBuilder.AlterColumn<DateTime>(
-                name: "created_at",
-                table: "TestCases",
-                type: "datetime2(3)",
-                nullable: false,
-                defaultValueSql: "SYSUTCDATETIME()",
-                oldClrType: typeof(DateTime),
-                oldType: "datetime2",
-                oldDefaultValueSql: "GETUTCDATE()");
-
-            migrationBuilder.AddColumn<string>(
-                name: "actual",
-                table: "TestCases",
-                type: "nvarchar(max)",
-                nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.AddColumn<string>(
-                name: "browser",
-                table: "TestCases",
-                type: "nvarchar(100)",
-                maxLength: 100,
-                nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.AddColumn<string>(
-                name: "category",
-                table: "TestCases",
-                type: "nvarchar(20)",
-                maxLength: 20,
-                nullable: false,
-                defaultValue: "FUNCTIONAL");
-
-            migrationBuilder.AddColumn<string>(
-                name: "code",
-                table: "TestCases",
-                type: "nvarchar(30)",
-                maxLength: 30,
-                nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.AddColumn<string>(
-                name: "custom_fields",
-                table: "TestCases",
-                type: "nvarchar(max)",
-                nullable: false,
-                defaultValue: "{}");
-
-            migrationBuilder.AddColumn<long>(
-                name: "module_id",
-                table: "TestCases",
-                type: "bigint",
-                nullable: false,
-                defaultValue: 0L);
-
-            migrationBuilder.AddColumn<long>(
-                name: "plan_id",
-                table: "TestCases",
-                type: "bigint",
-                nullable: false,
-                defaultValue: 0L);
-
-            migrationBuilder.AddColumn<long>(
-                name: "section_id",
-                table: "TestCases",
-                type: "bigint",
-                nullable: false,
-                defaultValue: 0L);
-
-            migrationBuilder.AddColumn<string>(
-                name: "status",
-                table: "TestCases",
-                type: "nvarchar(20)",
-                maxLength: 20,
-                nullable: false,
-                defaultValue: "ACTIVE");
-
-            migrationBuilder.AlterColumn<string>(
-                name: "req_hash",
-                table: "TestCaseRequirementLinks",
-                type: "nvarchar(32)",
-                maxLength: 32,
-                nullable: false,
-                defaultValue: "",
-                oldClrType: typeof(string),
-                oldType: "char(64)");
-
-            migrationBuilder.AlterColumn<DateTime>(
-                name: "linked_at",
-                table: "TestCaseRequirementLinks",
-                type: "datetime2(3)",
-                nullable: false,
-                defaultValueSql: "SYSUTCDATETIME()",
-                oldClrType: typeof(DateTime),
-                oldType: "datetime2",
-                oldDefaultValueSql: "GETUTCDATE()");
-
-            migrationBuilder.AlterColumn<string>(
-                name: "changed_version_label",
-                table: "TestCaseRequirementLinks",
-                type: "nvarchar(30)",
-                maxLength: 30,
-                nullable: true,
-                oldClrType: typeof(string),
-                oldType: "varchar(10)",
-                oldUnicode: false,
-                oldMaxLength: 10,
-                oldNullable: true);
-
-            migrationBuilder.AlterColumn<string>(
-                name: "req_uid",
-                table: "TestCaseRequirementLinks",
-                type: "nvarchar(40)",
-                maxLength: 40,
-                nullable: false,
-                oldClrType: typeof(string),
-                oldType: "varchar(30)",
-                oldUnicode: false,
-                oldMaxLength: 30);
 
             migrationBuilder.AddColumn<DateTime>(
                 name: "completed_at",
@@ -388,8 +134,7 @@ namespace SSAM_Server.Data.Migrations
                         name: "FK_TestPlans_Project",
                         column: x => x.project_id,
                         principalTable: "Projects",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "id");
                 });
 
             migrationBuilder.CreateTable(
@@ -413,8 +158,7 @@ namespace SSAM_Server.Data.Migrations
                         name: "FK_TestEnvironments_Plan",
                         column: x => x.plan_id,
                         principalTable: "TestPlans",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
+                        principalColumn: "id");
                 });
 
             migrationBuilder.CreateTable(
@@ -442,6 +186,128 @@ namespace SSAM_Server.Data.Migrations
                         name: "FK_TestModules_Plan",
                         column: x => x.plan_id,
                         principalTable: "TestPlans",
+                        principalColumn: "id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TestSections",
+                columns: table => new
+                {
+                    id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    module_id = table.Column<long>(type: "bigint", nullable: false),
+                    parent_id = table.Column<long>(type: "bigint", nullable: true),
+                    code = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
+                    title = table.Column<string>(type: "nvarchar(300)", maxLength: 300, nullable: false),
+                    anchor_id = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
+                    position = table.Column<int>(type: "int", nullable: false, defaultValue: 0)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TestSections", x => x.id);
+                    table.ForeignKey(
+                        name: "FK_TestSections_Module",
+                        column: x => x.module_id,
+                        principalTable: "TestModules",
+                        principalColumn: "id",
+                        onDelete: ReferentialAction.Cascade);
+                    table.ForeignKey(
+                        name: "FK_TestSections_Parent",
+                        column: x => x.parent_id,
+                        principalTable: "TestSections",
+                        principalColumn: "id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TestCases",
+                columns: table => new
+                {
+                    id = table.Column<long>(type: "bigint", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    project_id = table.Column<long>(type: "bigint", nullable: false),
+                    plan_id = table.Column<long>(type: "bigint", nullable: false),
+                    module_id = table.Column<long>(type: "bigint", nullable: false),
+                    section_id = table.Column<long>(type: "bigint", nullable: false),
+                    code = table.Column<string>(type: "nvarchar(30)", maxLength: 30, nullable: false),
+                    title = table.Column<string>(type: "nvarchar(500)", maxLength: 500, nullable: false, defaultValue: ""),
+                    preconditions = table.Column<string>(type: "nvarchar(max)", nullable: false, defaultValue: ""),
+                    steps = table.Column<string>(type: "nvarchar(max)", nullable: false, defaultValue: "[]"),
+                    actual = table.Column<string>(type: "nvarchar(max)", nullable: false, defaultValue: ""),
+                    ai_suggested_reqs = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
+                    priority = table.Column<string>(type: "nvarchar(10)", maxLength: 10, nullable: false, defaultValue: "P1"),
+                    category = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false, defaultValue: "FUNCTIONAL"),
+                    browser = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false, defaultValue: ""),
+                    custom_fields = table.Column<string>(type: "nvarchar(max)", nullable: false, defaultValue: "{}"),
+                    status = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false, defaultValue: "ACTIVE"),
+                    position = table.Column<int>(type: "int", nullable: false, defaultValue: 0),
+                    bug_issue_id = table.Column<long>(type: "bigint", nullable: true),
+                    created_by_id = table.Column<long>(type: "bigint", nullable: false),
+                    created_at = table.Column<DateTime>(type: "datetime2(3)", nullable: false, defaultValueSql: "SYSUTCDATETIME()"),
+                    updated_at = table.Column<DateTime>(type: "datetime2(3)", nullable: false, defaultValueSql: "SYSUTCDATETIME()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TestCases", x => x.id);
+                    table.CheckConstraint("CK_TestCases_Category", "[category] IN (N'FUNCTIONAL', N'BOUNDARY', N'NEGATIVE', N'UI', N'SECURITY', N'PERFORMANCE')");
+                    table.CheckConstraint("CK_TestCases_Custom_Json", "ISJSON([custom_fields]) = 1");
+                    table.CheckConstraint("CK_TestCases_Priority", "[priority] IN (N'P0', N'P1', N'P2', N'P3')");
+                    table.CheckConstraint("CK_TestCases_Status", "[status] IN (N'ACTIVE', N'DELETED')");
+                    table.CheckConstraint("CK_TestCases_Steps_Json", "ISJSON([steps]) = 1");
+                    table.ForeignKey(
+                        name: "FK_TestCases_BugIssue",
+                        column: x => x.bug_issue_id,
+                        principalTable: "Issues",
+                        principalColumn: "id");
+                    table.ForeignKey(
+                        name: "FK_TestCases_CreatedBy",
+                        column: x => x.created_by_id,
+                        principalTable: "Users",
+                        principalColumn: "id");
+                    table.ForeignKey(
+                        name: "FK_TestCases_Module",
+                        column: x => x.module_id,
+                        principalTable: "TestModules",
+                        principalColumn: "id");
+                    table.ForeignKey(
+                        name: "FK_TestCases_Plan",
+                        column: x => x.plan_id,
+                        principalTable: "TestPlans",
+                        principalColumn: "id");
+                    table.ForeignKey(
+                        name: "FK_TestCases_Project",
+                        column: x => x.project_id,
+                        principalTable: "Projects",
+                        principalColumn: "id");
+                    table.ForeignKey(
+                        name: "FK_TestCases_Section",
+                        column: x => x.section_id,
+                        principalTable: "TestSections",
+                        principalColumn: "id");
+                });
+
+            migrationBuilder.CreateTable(
+                name: "TestCaseRequirementLinks",
+                columns: table => new
+                {
+                    test_case_id = table.Column<long>(type: "bigint", nullable: false),
+                    document_id = table.Column<long>(type: "bigint", nullable: false),
+                    req_uid = table.Column<string>(type: "nvarchar(40)", maxLength: 40, nullable: false),
+                    req_hash = table.Column<string>(type: "nvarchar(32)", maxLength: 32, nullable: false, defaultValue: ""),
+                    changed_version_label = table.Column<string>(type: "nvarchar(30)", maxLength: 30, nullable: true),
+                    linked_at = table.Column<DateTime>(type: "datetime2(3)", nullable: false, defaultValueSql: "SYSUTCDATETIME()")
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_TestCaseRequirementLinks", x => new { x.test_case_id, x.document_id, x.req_uid });
+                    table.ForeignKey(
+                        name: "FK_TestCaseReqLinks_Document",
+                        column: x => x.document_id,
+                        principalTable: "DocumentNodes",
+                        principalColumn: "id");
+                    table.ForeignKey(
+                        name: "FK_TestCaseReqLinks_TestCase",
+                        column: x => x.test_case_id,
+                        principalTable: "TestCases",
                         principalColumn: "id",
                         onDelete: ReferentialAction.Cascade);
                 });
@@ -635,35 +501,6 @@ namespace SSAM_Server.Data.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
-            migrationBuilder.CreateTable(
-                name: "TestSections",
-                columns: table => new
-                {
-                    id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    module_id = table.Column<long>(type: "bigint", nullable: false),
-                    parent_id = table.Column<long>(type: "bigint", nullable: true),
-                    code = table.Column<string>(type: "nvarchar(20)", maxLength: 20, nullable: false),
-                    title = table.Column<string>(type: "nvarchar(300)", maxLength: 300, nullable: false),
-                    anchor_id = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: true),
-                    position = table.Column<int>(type: "int", nullable: false, defaultValue: 0)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_TestSections", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_TestSections_Module",
-                        column: x => x.module_id,
-                        principalTable: "TestModules",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_TestSections_Parent",
-                        column: x => x.parent_id,
-                        principalTable: "TestSections",
-                        principalColumn: "id");
-                });
-
             migrationBuilder.UpdateData(
                 table: "Permissions",
                 keyColumn: "id",
@@ -711,6 +548,11 @@ namespace SSAM_Server.Data.Migrations
                 filter: "[bug_issue_id] IS NOT NULL AND [status] = N'ACTIVE'");
 
             migrationBuilder.CreateIndex(
+                name: "IX_TestCases_created_by_id",
+                table: "TestCases",
+                column: "created_by_id");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_TestCases_module_id",
                 table: "TestCases",
                 column: "module_id");
@@ -731,30 +573,10 @@ namespace SSAM_Server.Data.Migrations
                 table: "TestCases",
                 column: "section_id");
 
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_TestCases_Category",
-                table: "TestCases",
-                sql: "[category] IN (N'FUNCTIONAL', N'BOUNDARY', N'NEGATIVE', N'UI', N'SECURITY', N'PERFORMANCE')");
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_TestCases_Custom_Json",
-                table: "TestCases",
-                sql: "ISJSON([custom_fields]) = 1");
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_TestCases_Priority",
-                table: "TestCases",
-                sql: "[priority] IN (N'P0', N'P1', N'P2', N'P3')");
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_TestCases_Status",
-                table: "TestCases",
-                sql: "[status] IN (N'ACTIVE', N'DELETED')");
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_TestCases_Steps_Json",
-                table: "TestCases",
-                sql: "ISJSON([steps]) = 1");
+            migrationBuilder.CreateIndex(
+                name: "IX_TestCaseReqLinks_Req",
+                table: "TestCaseRequirementLinks",
+                columns: new[] { "document_id", "req_uid" });
 
             migrationBuilder.CreateIndex(
                 name: "IX_ProjectPhases_completed_by_id",
@@ -924,57 +746,6 @@ namespace SSAM_Server.Data.Migrations
                 principalTable: "Users",
                 principalColumn: "id");
 
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCaseReqLinks_Document",
-                table: "TestCaseRequirementLinks",
-                column: "document_id",
-                principalTable: "DocumentNodes",
-                principalColumn: "id");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCaseReqLinks_TestCase",
-                table: "TestCaseRequirementLinks",
-                column: "test_case_id",
-                principalTable: "TestCases",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCases_BugIssue",
-                table: "TestCases",
-                column: "bug_issue_id",
-                principalTable: "Issues",
-                principalColumn: "id");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCases_Module",
-                table: "TestCases",
-                column: "module_id",
-                principalTable: "TestModules",
-                principalColumn: "id");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCases_Plan",
-                table: "TestCases",
-                column: "plan_id",
-                principalTable: "TestPlans",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCases_Project",
-                table: "TestCases",
-                column: "project_id",
-                principalTable: "Projects",
-                principalColumn: "id");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCases_Section",
-                table: "TestCases",
-                column: "section_id",
-                principalTable: "TestSections",
-                principalColumn: "id");
-
             migrationBuilder.Sql(@"
 ;WITH firstActive AS (
   SELECT id, ROW_NUMBER() OVER (PARTITION BY project_id ORDER BY position, id) AS rn
@@ -1001,103 +772,18 @@ WHERE rp.permission_id = 21
                 name: "FK_ProjectPhases_CompletedBy",
                 table: "ProjectPhases");
 
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCaseReqLinks_Document",
-                table: "TestCaseRequirementLinks");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCaseReqLinks_TestCase",
-                table: "TestCaseRequirementLinks");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCases_BugIssue",
-                table: "TestCases");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCases_Module",
-                table: "TestCases");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCases_Plan",
-                table: "TestCases");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCases_Project",
-                table: "TestCases");
-
-            migrationBuilder.DropForeignKey(
-                name: "FK_TestCases_Section",
-                table: "TestCases");
-
-            migrationBuilder.DropTable(
-                name: "ProjectPhaseLogs");
-
-            migrationBuilder.DropTable(
-                name: "TestActivities");
-
-            migrationBuilder.DropTable(
-                name: "TestAssignments");
-
-            migrationBuilder.DropTable(
-                name: "TestBuilds");
-
-            migrationBuilder.DropTable(
-                name: "TestResults");
-
-            migrationBuilder.DropTable(
-                name: "TestRetestFlags");
-
-            migrationBuilder.DropTable(
-                name: "TestSections");
-
-            migrationBuilder.DropTable(
-                name: "TestEnvironments");
-
-            migrationBuilder.DropTable(
-                name: "TestModules");
-
-            migrationBuilder.DropTable(
-                name: "TestPlans");
-
-            migrationBuilder.DropIndex(
-                name: "IX_TestCases_BugIssue",
-                table: "TestCases");
-
-            migrationBuilder.DropIndex(
-                name: "IX_TestCases_module_id",
-                table: "TestCases");
-
-            migrationBuilder.DropIndex(
-                name: "IX_TestCases_Plan_Module",
-                table: "TestCases");
-
-            migrationBuilder.DropIndex(
-                name: "IX_TestCases_project_id",
-                table: "TestCases");
-
-            migrationBuilder.DropIndex(
-                name: "IX_TestCases_section_id",
-                table: "TestCases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_TestCases_Category",
-                table: "TestCases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_TestCases_Custom_Json",
-                table: "TestCases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_TestCases_Priority",
-                table: "TestCases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_TestCases_Status",
-                table: "TestCases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_TestCases_Steps_Json",
-                table: "TestCases");
+            migrationBuilder.DropTable(name: "ProjectPhaseLogs");
+            migrationBuilder.DropTable(name: "TestActivities");
+            migrationBuilder.DropTable(name: "TestAssignments");
+            migrationBuilder.DropTable(name: "TestBuilds");
+            migrationBuilder.DropTable(name: "TestResults");
+            migrationBuilder.DropTable(name: "TestRetestFlags");
+            migrationBuilder.DropTable(name: "TestCaseRequirementLinks");
+            migrationBuilder.DropTable(name: "TestCases");
+            migrationBuilder.DropTable(name: "TestSections");
+            migrationBuilder.DropTable(name: "TestEnvironments");
+            migrationBuilder.DropTable(name: "TestModules");
+            migrationBuilder.DropTable(name: "TestPlans");
 
             migrationBuilder.DropIndex(
                 name: "IX_ProjectPhases_completed_by_id",
@@ -1110,51 +796,6 @@ WHERE rp.permission_id = 21
             migrationBuilder.DropCheckConstraint(
                 name: "CK_ProjectPhases_Lifecycle",
                 table: "ProjectPhases");
-
-            migrationBuilder.DropCheckConstraint(
-                name: "CK_DocumentNodes_DocType",
-                table: "DocumentNodes");
-
-            migrationBuilder.DeleteData(
-                table: "Permissions",
-                keyColumn: "id",
-                keyValue: 51L);
-
-            migrationBuilder.DropColumn(
-                name: "actual",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "browser",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "category",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "code",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "custom_fields",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "module_id",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "plan_id",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "section_id",
-                table: "TestCases");
-
-            migrationBuilder.DropColumn(
-                name: "status",
-                table: "TestCases");
 
             migrationBuilder.DropColumn(
                 name: "completed_at",
@@ -1176,352 +817,10 @@ WHERE rp.permission_id = 21
                 name: "override_reason",
                 table: "ProjectPhases");
 
-            migrationBuilder.RenameColumn(
-                name: "position",
-                table: "TestCases",
-                newName: "step_count");
-
-            migrationBuilder.RenameColumn(
-                name: "bug_issue_id",
-                table: "TestCases",
-                newName: "last_run_by_id");
-
-            migrationBuilder.RenameColumn(
-                name: "ai_suggested_reqs",
-                table: "TestCases",
-                newName: "needs_review");
-
-            migrationBuilder.RenameIndex(
-                name: "IX_TestCaseReqLinks_Req",
-                table: "TestCaseRequirementLinks",
-                newName: "IX_TestCaseRequirementLinks_Doc_Req");
-
-            migrationBuilder.AlterColumn<DateTime>(
-                name: "updated_at",
-                table: "TestCases",
-                type: "datetime2",
-                nullable: false,
-                defaultValueSql: "GETUTCDATE()",
-                oldClrType: typeof(DateTime),
-                oldType: "datetime2(3)",
-                oldDefaultValueSql: "SYSUTCDATETIME()");
-
-            migrationBuilder.AlterColumn<string>(
-                name: "title",
-                table: "TestCases",
-                type: "nvarchar(200)",
-                maxLength: 200,
-                nullable: false,
-                oldClrType: typeof(string),
-                oldType: "nvarchar(500)",
-                oldMaxLength: 500,
-                oldDefaultValue: "");
-
-            migrationBuilder.AlterColumn<string>(
-                name: "priority",
-                table: "TestCases",
-                type: "varchar(10)",
-                unicode: false,
-                maxLength: 10,
-                nullable: false,
-                oldClrType: typeof(string),
-                oldType: "nvarchar(10)",
-                oldMaxLength: 10,
-                oldDefaultValue: "P1");
-
-            migrationBuilder.AlterColumn<DateTime>(
-                name: "created_at",
-                table: "TestCases",
-                type: "datetime2",
-                nullable: false,
-                defaultValueSql: "GETUTCDATE()",
-                oldClrType: typeof(DateTime),
-                oldType: "datetime2(3)",
-                oldDefaultValueSql: "SYSUTCDATETIME()");
-
-            migrationBuilder.AddColumn<long>(
-                name: "folder_id",
-                table: "TestCases",
-                type: "bigint",
-                nullable: true);
-
-            migrationBuilder.AddColumn<bool>(
-                name: "is_deleted",
-                table: "TestCases",
-                type: "bit",
-                nullable: false,
-                defaultValue: false);
-
-            migrationBuilder.AddColumn<string>(
-                name: "key",
-                table: "TestCases",
-                type: "varchar(25)",
-                unicode: false,
-                maxLength: 25,
-                nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.AddColumn<string>(
-                name: "last_result",
-                table: "TestCases",
-                type: "varchar(10)",
-                unicode: false,
-                maxLength: 10,
-                nullable: true);
-
-            migrationBuilder.AddColumn<DateTime>(
-                name: "last_run_at",
-                table: "TestCases",
-                type: "datetime2",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
-                name: "type",
-                table: "TestCases",
-                type: "varchar(15)",
-                unicode: false,
-                maxLength: 15,
-                nullable: false,
-                defaultValue: "");
-
-            migrationBuilder.AlterColumn<string>(
-                name: "req_hash",
-                table: "TestCaseRequirementLinks",
-                type: "char(64)",
-                nullable: false,
-                oldClrType: typeof(string),
-                oldType: "nvarchar(32)",
-                oldMaxLength: 32,
-                oldDefaultValue: "");
-
-            migrationBuilder.AlterColumn<DateTime>(
-                name: "linked_at",
-                table: "TestCaseRequirementLinks",
-                type: "datetime2",
-                nullable: false,
-                defaultValueSql: "GETUTCDATE()",
-                oldClrType: typeof(DateTime),
-                oldType: "datetime2(3)",
-                oldDefaultValueSql: "SYSUTCDATETIME()");
-
-            migrationBuilder.AlterColumn<string>(
-                name: "changed_version_label",
-                table: "TestCaseRequirementLinks",
-                type: "varchar(10)",
-                unicode: false,
-                maxLength: 10,
-                nullable: true,
-                oldClrType: typeof(string),
-                oldType: "nvarchar(30)",
-                oldMaxLength: 30,
-                oldNullable: true);
-
-            migrationBuilder.AlterColumn<string>(
-                name: "req_uid",
-                table: "TestCaseRequirementLinks",
-                type: "varchar(30)",
-                unicode: false,
-                maxLength: 30,
-                nullable: false,
-                oldClrType: typeof(string),
-                oldType: "nvarchar(40)",
-                oldMaxLength: 40);
-
-            migrationBuilder.CreateTable(
-                name: "TestCaseIssueLinks",
-                columns: table => new
-                {
-                    test_case_id = table.Column<long>(type: "bigint", nullable: false),
-                    issue_id = table.Column<long>(type: "bigint", nullable: false),
-                    linked_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_TestCaseIssueLinks", x => new { x.test_case_id, x.issue_id });
-                    table.ForeignKey(
-                        name: "FK_TestCaseIssueLinks_Issue",
-                        column: x => x.issue_id,
-                        principalTable: "Issues",
-                        principalColumn: "id");
-                    table.ForeignKey(
-                        name: "FK_TestCaseIssueLinks_TestCase",
-                        column: x => x.test_case_id,
-                        principalTable: "TestCases",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "TestCycles",
-                columns: table => new
-                {
-                    id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    created_by_id = table.Column<long>(type: "bigint", nullable: false),
-                    project_id = table.Column<long>(type: "bigint", nullable: false),
-                    sprint_id = table.Column<long>(type: "bigint", nullable: true),
-                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()"),
-                    name = table.Column<string>(type: "nvarchar(150)", maxLength: 150, nullable: false),
-                    status = table.Column<string>(type: "varchar(10)", unicode: false, maxLength: 10, nullable: false, defaultValue: "OPEN"),
-                    updated_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_TestCycles", x => x.id);
-                    table.CheckConstraint("CK_TestCycles_Status", "[status] IN ('OPEN','CLOSED')");
-                    table.ForeignKey(
-                        name: "FK_TestCycles_CreatedBy",
-                        column: x => x.created_by_id,
-                        principalTable: "Users",
-                        principalColumn: "id");
-                    table.ForeignKey(
-                        name: "FK_TestCycles_Projects",
-                        column: x => x.project_id,
-                        principalTable: "Projects",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_TestCycles_Sprint",
-                        column: x => x.sprint_id,
-                        principalTable: "Sprints",
-                        principalColumn: "id");
-                });
-
-            migrationBuilder.CreateTable(
-                name: "TestFolders",
-                columns: table => new
-                {
-                    id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    parent_id = table.Column<long>(type: "bigint", nullable: true),
-                    project_id = table.Column<long>(type: "bigint", nullable: false),
-                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()"),
-                    name = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
-                    sort_order = table.Column<int>(type: "int", nullable: false, defaultValue: 0)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_TestFolders", x => x.id);
-                    table.ForeignKey(
-                        name: "FK_TestFolders_Parent",
-                        column: x => x.parent_id,
-                        principalTable: "TestFolders",
-                        principalColumn: "id");
-                    table.ForeignKey(
-                        name: "FK_TestFolders_Projects",
-                        column: x => x.project_id,
-                        principalTable: "Projects",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "TestRuns",
-                columns: table => new
-                {
-                    id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    assignee_id = table.Column<long>(type: "bigint", nullable: true),
-                    cycle_id = table.Column<long>(type: "bigint", nullable: false),
-                    executed_by_id = table.Column<long>(type: "bigint", nullable: true),
-                    test_case_id = table.Column<long>(type: "bigint", nullable: false),
-                    executed_at = table.Column<DateTime>(type: "datetime2", nullable: true),
-                    needs_rerun = table.Column<bool>(type: "bit", nullable: false, defaultValue: false),
-                    note = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
-                    result = table.Column<string>(type: "varchar(10)", unicode: false, maxLength: 10, nullable: false, defaultValue: "NOT_RUN"),
-                    row_ver = table.Column<byte[]>(type: "rowversion", rowVersion: true, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_TestRuns", x => x.id);
-                    table.CheckConstraint("CK_TestRuns_Result", "[result] IN ('NOT_RUN','PASS','FAIL','BLOCKED')");
-                    table.ForeignKey(
-                        name: "FK_TestRuns_Assignee",
-                        column: x => x.assignee_id,
-                        principalTable: "Users",
-                        principalColumn: "id");
-                    table.ForeignKey(
-                        name: "FK_TestRuns_Cycle",
-                        column: x => x.cycle_id,
-                        principalTable: "TestCycles",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_TestRuns_ExecutedBy",
-                        column: x => x.executed_by_id,
-                        principalTable: "Users",
-                        principalColumn: "id");
-                    table.ForeignKey(
-                        name: "FK_TestRuns_TestCase",
-                        column: x => x.test_case_id,
-                        principalTable: "TestCases",
-                        principalColumn: "id");
-                });
-
-            migrationBuilder.CreateTable(
-                name: "TestRunDefects",
-                columns: table => new
-                {
-                    run_id = table.Column<long>(type: "bigint", nullable: false),
-                    issue_id = table.Column<long>(type: "bigint", nullable: false),
-                    created_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()")
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_TestRunDefects", x => new { x.run_id, x.issue_id });
-                    table.ForeignKey(
-                        name: "FK_TestRunDefects_Issue",
-                        column: x => x.issue_id,
-                        principalTable: "Issues",
-                        principalColumn: "id");
-                    table.ForeignKey(
-                        name: "FK_TestRunDefects_Run",
-                        column: x => x.run_id,
-                        principalTable: "TestRuns",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                });
-
-            migrationBuilder.CreateTable(
-                name: "TestRunHistory",
-                columns: table => new
-                {
-                    id = table.Column<long>(type: "bigint", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    defect_issue_id = table.Column<long>(type: "bigint", nullable: true),
-                    executed_by_id = table.Column<long>(type: "bigint", nullable: false),
-                    run_id = table.Column<long>(type: "bigint", nullable: false),
-                    test_case_id = table.Column<long>(type: "bigint", nullable: false),
-                    executed_at = table.Column<DateTime>(type: "datetime2", nullable: false, defaultValueSql: "GETUTCDATE()"),
-                    note = table.Column<string>(type: "nvarchar(2000)", maxLength: 2000, nullable: true),
-                    result = table.Column<string>(type: "varchar(10)", unicode: false, maxLength: 10, nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_TestRunHistory", x => x.id);
-                    table.CheckConstraint("CK_TestRunHistory_Result", "[result] IN ('PASS','FAIL','BLOCKED')");
-                    table.ForeignKey(
-                        name: "FK_TestRunHistory_DefectIssue",
-                        column: x => x.defect_issue_id,
-                        principalTable: "Issues",
-                        principalColumn: "id");
-                    table.ForeignKey(
-                        name: "FK_TestRunHistory_ExecutedBy",
-                        column: x => x.executed_by_id,
-                        principalTable: "Users",
-                        principalColumn: "id");
-                    table.ForeignKey(
-                        name: "FK_TestRunHistory_Run",
-                        column: x => x.run_id,
-                        principalTable: "TestRuns",
-                        principalColumn: "id",
-                        onDelete: ReferentialAction.Cascade);
-                    table.ForeignKey(
-                        name: "FK_TestRunHistory_TestCase",
-                        column: x => x.test_case_id,
-                        principalTable: "TestCases",
-                        principalColumn: "id");
-                });
+            migrationBuilder.DeleteData(
+                table: "Permissions",
+                keyColumn: "id",
+                keyValue: 51L);
 
             migrationBuilder.UpdateData(
                 table: "Permissions",
@@ -1557,165 +856,6 @@ WHERE rp.permission_id = 21
                 keyValue: 50L,
                 column: "name",
                 value: "Chạy Test Case & ghi kết quả (Đạt / Lỗi / Chặn)");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestCases_folder_id",
-                table: "TestCases",
-                column: "folder_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestCases_last_run_by_id",
-                table: "TestCases",
-                column: "last_run_by_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestCases_Project_Folder",
-                table: "TestCases",
-                columns: new[] { "project_id", "folder_id", "is_deleted" });
-
-            migrationBuilder.CreateIndex(
-                name: "UQ_TestCases_Project_Key",
-                table: "TestCases",
-                columns: new[] { "project_id", "key" },
-                unique: true);
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_TestCases_LastResult",
-                table: "TestCases",
-                sql: "[last_result] IS NULL OR [last_result] IN ('NOT_RUN','PASS','FAIL','BLOCKED')");
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_TestCases_Priority",
-                table: "TestCases",
-                sql: "[priority] IN ('HIGH','MEDIUM','LOW')");
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_TestCases_Type",
-                table: "TestCases",
-                sql: "[type] IN ('FUNCTIONAL','INTEGRATION','SECURITY','E2E','UNIT','REGRESSION')");
-
-            migrationBuilder.AddCheckConstraint(
-                name: "CK_DocumentNodes_DocType",
-                table: "DocumentNodes",
-                sql: "([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER'))");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestCaseIssueLinks_Issue",
-                table: "TestCaseIssueLinks",
-                column: "issue_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestCycles_created_by_id",
-                table: "TestCycles",
-                column: "created_by_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestCycles_Project_Status",
-                table: "TestCycles",
-                columns: new[] { "project_id", "status" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestCycles_sprint_id",
-                table: "TestCycles",
-                column: "sprint_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestFolders_parent_id",
-                table: "TestFolders",
-                column: "parent_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestFolders_Project_Parent",
-                table: "TestFolders",
-                columns: new[] { "project_id", "parent_id", "sort_order" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRunDefects_Issue",
-                table: "TestRunDefects",
-                column: "issue_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRunHistory_defect_issue_id",
-                table: "TestRunHistory",
-                column: "defect_issue_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRunHistory_executed_by_id",
-                table: "TestRunHistory",
-                column: "executed_by_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRunHistory_Run",
-                table: "TestRunHistory",
-                column: "run_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRunHistory_TestCase_Time",
-                table: "TestRunHistory",
-                columns: new[] { "test_case_id", "executed_at" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRuns_Assignee",
-                table: "TestRuns",
-                columns: new[] { "assignee_id", "result" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRuns_Cycle_Result",
-                table: "TestRuns",
-                columns: new[] { "cycle_id", "result" });
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRuns_executed_by_id",
-                table: "TestRuns",
-                column: "executed_by_id");
-
-            migrationBuilder.CreateIndex(
-                name: "IX_TestRuns_TestCase",
-                table: "TestRuns",
-                column: "test_case_id");
-
-            migrationBuilder.CreateIndex(
-                name: "UQ_TestRuns_Cycle_TestCase",
-                table: "TestRuns",
-                columns: new[] { "cycle_id", "test_case_id" },
-                unique: true);
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCaseRequirementLinks_Document",
-                table: "TestCaseRequirementLinks",
-                column: "document_id",
-                principalTable: "DocumentNodes",
-                principalColumn: "id");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCaseRequirementLinks_TestCase",
-                table: "TestCaseRequirementLinks",
-                column: "test_case_id",
-                principalTable: "TestCases",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Cascade);
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCases_Folder",
-                table: "TestCases",
-                column: "folder_id",
-                principalTable: "TestFolders",
-                principalColumn: "id");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCases_LastRunBy",
-                table: "TestCases",
-                column: "last_run_by_id",
-                principalTable: "Users",
-                principalColumn: "id");
-
-            migrationBuilder.AddForeignKey(
-                name: "FK_TestCases_Projects",
-                table: "TestCases",
-                column: "project_id",
-                principalTable: "Projects",
-                principalColumn: "id",
-                onDelete: ReferentialAction.Cascade);
         }
     }
 }
