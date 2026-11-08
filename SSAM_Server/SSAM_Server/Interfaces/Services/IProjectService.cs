@@ -25,4 +25,6 @@ public interface IProjectService
     Task<ServiceResult<PhaseDto>> CreatePhaseAsync(long projectId, CreatePhaseRequestDto request, CancellationToken ct = default);
     Task<ServiceResult<WorkflowDto>> UpdatePhaseAsync(long projectId, long phaseId, UpdatePhaseRequestDto request, CancellationToken ct = default);
     Task<ServiceResult<PhaseDto>> UpdatePhaseWorkflowAsync(long projectId, long phaseId, UpdatePhaseWorkflowRequestDto request, CancellationToken ct = default);
+    Task<ServiceResult<WorkflowDto>> CompletePhaseAsync(long projectId, long phaseId, CompletePhaseRequestDto? request, CancellationToken ct = default);
+    Task<ServiceResult<WorkflowDto>> ReopenPhaseAsync(long projectId, long phaseId, ReopenPhaseRequestDto? request, CancellationToken ct = default);
 }

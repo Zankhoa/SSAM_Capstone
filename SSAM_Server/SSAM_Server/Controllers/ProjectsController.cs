@@ -198,4 +198,28 @@ public class ProjectsController : ControllerBase
         var result = await _projectService.UpdatePhaseWorkflowAsync(projectId, phaseId, request, cancellationToken);
         return result.ToActionResult(this);
     }
+
+    [HttpPost("projects/{projectId:long}/phases/{phaseId:long}/complete")]
+    [ProducesResponseType(typeof(WorkflowDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> CompletePhase(
+        long projectId,
+        long phaseId,
+        [FromBody] CompletePhaseRequestDto? request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _projectService.CompletePhaseAsync(projectId, phaseId, request, cancellationToken);
+        return result.ToActionResult(this);
+    }
+
+    [HttpPost("projects/{projectId:long}/phases/{phaseId:long}/reopen")]
+    [ProducesResponseType(typeof(WorkflowDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ReopenPhase(
+        long projectId,
+        long phaseId,
+        [FromBody] ReopenPhaseRequestDto? request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _projectService.ReopenPhaseAsync(projectId, phaseId, request, cancellationToken);
+        return result.ToActionResult(this);
+    }
 }

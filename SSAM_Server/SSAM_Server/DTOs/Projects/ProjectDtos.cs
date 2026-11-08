@@ -56,6 +56,9 @@ public class TemplatePhaseDto
     [JsonPropertyName("description")]
     public string? Description { get; set; }
 
+    [JsonPropertyName("exitCriteria")]
+    public List<string> ExitCriteria { get; set; } = new();
+
     [JsonPropertyName("statuses")]
     public List<TemplateStatusDto> Statuses { get; set; } = new();
 
@@ -236,6 +239,9 @@ public class CreateProjectPhaseInputDto
     [JsonPropertyName("description")]
     public string? Description { get; set; }
 
+    [JsonPropertyName("exitCriteria")]
+    public List<string>? ExitCriteria { get; set; }
+
     [JsonPropertyName("statuses")]
     public List<StatusInputDto> Statuses { get; set; } = new();
 
@@ -406,6 +412,21 @@ public class PhaseDto
     [JsonPropertyName("isActive")]
     public bool IsActive { get; set; }
 
+    [JsonPropertyName("exitCriteria")]
+    public List<string> ExitCriteria { get; set; } = new();
+
+    [JsonPropertyName("lifecycleStatus")]
+    public string LifecycleStatus { get; set; } = "UPCOMING";
+
+    [JsonPropertyName("completedAt")]
+    public DateTime? CompletedAt { get; set; }
+
+    [JsonPropertyName("completedBy")]
+    public UserRefDto? CompletedBy { get; set; }
+
+    [JsonPropertyName("overrideReason")]
+    public string? OverrideReason { get; set; }
+
     [JsonPropertyName("statuses")]
     public List<WorkflowStatusDto> Statuses { get; set; } = new();
 
@@ -463,6 +484,30 @@ public class UpdatePhaseRequestDto
 
     [JsonPropertyName("isActive")]
     public bool? IsActive { get; set; }
+
+    [JsonPropertyName("exitCriteria")]
+    public List<string>? ExitCriteria { get; set; }
+}
+
+public class CompletePhaseRequestDto
+{
+    [JsonPropertyName("overrideReason")]
+    public string? OverrideReason { get; set; }
+}
+
+public class ReopenPhaseRequestDto
+{
+    [JsonPropertyName("reason")]
+    public string? Reason { get; set; }
+}
+
+public class PhaseUnmetCriterionDto
+{
+    [JsonPropertyName("criterion")]
+    public string Criterion { get; set; } = string.Empty;
+
+    [JsonPropertyName("detail")]
+    public string Detail { get; set; } = string.Empty;
 }
 
 public class UpdatePhaseWorkflowRequestDto
