@@ -84,6 +84,20 @@ public class CompanyService : ICompanyService
         else if (!Regex.IsMatch(request.WorkspaceSlug, "^[a-z0-9-]+$"))
             validationErrors["workspaceSlug"] = new[] { "Workspace slug chỉ được chứa chữ thường, số và dấu gạch ngang." };
 
+        var normalizedDomain = string.IsNullOrWhiteSpace(request.EmailDomain)
+            ? null
+            : request.EmailDomain.Trim().ToLowerInvariant();
+        if (normalizedDomain != null && PublicEmailDomains.Contains(normalizedDomain))
+            validationErrors["emailDomain"] = new[] { "Không dùng tên miền email công cộng (gmail.com, yahoo.com…)." };
+
+        string? cleanPhone = null;
+        if (!string.IsNullOrWhiteSpace(request.AdminPhone))
+        {
+            cleanPhone = Regex.Replace(request.AdminPhone.Trim(), @"[\s\-]", "");
+            if (!Regex.IsMatch(cleanPhone, @"^(\+84|0)\d{9,10}$"))
+                validationErrors["adminPhone"] = new[] { "Số điện thoại không hợp lệ." };
+        }
+
         if (validationErrors.Count > 0)
         {
             return ServiceResult<CompanyDto>.Validation(validationErrors);
@@ -103,7 +117,7 @@ public class CompanyService : ICompanyService
             {
                 Name = request.Name.Trim(),
                 Code = slug,
-                EmailDomain = string.IsNullOrWhiteSpace(request.EmailDomain) ? null : request.EmailDomain.Trim().ToLowerInvariant(),
+                EmailDomain = normalizedDomain,
                 DomainAutoJoinEnabled = request.DomainAutoJoinEnabled,
                 TaxCode = request.TaxCode,
                 Address = request.Address,
@@ -128,6 +142,17 @@ public class CompanyService : ICompanyService
                 IsActive = true,
                 JoinedAt = now
             }, ct);
+
+            if (!string.IsNullOrEmpty(cleanPhone))
+            {
+                var creatorUser = await _authRepository.GetUserByIdAsync(creatorUserId.Value, ct);
+                if (creatorUser != null && string.IsNullOrWhiteSpace(creatorUser.Phone))
+                {
+                    creatorUser.Phone = cleanPhone;
+                    creatorUser.UpdatedAt = now;
+                }
+            }
+
             await _companyRepository.SaveChangesAsync(ct);
 
             return MapToDto(company);

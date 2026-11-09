@@ -46,7 +46,9 @@ public class WorkspaceService : IWorkspaceService
                 return ServiceResult<ItemsDto<WorkspaceDto>>.FromError(tenantAuth);
         }
 
-        var workspaces = await _workspaceRepository.ListByCompanyOrPersonalAsync(companyId, userId.Value, cancellationToken);
+        var workspaces = (await _workspaceRepository.ListByCompanyOrPersonalAsync(companyId, userId.Value, cancellationToken))
+            .Where(w => w.CompanyId != null)
+            .ToList();
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -139,6 +141,8 @@ public class WorkspaceService : IWorkspaceService
         var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
 
         var validationErrors = new Dictionary<string, string[]>();
+        if (!request.CompanyId.HasValue)
+            validationErrors["companyId"] = new[] { "Cần chọn công ty" };
         if (name.Length < 2 || name.Length > 255)
             validationErrors["name"] = new[] { "Tên workspace từ 2 đến 255 ký tự" };
         if (!string.IsNullOrEmpty(rawCode) && (rawCode.Length < 2 || rawCode.Length > 50 || !SlugHelper.WorkspaceCodeRegex().IsMatch(rawCode)))

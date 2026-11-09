@@ -372,10 +372,15 @@ public class WorkService : IWorkService
                 Source = "DOCUMENT",
                 Kind = "DOC_APPROVE",
                 Priority = "URGENT",
+                Urgency = 82,
                 RoleHint = "PM",
                 ProjectId = d.ProjectId,
                 ProjectKey = d.ProjectKey,
                 ProjectName = d.ProjectName,
+                Code = d.Code,
+                VersionLabel = d.VersionLabel,
+                Note = d.Note,
+                Count = d.ReqCount,
                 Title = $"{d.Code ?? "DOC"} · {d.Title}",
                 Subtitle = $"{d.Actor.FullName} gửi duyệt v{d.VersionLabel} · {d.ReqCount} yêu cầu",
                 Badge = $"v{d.VersionLabel} · Chờ duyệt",
@@ -396,10 +401,15 @@ public class WorkService : IWorkService
                 Source = "DOCUMENT",
                 Kind = "DOC_FIX_REQUESTED",
                 Priority = "URGENT",
+                Urgency = 92,
                 RoleHint = "BA",
                 ProjectId = d.ProjectId,
                 ProjectKey = d.ProjectKey,
                 ProjectName = d.ProjectName,
+                Code = d.Code,
+                VersionLabel = d.VersionLabel,
+                Note = d.Note,
+                Count = d.ReqCount,
                 Title = $"{d.Code ?? "DOC"} · {d.Title}",
                 Subtitle = d.Note != null ? $"“{d.Note}” — {d.Actor.FullName}" : $"{d.Actor.FullName} yêu cầu chỉnh sửa v{d.VersionLabel}",
                 Badge = $"v{d.VersionLabel} · Cần chỉnh sửa",
@@ -420,10 +430,12 @@ public class WorkService : IWorkService
                 Source = "DOCUMENT",
                 Kind = m.Kind == "MENTION" ? "DOC_MENTION" : "DOC_COMMENT",
                 Priority = m.Kind == "MENTION" ? "HIGH" : "NORMAL",
+                Urgency = m.Kind == "MENTION" ? 72 : 65,
                 RoleHint = "ALL",
                 ProjectId = m.ProjectId,
                 ProjectKey = m.ProjectKey,
                 ProjectName = m.ProjectName,
+                Code = m.DocCode,
                 Title = m.Summary,
                 Subtitle = m.Excerpt ?? $"{m.DocCode ?? "DOC"} · {m.DocTitle}",
                 Badge = m.Kind == "MENTION" ? "@nhắc tới bạn" : "Bình luận mở",
@@ -435,7 +447,14 @@ public class WorkService : IWorkService
                 UpdatedAt = m.CreatedAt,
                 DocumentId = m.DocumentId,
                 VersionId = m.VersionId,
-                AnchorId = m.AnchorId
+                AnchorId = m.AnchorId,
+                Comment = new WorkItemCommentDto
+                {
+                    CommentId = m.CommentId ?? 0,
+                    Body = m.Excerpt ?? m.Summary,
+                    AnchorId = m.AnchorId,
+                    Author = m.Actor
+                }
             });
         }
 
@@ -447,10 +466,13 @@ public class WorkService : IWorkService
                 Source = "DOCUMENT",
                 Kind = "REQ_STALE",
                 Priority = "HIGH",
+                Urgency = 75,
                 RoleHint = "QA",
                 ProjectId = r.ProjectId,
                 ProjectKey = r.ProjectKey,
                 ProjectName = r.ProjectName,
+                Code = r.ReqUid,
+                VersionLabel = r.VersionLabel,
                 Title = $"{r.ReqUid} — {r.ReqTitle}",
                 Subtitle = $"{r.DocCode ?? r.DocTitle} v{r.VersionLabel} · {(r.ChangeKind == "ADDED" ? "Yêu cầu mới thêm" : "Nội dung vừa cập nhật")} bởi {r.ChangedBy.FullName}",
                 Badge = r.ChangeKind == "ADDED" ? "REQ mới" : "REQ vừa đổi",
@@ -461,7 +483,18 @@ public class WorkService : IWorkService
                 DocumentId = r.DocumentId,
                 VersionId = r.VersionId,
                 AnchorId = r.AnchorId,
-                ReqUid = r.ReqUid
+                ReqUid = r.ReqUid,
+                Requirement = new WorkItemRequirementDto
+                {
+                    RequirementId = r.RequirementId > 0 ? r.RequirementId : null,
+                    ReqUid = r.ReqUid,
+                    ReqKey = r.ReqKey,
+                    Title = r.ReqTitle,
+                    AnchorId = r.AnchorId,
+                    ChangeKind = r.ChangeKind,
+                    BeforePreview = r.BeforePreview,
+                    AfterPreview = r.AfterPreview
+                }
             });
         }
 
@@ -473,10 +506,14 @@ public class WorkService : IWorkService
                 Source = "DOCUMENT",
                 Kind = "DOC_DRAFT",
                 Priority = "NORMAL",
+                Urgency = 42,
                 RoleHint = "BA",
                 ProjectId = d.ProjectId,
                 ProjectKey = d.ProjectKey,
                 ProjectName = d.ProjectName,
+                Code = d.Code,
+                VersionLabel = d.VersionLabel,
+                Count = d.ReqCount,
                 Title = $"{d.Code ?? "DOC"} · {d.Title}",
                 Subtitle = $"Bản nháp v{d.VersionLabel} · {d.ReqCount} yêu cầu" +
                            (d.UnresolvedCommentCount > 0 ? $" · {d.UnresolvedCommentCount} nhận xét mở" : ""),
@@ -490,13 +527,14 @@ public class WorkService : IWorkService
             });
         }
 
-        // 2. Issue & Test Run work items (matching issueWorkRules.ts)
+                // 2. Issue & Test v2 work items (matching issueWorkRules.ts)
         if (projectIds.Count > 0)
         {
             var myIssues = await _db.Issues
                 .AsNoTracking()
                 .Include(i => i.Status)
                 .Include(i => i.Assignee)
+                .Include(i => i.Reporter)
                 .Include(i => i.RequirementLinks)
                 .Where(i => projectIds.Contains(i.ProjectId) &&
                             !i.IsDeleted &&
@@ -511,6 +549,7 @@ public class WorkService : IWorkService
                 var pInfo = projectMap[iss.ProjectId];
                 var isOverdue = iss.DueDate.HasValue && iss.DueDate.Value <= today.AddDays(1);
                 var roleHint = iss.Type == IssueTypes.Design ? "DESIGNER" : "DEV";
+                var dueDateStr = iss.DueDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 
                 if (iss.ReqChanged)
                 {
@@ -518,6 +557,8 @@ public class WorkService : IWorkService
                         .Where(rl => rl.ChangedVersionLabel != null)
                         .Select(rl => rl.ReqUid)
                         .ToList();
+                    if (changedReqUids.Count == 0)
+                        changedReqUids = iss.RequirementLinks.Select(rl => rl.ReqUid).ToList();
 
                     items.Add(new WorkItemDto
                     {
@@ -525,19 +566,38 @@ public class WorkService : IWorkService
                         Source = "ISSUE",
                         Kind = "ISSUE_REQ_CHANGED",
                         Priority = "HIGH",
+                        Urgency = 84,
                         RoleHint = roleHint,
                         ProjectId = iss.ProjectId,
                         ProjectKey = pInfo.Project.Key,
                         ProjectName = pInfo.Project.Name,
+                        Code = iss.Key,
                         Title = $"{iss.Key} · {iss.Title}",
                         Subtitle = $"Yêu cầu {(changedReqUids.Count > 0 ? string.Join(", ", changedReqUids) : "liên kết")} vừa cập nhật — kiểm tra lại phạm vi trước khi làm tiếp",
+                        Note = $"Yêu cầu {(changedReqUids.Count > 0 ? string.Join(", ", changedReqUids) : "liên kết")} vừa cập nhật — kiểm tra lại phạm vi trước khi làm tiếp",
+                        Count = changedReqUids.Count,
                         Badge = "REQ vừa đổi",
                         CtaLabel = "Xem & xác nhận",
                         Href = $"/projects/{iss.ProjectId}/kanban?issue={iss.Key}",
-                        Actor = iss.Assignee != null ? MapUserRef(iss.Assignee) : null,
+                        Actor = MapUserRef(iss.Reporter),
                         UpdatedAt = FormatUtc(iss.UpdatedAt),
                         IssueId = iss.Id,
-                        IssueKey = iss.Key
+                        IssueKey = iss.Key,
+                        Issue = new WorkItemIssueDto
+                        {
+                            IssueId = iss.Id,
+                            Key = iss.Key,
+                            Title = iss.Title,
+                            Type = iss.Type,
+                            StatusName = iss.Status.Name,
+                            StatusCategory = iss.Status.Category,
+                            StatusColor = iss.Status.Color,
+                            Priority = iss.Priority,
+                            Points = iss.Points,
+                            DueDate = dueDateStr,
+                            ReqChanged = iss.ReqChanged,
+                            ChangedReqUids = changedReqUids
+                        }
                     });
                 }
 
@@ -546,6 +606,9 @@ public class WorkService : IWorkService
                     : iss.Status.Category == "IN_PROGRESS"
                         ? "HIGH"
                         : "NORMAL";
+                var baseUrgency = iss.Status.Category == "IN_PROGRESS" ? 76 : 62;
+                var prioBoost = iss.Priority == IssuePriorities.Highest ? 12 : iss.Priority == IssuePriorities.High ? 6 : 0;
+                var dueBoost = isOverdue ? 10 : 0;
 
                 items.Add(new WorkItemDto
                 {
@@ -553,61 +616,334 @@ public class WorkService : IWorkService
                     Source = "ISSUE",
                     Kind = iss.Status.Category == "IN_PROGRESS" ? "ISSUE_IN_PROGRESS" : "ISSUE_TODO",
                     Priority = priority,
+                    Urgency = Math.Min(94, baseUrgency + prioBoost + dueBoost),
                     RoleHint = roleHint,
                     ProjectId = iss.ProjectId,
                     ProjectKey = pInfo.Project.Key,
                     ProjectName = pInfo.Project.Name,
+                    Code = iss.Key,
                     Title = $"{iss.Key} · {iss.Title}",
                     Subtitle = $"{iss.Status.Name}" +
                                (iss.Points.HasValue ? $" · {iss.Points.Value}pt" : "") +
-                               (iss.DueDate.HasValue ? $" · hạn {iss.DueDate.Value:yyyy-MM-dd}" : ""),
+                               (dueDateStr != null ? $" · hạn {dueDateStr}" : ""),
+                    Note = $"{iss.Status.Name}" +
+                           (iss.Points.HasValue ? $" · {iss.Points.Value}pt" : "") +
+                           (dueDateStr != null ? $" · hạn {dueDateStr}" : "") +
+                           (isOverdue ? " (sắp/quá hạn)" : ""),
                     Badge = isOverdue ? "Sắp/quá hạn" : iss.Status.Name,
                     CtaLabel = iss.Status.Category == "IN_PROGRESS" ? "Tiếp tục làm" : "Bắt đầu",
                     Href = $"/projects/{iss.ProjectId}/kanban?issue={iss.Key}",
-                    Actor = iss.Assignee != null ? MapUserRef(iss.Assignee) : null,
+                    Actor = iss.Assignee != null ? MapUserRef(iss.Assignee) : MapUserRef(iss.Reporter),
                     UpdatedAt = FormatUtc(iss.UpdatedAt),
                     IssueId = iss.Id,
-                    IssueKey = iss.Key
+                    IssueKey = iss.Key,
+                    Issue = new WorkItemIssueDto
+                    {
+                        IssueId = iss.Id,
+                        Key = iss.Key,
+                        Title = iss.Title,
+                        Type = iss.Type,
+                        StatusName = iss.Status.Name,
+                        StatusCategory = iss.Status.Category,
+                        StatusColor = iss.Status.Color,
+                        Priority = iss.Priority,
+                        Points = iss.Points,
+                        DueDate = dueDateStr,
+                        ReqChanged = iss.ReqChanged
+                    }
                 });
             }
 
-            // Test Runs in OPEN cycles
-            var openRuns = await _db.TestRuns
+            // Test v2 work items (TEST_RERUN, TEST_NOT_RUN, TEST_FAILED_MINE, REQ_WITHOUT_TEST)
+            var openPlans = await _db.TestPlans
                 .AsNoTracking()
-                .Include(r => r.Cycle)
-                .Include(r => r.TestCase)
-                .Include(r => r.Assignee)
-                .Where(r => projectIds.Contains(r.Cycle.ProjectId) &&
-                            r.Cycle.Status == TestCycleStatuses.Open &&
-                            (r.AssigneeId == myId || r.AssigneeId == null) &&
-                            (r.Result == TestRunResults.NotRun || r.NeedsRerun))
+                .Include(p => p.CreatedBy)
+                .Include(p => p.Environments.Where(e => !e.IsDeleted))
+                    .ThenInclude(e => e.Builds)
+                .Include(p => p.Modules)
+                    .ThenInclude(m => m.Assignments)
+                        .ThenInclude(a => a.Assignee)
+                .Where(p => projectIds.Contains(p.ProjectId) && p.Status == TestPlanStatuses.Open)
                 .ToListAsync(ct);
 
-            foreach (var r in openRuns)
-            {
-                var pInfo = projectMap[r.Cycle.ProjectId];
-                if (!pInfo.CanExecuteTests && r.AssigneeId != myId) continue;
+            var openPlanIds = openPlans.Select(p => p.Id).ToList();
+            var activeCases = openPlanIds.Count == 0
+                ? new List<TestCase>()
+                : await _db.TestCases
+                    .AsNoTracking()
+                    .Include(tc => tc.CreatedBy)
+                    .Include(tc => tc.Results)
+                    .Include(tc => tc.RetestFlags)
+                        .ThenInclude(f => f.BugIssue)
+                    .Include(tc => tc.RequirementLinks)
+                    .Where(tc => openPlanIds.Contains(tc.PlanId) && tc.Status == TestCaseStatuses.Active)
+                    .OrderBy(tc => tc.Position)
+                    .ThenBy(tc => tc.Id)
+                    .ToListAsync(ct);
 
-                items.Add(new WorkItemDto
+            var planMap = openPlans.ToDictionary(p => p.Id);
+
+            foreach (var tc in activeCases)
+            {
+                if (!planMap.TryGetValue(tc.PlanId, out var plan)) continue;
+                var pInfo = projectMap[tc.ProjectId];
+                var mod = plan.Modules.FirstOrDefault(m => m.Id == tc.ModuleId);
+                var activeEnvs = plan.Environments.Where(e => !e.IsDeleted).OrderBy(e => e.Position).ThenBy(e => e.Id).ToList();
+
+                foreach (var env in activeEnvs)
                 {
-                    Id = $"test-run-{r.Id}",
-                    Source = "TEST",
-                    Kind = r.NeedsRerun ? "TEST_RERUN" : "TEST_PENDING",
-                    Priority = r.NeedsRerun ? "HIGH" : "NORMAL",
-                    RoleHint = "QA",
-                    ProjectId = pInfo.Project.Id,
-                    ProjectKey = pInfo.Project.Key,
-                    ProjectName = pInfo.Project.Name,
-                    Title = $"{r.TestCase.Key} · {r.TestCase.Title}",
-                    Subtitle = $"{r.Cycle.Name} · {(r.NeedsRerun ? "Cần chạy lại sau khi REQ đổi" : "Chưa chạy")}",
-                    Badge = r.NeedsRerun ? "Chạy lại" : r.Cycle.Name,
-                    CtaLabel = "Chạy test",
-                    Href = $"/projects/{pInfo.Project.Id}/tests/cycles/{r.CycleId}?run={r.Id}",
-                    Actor = r.Assignee != null ? MapUserRef(r.Assignee) : null,
-                    UpdatedAt = r.ExecutedAt.HasValue ? FormatUtc(r.ExecutedAt.Value) : FormatUtc(r.Cycle.CreatedAt),
-                    RunId = r.Id,
-                    CycleId = r.CycleId
-                });
+                    var assignment = mod?.Assignments.FirstOrDefault(a => a.EnvId == env.Id);
+                    var isMyCell = assignment?.AssigneeId == myId || (assignment == null && pInfo.CanExecuteTests);
+                    if (!isMyCell) continue;
+
+                    var flag = tc.RetestFlags.FirstOrDefault(f => f.EnvId == env.Id);
+                    var envResults = tc.Results
+                        .Where(r => r.EnvId == env.Id)
+                        .OrderByDescending(r => r.At)
+                        .ThenByDescending(r => r.Id)
+                        .ToList();
+                    var latestRec = envResults.FirstOrDefault();
+                    var status = flag != null ? "RETEST" : (latestRec?.Result ?? TestResultValues.Untest);
+                    if (status is not ("RETEST" or TestResultValues.Untest)) continue;
+
+                    var needsRerun = status == "RETEST";
+                    var currentBuild = env.Builds.OrderByDescending(b => b.DeployedAt).ThenByDescending(b => b.Id).FirstOrDefault()?.Version ?? "v1.0.0";
+                    var cycleLabel = $"{plan.Name} · {env.Name} ({currentBuild})";
+                    var reasonNote = flag != null
+                        ? (flag.Reason switch
+                        {
+                            TestRetestReasons.BugFixed => $"Bug {flag.BugIssue?.Key ?? ""} vừa sửa ở bản {flag.Build ?? currentBuild} — cần xác nhận lại",
+                            TestRetestReasons.ReqChanged => $"{flag.ReqKey ?? "Yêu cầu"} vừa đổi — cần chạy lại kịch bản",
+                            _ => $"Yêu cầu chạy hồi quy trên {env.Name}"
+                        })
+                        : $"{cycleLabel} · Chưa chạy";
+
+                    var lastRes = latestRec == null || latestRec.Result == TestResultValues.Untest
+                        ? "NOT_RUN"
+                        : (latestRec.Result == TestResultValues.Na ? "BLOCKED" : latestRec.Result);
+
+                    var runSyntheticId = tc.Id * 100 + env.Id;
+                    var actorRef = assignment != null ? MapUserRef(assignment.Assignee) : MapUserRef(tc.CreatedBy);
+                    var atStr = flag != null ? FormatUtc(flag.At) : (latestRec != null ? FormatUtc(latestRec.At) : FormatUtc(tc.UpdatedAt));
+
+                    items.Add(new WorkItemDto
+                    {
+                        Id = $"test-run-{tc.Id}-{env.Id}",
+                        Source = "TEST",
+                        Kind = needsRerun ? "TEST_RERUN" : "TEST_NOT_RUN",
+                        Priority = needsRerun ? "HIGH" : "NORMAL",
+                        Urgency = needsRerun ? 86 : 66,
+                        RoleHint = "QA",
+                        ProjectId = pInfo.Project.Id,
+                        ProjectKey = pInfo.Project.Key,
+                        ProjectName = pInfo.Project.Name,
+                        Code = tc.Code,
+                        Title = $"{tc.Code} · {tc.Title}",
+                        Subtitle = reasonNote,
+                        Note = reasonNote,
+                        Badge = needsRerun ? "Chạy lại" : cycleLabel,
+                        CtaLabel = "Chạy test",
+                        Href = $"/projects/{pInfo.Project.Id}/tests?plan={plan.Id}&env={env.Id}&case={tc.Id}",
+                        Actor = actorRef,
+                        UpdatedAt = atStr,
+                        RunId = runSyntheticId,
+                        CycleId = plan.Id,
+                        TestRun = new WorkItemTestRunDto
+                        {
+                            RunId = tc.Id,
+                            CycleId = plan.Id,
+                            TestCaseId = tc.Id,
+                            TestCaseKey = mod != null ? $"{mod.ShortCode}·{tc.Code}" : tc.Code,
+                            Title = tc.Title,
+                            CycleName = $"{plan.Name} · {env.Name}",
+                            LastResult = lastRes,
+                            NeedsRerun = needsRerun,
+                            PlanId = plan.Id,
+                            EnvId = env.Id,
+                            ModuleId = tc.ModuleId
+                        }
+                    });
+                }
+            }
+
+            // TEST_FAILED_MINE: my open issues that have a linked test case currently FAIL
+            var myIssueIds = myIssues.Select(i => i.Id).ToList();
+            if (myIssueIds.Count > 0)
+            {
+                var linkedFailCases = activeCases
+                    .Where(tc => tc.BugIssueId.HasValue && myIssueIds.Contains(tc.BugIssueId.Value))
+                    .ToList();
+
+                foreach (var iss in myIssues)
+                {
+                    var pInfo = projectMap[iss.ProjectId];
+                    var dueDateStr = iss.DueDate?.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+                    TestCase? failCase = null;
+                    long? failEnvId = null;
+
+                    foreach (var tc in linkedFailCases.Where(c => c.BugIssueId == iss.Id))
+                    {
+                        if (!planMap.TryGetValue(tc.PlanId, out var plan)) continue;
+                        foreach (var env in plan.Environments.Where(e => !e.IsDeleted))
+                        {
+                            var hasFlag = tc.RetestFlags.Any(f => f.EnvId == env.Id);
+                            var latestRec = tc.Results
+                                .Where(r => r.EnvId == env.Id)
+                                .OrderByDescending(r => r.At)
+                                .ThenByDescending(r => r.Id)
+                                .FirstOrDefault();
+                            var st = hasFlag ? "RETEST" : (latestRec?.Result ?? TestResultValues.Untest);
+                            if (st == TestResultValues.Fail)
+                            {
+                                failCase = tc;
+                                failEnvId = env.Id;
+                                break;
+                            }
+                        }
+                        if (failCase != null) break;
+                    }
+
+                    if (failCase != null && planMap.TryGetValue(failCase.PlanId, out var failPlan))
+                    {
+                        items.Add(new WorkItemDto
+                        {
+                            Id = $"test-fail-mine-{iss.Id}-{failCase.Id}",
+                            Source = "ISSUE",
+                            Kind = "TEST_FAILED_MINE",
+                            Priority = "URGENT",
+                            Urgency = 88,
+                            RoleHint = "DEV",
+                            ProjectId = iss.ProjectId,
+                            ProjectKey = pInfo.Project.Key,
+                            ProjectName = pInfo.Project.Name,
+                            Code = iss.Key,
+                            Title = $"{iss.Key} · {iss.Title}",
+                            Subtitle = $"Kịch bản {failCase.Code} ({failCase.Title}) báo FAIL — cần kiểm tra & sửa lỗi",
+                            Note = $"Kịch bản {failCase.Code} ({failCase.Title}) báo FAIL — cần kiểm tra & sửa lỗi",
+                            Badge = "Test FAIL",
+                            CtaLabel = "Xem lỗi",
+                            Href = $"/projects/{iss.ProjectId}/kanban?issue={iss.Key}",
+                            Actor = MapUserRef(failCase.CreatedBy),
+                            UpdatedAt = FormatUtc(failCase.UpdatedAt),
+                            IssueId = iss.Id,
+                            IssueKey = iss.Key,
+                            Issue = new WorkItemIssueDto
+                            {
+                                IssueId = iss.Id,
+                                Key = iss.Key,
+                                Title = iss.Title,
+                                Type = iss.Type,
+                                StatusName = iss.Status.Name,
+                                StatusCategory = iss.Status.Category,
+                                StatusColor = iss.Status.Color,
+                                Priority = iss.Priority,
+                                Points = iss.Points,
+                                DueDate = dueDateStr,
+                                ReqChanged = iss.ReqChanged
+                            },
+                            TestRun = new WorkItemTestRunDto
+                            {
+                                RunId = failCase.Id,
+                                CycleId = failCase.PlanId,
+                                TestCaseId = failCase.Id,
+                                TestCaseKey = failCase.Code,
+                                Title = failCase.Title,
+                                CycleName = failPlan.Name,
+                                LastResult = "FAIL",
+                                NeedsRerun = false,
+                                PlanId = failCase.PlanId,
+                                EnvId = failEnvId,
+                                ModuleId = failCase.ModuleId
+                            }
+                        });
+                    }
+                }
+            }
+
+            // REQ_WITHOUT_TEST: for projects where user has testcase.manage
+            var manageProjectIds = accessibleProjects
+                .Where(p => p.CanManageTests)
+                .Select(p => p.Project.Id)
+                .ToList();
+
+            if (manageProjectIds.Count > 0)
+            {
+                var baselinedDocs = await _db.DocumentNodes
+                    .AsNoTracking()
+                    .Include(d => d.CurrentVersion)
+                        .ThenInclude(v => v!.UpdatedBy)
+                    .Where(d => manageProjectIds.Contains(d.ProjectId) &&
+                                !d.IsDeleted &&
+                                d.Kind == DocumentNodeKinds.Page &&
+                                d.BaselineVersionId != null)
+                    .ToListAsync(ct);
+
+                var baseVerIds = baselinedDocs.Select(d => d.BaselineVersionId!.Value).Distinct().ToList();
+                var baseReqs = baseVerIds.Count == 0
+                    ? new List<RequirementItem>()
+                    : await _db.RequirementItems
+                        .AsNoTracking()
+                        .Where(r => baseVerIds.Contains(r.VersionId))
+                        .OrderBy(r => r.SortOrder)
+                        .ToListAsync(ct);
+
+                var coveredLinks = await _db.TestCaseRequirementLinks
+                    .AsNoTracking()
+                    .Where(l => manageProjectIds.Contains(l.TestCase.ProjectId) && l.TestCase.Status == TestCaseStatuses.Active)
+                    .Select(l => new { l.DocumentId, l.ReqUid })
+                    .ToListAsync(ct);
+                var coveredSet = coveredLinks
+                    .Select(l => (l.DocumentId, l.ReqUid.ToUpperInvariant()))
+                    .ToHashSet();
+
+                var docById = baselinedDocs.ToDictionary(d => d.Id);
+                foreach (var req in baseReqs)
+                {
+                    if (coveredSet.Contains((req.DocumentId, req.ReqUid.ToUpperInvariant())))
+                        continue;
+                    if (!docById.TryGetValue(req.DocumentId, out var doc))
+                        continue;
+
+                    var pInfo = projectMap[doc.ProjectId];
+                    var ver = doc.CurrentVersion;
+                    if (ver == null) continue;
+
+                    items.Add(new WorkItemDto
+                    {
+                        Id = $"req-no-test-{doc.Id}-{req.ReqUid}",
+                        Source = "DOCUMENT",
+                        Kind = "REQ_WITHOUT_TEST",
+                        Priority = "NORMAL",
+                        Urgency = 58,
+                        RoleHint = "QA",
+                        ProjectId = pInfo.Project.Id,
+                        ProjectKey = pInfo.Project.Key,
+                        ProjectName = pInfo.Project.Name,
+                        Code = req.ReqUid,
+                        Title = $"{req.ReqUid} · {req.Title}",
+                        Subtitle = $"Chưa có kịch bản kiểm thử nào gắn với {req.ReqUid} trong {doc.Code ?? doc.Title}",
+                        Note = $"Chưa có kịch bản kiểm thử nào gắn với {req.ReqUid} trong {doc.Code ?? doc.Title}",
+                        Badge = "Chưa có test",
+                        CtaLabel = "Viết test",
+                        Href = $"/projects/{pInfo.Project.Id}/tests",
+                        Actor = MapUserRef(ver.UpdatedBy),
+                        UpdatedAt = FormatUtc(ver.UpdatedAt),
+                        DocumentId = doc.Id,
+                        VersionId = ver.Id,
+                        VersionLabel = ver.Label,
+                        AnchorId = req.AnchorId,
+                        ReqUid = req.ReqUid,
+                        Requirement = new WorkItemRequirementDto
+                        {
+                            ReqUid = req.ReqUid,
+                            ReqKey = $"{(doc.Code ?? $"DOC-{doc.Id}")}:{req.ReqUid}",
+                            Title = req.Title,
+                            AnchorId = req.AnchorId,
+                            ChangeKind = "ADDED",
+                            AfterPreview = req.BodyPreview
+                        }
+                    });
+                }
             }
         }
 
@@ -634,7 +970,8 @@ public class WorkService : IWorkService
         Project Project,
         bool CanEdit,
         bool CanApprove,
-        bool CanExecuteTests
+        bool CanExecuteTests,
+        bool CanManageTests
     );
 
     private async Task<List<AccessibleProjectInfo>> GetAccessibleProjectsAsync(
@@ -675,7 +1012,8 @@ public class WorkService : IWorkService
                 Project: p,
                 CanEdit: perms.Contains(PermissionKeys.DocumentUpdate, StringComparer.OrdinalIgnoreCase),
                 CanApprove: perms.Contains(PermissionKeys.DocumentApprove, StringComparer.OrdinalIgnoreCase),
-                CanExecuteTests: perms.Contains(PermissionKeys.TestcaseExecute, StringComparer.OrdinalIgnoreCase)
+                CanExecuteTests: perms.Contains(PermissionKeys.TestcaseExecute, StringComparer.OrdinalIgnoreCase),
+                CanManageTests: perms.Contains(PermissionKeys.TestCaseManage, StringComparer.OrdinalIgnoreCase)
             ));
         }
 
