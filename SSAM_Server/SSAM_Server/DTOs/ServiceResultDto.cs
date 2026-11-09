@@ -10,6 +10,7 @@ public class ServiceResultDto
     public string? RequiredPermission { get; set; }
     public object? WorkflowIssues { get; set; }
     public object? Current { get; set; }
+    public object? UnmetCriteria { get; set; }
 }
 
 public class ServiceResultDto<T> : ServiceResultDto

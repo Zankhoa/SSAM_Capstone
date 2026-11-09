@@ -45,6 +45,7 @@ public static class SdlcTemplateCatalog
     {
         Name = name,
         Description = description,
+        ExitCriteria = ["ISSUES_DONE"],
         Statuses =
         [
             Status("todo", "Open / To Do", StatusCategories.Todo, Gray, "Issue mới tạo, đang xếp hàng chờ phân công", isInitial: true),
@@ -75,6 +76,7 @@ public static class SdlcTemplateCatalog
                 {
                     Name = "Product Backlog",
                     Description = "Thu thập, làm rõ và ưu tiên user story",
+                    ExitCriteria = ["DOC_APPROVED", "REQ_SEGMENTED", "REQ_LINKED_ISSUES"],
                     Statuses =
                     [
                         Status("backlog", "Backlog", StatusCategories.Todo, Gray, "User story mới, chưa làm rõ", isInitial: true),
@@ -92,6 +94,7 @@ public static class SdlcTemplateCatalog
                 {
                     Name = "Sprint Review",
                     Description = "Demo và nghiệm thu cuối sprint",
+                    ExitCriteria = ["TESTS_PASSED"],
                     Statuses =
                     [
                         Status("demo", "In Review", StatusCategories.InProgress, Violet, "Đang demo cho Product Owner", isInitial: true),
@@ -106,6 +109,7 @@ public static class SdlcTemplateCatalog
                 {
                     Name = "Release",
                     Description = "Đóng gói và phát hành",
+                    ExitCriteria = ["RTM_ZERO_STALE"],
                     Statuses =
                     [
                         Status("to_release", "Ready to Release", StatusCategories.Todo, Amber, null, isInitial: true),
@@ -130,6 +134,7 @@ public static class SdlcTemplateCatalog
                 {
                     Name = "Kanban Board",
                     Description = "Luồng liên tục — Standard Kanban Workflow",
+                    ExitCriteria = ["ISSUES_DONE"],
                     Statuses =
                     [
                         Status("todo", "To Do", StatusCategories.Todo, Gray, "Issue mới tạo, chờ phân công", isInitial: true),
@@ -159,6 +164,7 @@ public static class SdlcTemplateCatalog
                 {
                     Name = "Requirement & Analysis",
                     Description = "Thu thập và phân tích yêu cầu",
+                    ExitCriteria = ["DOC_APPROVED", "REQ_SEGMENTED"],
                     Statuses =
                     [
                         Status("open", "Open", StatusCategories.Todo, Gray, "Yêu cầu mới ghi nhận", isInitial: true),
@@ -176,6 +182,7 @@ public static class SdlcTemplateCatalog
                 {
                     Name = "UI/UX Design & Architecture",
                     Description = "Thiết kế wireframe, prototype và kiến trúc",
+                    ExitCriteria = ["REQ_LINKED_ISSUES"],
                     Statuses =
                     [
                         Status("wireframing", "Wireframing", StatusCategories.InProgress, Blue, "Đang thiết kế", isInitial: true),
@@ -191,6 +198,7 @@ public static class SdlcTemplateCatalog
                 {
                     Name = "UAT & Deployment",
                     Description = "Kiểm thử chấp nhận người dùng và triển khai",
+                    ExitCriteria = ["TESTS_PASSED", "RTM_ZERO_STALE"],
                     Statuses =
                     [
                         Status("uat", "UAT Testing", StatusCategories.InProgress, Violet, "Người dùng đang kiểm thử chấp nhận", isInitial: true),

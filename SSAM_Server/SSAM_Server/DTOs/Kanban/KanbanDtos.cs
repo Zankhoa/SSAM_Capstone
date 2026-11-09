@@ -314,6 +314,14 @@ public class IssueLinkedTestCaseDto
 
     [JsonPropertyName("lastResult")]
     public string? LastResult { get; set; }
+
+    [JsonPropertyName("planId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? PlanId { get; set; }
+
+    [JsonPropertyName("envId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? EnvId { get; set; }
 }
 
 public class IssueAllowedTransitionDto : WorkflowTransitionDto

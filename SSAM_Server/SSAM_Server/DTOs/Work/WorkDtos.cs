@@ -368,4 +368,173 @@ public class WorkItemDto
     [JsonPropertyName("cycleId")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? CycleId { get; set; }
+
+    [JsonPropertyName("roleKind")]
+    public string RoleKind => string.IsNullOrEmpty(_roleKind) ? RoleHint : _roleKind;
+    private string _roleKind = string.Empty;
+    public void SetRoleKind(string roleKind) => _roleKind = roleKind;
+
+    [JsonPropertyName("code")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Code { get; set; }
+
+    [JsonPropertyName("versionLabel")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? VersionLabel { get; set; }
+
+    [JsonPropertyName("compareToVersionId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? CompareToVersionId { get; set; }
+
+    [JsonPropertyName("note")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Note { get; set; }
+
+    [JsonPropertyName("count")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Count { get; set; }
+
+    [JsonPropertyName("comment")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkItemCommentDto? Comment { get; set; }
+
+    [JsonPropertyName("requirement")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkItemRequirementDto? Requirement { get; set; }
+
+    [JsonPropertyName("issue")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkItemIssueDto? Issue { get; set; }
+
+    [JsonPropertyName("testRun")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public WorkItemTestRunDto? TestRun { get; set; }
+
+    [JsonPropertyName("activity")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Activity { get; set; }
+}
+
+public class WorkItemCommentDto
+{
+    [JsonPropertyName("commentId")]
+    public long CommentId { get; set; }
+
+    [JsonPropertyName("body")]
+    public string Body { get; set; } = string.Empty;
+
+    [JsonPropertyName("anchorId")]
+    public string? AnchorId { get; set; }
+
+    [JsonPropertyName("author")]
+    public UserRefDto Author { get; set; } = new();
+}
+
+public class WorkItemRequirementDto
+{
+    [JsonPropertyName("requirementId")]
+    public long? RequirementId { get; set; }
+
+    [JsonPropertyName("reqUid")]
+    public string ReqUid { get; set; } = string.Empty;
+
+    [JsonPropertyName("reqKey")]
+    public string ReqKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("anchorId")]
+    public string? AnchorId { get; set; } = string.Empty;
+
+    [JsonPropertyName("changeKind")]
+    public string ChangeKind { get; set; } = string.Empty;
+
+    [JsonPropertyName("beforePreview")]
+    public string? BeforePreview { get; set; }
+
+    [JsonPropertyName("afterPreview")]
+    public string AfterPreview { get; set; } = string.Empty;
+}
+
+public class WorkItemIssueDto
+{
+    [JsonPropertyName("issueId")]
+    public long IssueId { get; set; }
+
+    [JsonPropertyName("key")]
+    public string Key { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("type")]
+    public string Type { get; set; } = string.Empty;
+
+    [JsonPropertyName("statusName")]
+    public string StatusName { get; set; } = string.Empty;
+
+    [JsonPropertyName("statusCategory")]
+    public string StatusCategory { get; set; } = string.Empty;
+
+    [JsonPropertyName("statusColor")]
+    public string? StatusColor { get; set; }
+
+    [JsonPropertyName("priority")]
+    public string Priority { get; set; } = string.Empty;
+
+    [JsonPropertyName("points")]
+    public int? Points { get; set; }
+
+    [JsonPropertyName("dueDate")]
+    public string? DueDate { get; set; }
+
+    [JsonPropertyName("reqChanged")]
+    public bool ReqChanged { get; set; }
+
+    [JsonPropertyName("testTotal")]
+    public int TestTotal { get; set; }
+
+    [JsonPropertyName("changedReqUids")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? ChangedReqUids { get; set; }
+}
+
+public class WorkItemTestRunDto
+{
+    [JsonPropertyName("runId")]
+    public long RunId { get; set; }
+
+    [JsonPropertyName("cycleId")]
+    public long CycleId { get; set; }
+
+    [JsonPropertyName("testCaseId")]
+    public long TestCaseId { get; set; }
+
+    [JsonPropertyName("testCaseKey")]
+    public string TestCaseKey { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("cycleName")]
+    public string CycleName { get; set; } = string.Empty;
+
+    [JsonPropertyName("lastResult")]
+    public string LastResult { get; set; } = "NOT_RUN";
+
+    [JsonPropertyName("needsRerun")]
+    public bool NeedsRerun { get; set; }
+
+    [JsonPropertyName("planId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? PlanId { get; set; }
+
+    [JsonPropertyName("envId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? EnvId { get; set; }
+
+    [JsonPropertyName("moduleId")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? ModuleId { get; set; }
 }

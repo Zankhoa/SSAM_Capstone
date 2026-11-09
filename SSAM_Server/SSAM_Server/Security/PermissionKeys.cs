@@ -98,6 +98,10 @@ public static class PermissionKeys
     public const string IssueComment = CommentWrite;
     public const string TestcaseView = TestCaseView;
     public const string TestcaseCreate = TestCaseManage;
+    public const string TestCaseCreate = TestCaseManage;
+    public const string TestCaseUpdate = TestCaseManage;
+    public const string TestCaseDelete = TestCaseManage;
+    public const string TestRunExecute = TestCaseExecute;
     public const string TestcaseUpdate = TestCaseManage;
     public const string TestcaseDelete = TestCaseManage;
     public const string TestcaseExecute = TestCaseExecute;

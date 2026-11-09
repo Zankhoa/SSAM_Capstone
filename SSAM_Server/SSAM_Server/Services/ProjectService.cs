@@ -10,6 +10,16 @@ namespace SSAM_Server.Services;
 
 public class ProjectService : IProjectService
 {
+    private static readonly HashSet<string> ValidPhaseCriteria = new(StringComparer.Ordinal)
+    {
+        "DOC_APPROVED",
+        "REQ_SEGMENTED",
+        "REQ_LINKED_ISSUES",
+        "ISSUES_DONE",
+        "TESTS_PASSED",
+        "RTM_ZERO_STALE"
+    };
+
     private readonly IProjectRepository _projectRepository;
     private readonly IWorkspaceRepository _workspaceRepository;
     private readonly ICompanyRepository _companyRepository;
@@ -166,6 +176,15 @@ public class ProjectService : IProjectService
         else if (phases.Select(ph => ph.Name.Trim().ToLowerInvariant()).Distinct().Count() != phases.Count)
             errors["phases"] = new[] { "Tên phase bị trùng" };
 
+        for (int i = 0; i < phases.Count; i++)
+        {
+            var ec = phases[i].ExitCriteria;
+            if (ec != null && ec.Any(c => string.IsNullOrWhiteSpace(c) || !ValidPhaseCriteria.Contains(c.Trim())))
+            {
+                errors[$"phases[{i}].exitCriteria"] = new[] { "Tiêu chí hoàn tất giai đoạn không hợp lệ." };
+            }
+        }
+
         if (errors.Count > 0)
             return ServiceResult<ProjectDto>.Validation(errors);
 
@@ -227,6 +246,12 @@ public class ProjectService : IProjectService
             for (int i = 0; i < phases.Count; i++)
             {
                 var phInput = phases[i];
+                var normalizedCriteria = (phInput.ExitCriteria ?? new List<string>())
+                    .Select(c => c.Trim())
+                    .Where(ValidPhaseCriteria.Contains)
+                    .Distinct()
+                    .ToList();
+
                 var phase = new ProjectPhase
                 {
                     ProjectId = project.Id,
@@ -234,6 +259,8 @@ public class ProjectService : IProjectService
                     Description = string.IsNullOrWhiteSpace(phInput.Description) ? null : phInput.Description.Trim(),
                     Position = i + 1,
                     IsActive = true,
+                    ExitCriteria = System.Text.Json.JsonSerializer.Serialize(normalizedCriteria),
+                    LifecycleStatus = i == 0 ? "ACTIVE" : "UPCOMING",
                     CreatedAt = now,
                     UpdatedAt = now
                 };
@@ -696,6 +723,7 @@ public class ProjectService : IProjectService
         return await _projectRepository.ExecuteInTransactionAsync(async innerCt =>
         {
             var now = _clock.GetUtcNow().UtcDateTime;
+            var hasActiveLifecycle = existingPhases.Any(ph => ph.IsActive && ph.LifecycleStatus == "ACTIVE");
             var phase = new ProjectPhase
             {
                 ProjectId = projectId,
@@ -703,6 +731,8 @@ public class ProjectService : IProjectService
                 Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim(),
                 Position = existingPhases.Count + 1,
                 IsActive = true,
+                ExitCriteria = "[]",
+                LifecycleStatus = hasActiveLifecycle ? "UPCOMING" : "ACTIVE",
                 CreatedAt = now,
                 UpdatedAt = now
             };
@@ -800,6 +830,24 @@ public class ProjectService : IProjectService
         if (request.DescriptionSpecified)
             phase.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
 
+        if (request.ExitCriteria != null)
+        {
+            if (request.ExitCriteria.Any(c => string.IsNullOrWhiteSpace(c) || !ValidPhaseCriteria.Contains(c.Trim())))
+            {
+                return ServiceResult<WorkflowDto>.Validation(new Dictionary<string, string[]>
+                {
+                    ["exitCriteria"] = new[] { "Tiêu chí hoàn tất giai đoạn không hợp lệ." }
+                });
+            }
+
+            var normalizedCriteria = request.ExitCriteria
+                .Select(c => c.Trim())
+                .Where(ValidPhaseCriteria.Contains)
+                .Distinct()
+                .ToList();
+            phase.ExitCriteria = System.Text.Json.JsonSerializer.Serialize(normalizedCriteria);
+        }
+
         if (request.IsActive.HasValue)
         {
             if (!request.IsActive.Value && siblings.Count(ph => ph.IsActive && ph.Id != phase.Id) == 0)
@@ -816,6 +864,19 @@ public class ProjectService : IProjectService
             for (int i = 0; i < ordered.Count; i++)
             {
                 ordered[i].Position = i + 1;
+            }
+        }
+
+        // Ensure at least one active phase is ACTIVE if any UPCOMING active phase exists
+        if (!siblings.Any(ph => ph.IsActive && ph.LifecycleStatus == "ACTIVE"))
+        {
+            var firstUpcoming = siblings
+                .Where(ph => ph.IsActive && ph.LifecycleStatus == "UPCOMING")
+                .OrderBy(ph => ph.Position)
+                .FirstOrDefault();
+            if (firstUpcoming != null)
+            {
+                firstUpcoming.LifecycleStatus = "ACTIVE";
             }
         }
 
@@ -914,6 +975,184 @@ public class ProjectService : IProjectService
             var dto = await _projectRepository.BuildPhaseDtoAsync(phaseId, innerCt);
             return ServiceResult<PhaseDto>.Ok(dto);
         }, ct);
+    }
+
+    public async Task<ServiceResult<WorkflowDto>> CompletePhaseAsync(
+        long projectId,
+        long phaseId,
+        CompletePhaseRequestDto? request,
+        CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+            return ServiceResult<WorkflowDto>.Unauthorized("Your session is invalid or has expired.");
+
+        var auth = await _permissionService.RequireProjectAsync(userId.Value, projectId, PermissionKeys.ProjectWorkflowManage, ct);
+        if (!auth.IsSuccess)
+            return ServiceResult<WorkflowDto>.FromError(auth);
+
+        var access = auth.Data!;
+        var writable = EnsureProjectWritable(access.Workspace, access.Project);
+        if (!writable.IsSuccess)
+            return ServiceResult<WorkflowDto>.FromError(writable);
+
+        var siblings = await _projectRepository.ListPhasesByProjectAsync(projectId, ct);
+        var phase = siblings.FirstOrDefault(ph => ph.Id == phaseId && ph.IsActive);
+        if (phase == null)
+            return ServiceResult<WorkflowDto>.NotFound("Không tìm thấy dữ liệu.");
+
+        if (phase.LifecycleStatus == "COMPLETED")
+            return ServiceResult<WorkflowDto>.Conflict("PHASE_ALREADY_COMPLETED", "Giai đoạn này đã hoàn tất.");
+
+        List<string> exitCriteria;
+        try
+        {
+            exitCriteria = System.Text.Json.JsonSerializer.Deserialize<List<string>>(phase.ExitCriteria) ?? new List<string>();
+        }
+        catch
+        {
+            exitCriteria = new List<string>();
+        }
+
+        var unmet = await _projectRepository.EvaluatePhaseGatesAsync(projectId, phaseId, exitCriteria, ct);
+        var overrideReason = request?.OverrideReason?.Trim();
+
+        if (unmet.Count > 0)
+        {
+            if (string.IsNullOrWhiteSpace(overrideReason))
+            {
+                return new ServiceResult<WorkflowDto>
+                {
+                    IsSuccess = false,
+                    StatusCode = StatusCodes.Status409Conflict,
+                    ErrorCode = "PHASE_GATE_UNMET",
+                    ErrorMessage = "Giai đoạn chưa đạt đủ tiêu chí hoàn tất. Vui lòng hoàn thành các điều kiện hoặc nhập lý do bỏ qua.",
+                    UnmetCriteria = unmet
+                };
+            }
+
+            if (overrideReason.Length > 500)
+            {
+                return ServiceResult<WorkflowDto>.Validation(new Dictionary<string, string[]>
+                {
+                    ["overrideReason"] = new[] { "Lý do bỏ qua tối đa 500 ký tự." }
+                });
+            }
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        phase.LifecycleStatus = "COMPLETED";
+        phase.CompletedAt = now;
+        phase.CompletedById = userId.Value;
+        phase.OverrideReason = unmet.Count > 0 ? overrideReason : null;
+        phase.UpdatedAt = now;
+
+        if (!siblings.Any(ph => ph.IsActive && ph.Id != phase.Id && ph.LifecycleStatus == "ACTIVE"))
+        {
+            var nextPhase = siblings
+                .Where(ph => ph.IsActive && ph.Id != phase.Id && ph.Position > phase.Position && ph.LifecycleStatus == "UPCOMING")
+                .OrderBy(ph => ph.Position)
+                .FirstOrDefault()
+                ?? siblings
+                    .Where(ph => ph.IsActive && ph.Id != phase.Id && ph.LifecycleStatus == "UPCOMING")
+                    .OrderBy(ph => ph.Position)
+                    .FirstOrDefault();
+
+            if (nextPhase != null)
+            {
+                nextPhase.LifecycleStatus = "ACTIVE";
+                nextPhase.UpdatedAt = now;
+            }
+        }
+
+        await _projectRepository.AddPhaseLogAsync(new ProjectPhaseLog
+        {
+            ProjectId = projectId,
+            PhaseId = phaseId,
+            Action = unmet.Count > 0 ? "OVERRIDE_COMPLETE" : "COMPLETE",
+            ActorId = userId.Value,
+            At = now,
+            UnmetCriteria = unmet.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(unmet) : null,
+            Reason = unmet.Count > 0 ? overrideReason : null
+        }, ct);
+
+        var trackedProject = await _projectRepository.GetByIdAsync(projectId, ct);
+        if (trackedProject != null)
+            trackedProject.UpdatedAt = now;
+
+        await _projectRepository.SaveChangesAsync(ct);
+
+        var dto = await _projectRepository.BuildWorkflowDtoAsync(access.Project, ct);
+        return ServiceResult<WorkflowDto>.Ok(dto);
+    }
+
+    public async Task<ServiceResult<WorkflowDto>> ReopenPhaseAsync(
+        long projectId,
+        long phaseId,
+        ReopenPhaseRequestDto? request,
+        CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+            return ServiceResult<WorkflowDto>.Unauthorized("Your session is invalid or has expired.");
+
+        var auth = await _permissionService.RequireProjectAsync(userId.Value, projectId, PermissionKeys.ProjectWorkflowManage, ct);
+        if (!auth.IsSuccess)
+            return ServiceResult<WorkflowDto>.FromError(auth);
+
+        var access = auth.Data!;
+        var writable = EnsureProjectWritable(access.Workspace, access.Project);
+        if (!writable.IsSuccess)
+            return ServiceResult<WorkflowDto>.FromError(writable);
+
+        var siblings = await _projectRepository.ListPhasesByProjectAsync(projectId, ct);
+        var phase = siblings.FirstOrDefault(ph => ph.Id == phaseId && ph.IsActive);
+        if (phase == null)
+            return ServiceResult<WorkflowDto>.NotFound("Không tìm thấy dữ liệu.");
+
+        if (phase.LifecycleStatus != "COMPLETED")
+            return ServiceResult<WorkflowDto>.Conflict("PHASE_NOT_COMPLETED", "Chỉ có thể mở lại giai đoạn đã hoàn tất.");
+
+        var reason = request?.Reason?.Trim();
+        if (reason != null && reason.Length > 500)
+        {
+            return ServiceResult<WorkflowDto>.Validation(new Dictionary<string, string[]>
+            {
+                ["reason"] = new[] { "Lý do mở lại tối đa 500 ký tự." }
+            });
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        foreach (var other in siblings.Where(ph => ph.IsActive && ph.Id != phase.Id && ph.LifecycleStatus == "ACTIVE"))
+        {
+            other.LifecycleStatus = "UPCOMING";
+            other.UpdatedAt = now;
+        }
+
+        phase.LifecycleStatus = "ACTIVE";
+        phase.CompletedAt = null;
+        phase.CompletedById = null;
+        phase.OverrideReason = null;
+        phase.UpdatedAt = now;
+
+        await _projectRepository.AddPhaseLogAsync(new ProjectPhaseLog
+        {
+            ProjectId = projectId,
+            PhaseId = phaseId,
+            Action = "REOPEN",
+            ActorId = userId.Value,
+            At = now,
+            Reason = string.IsNullOrWhiteSpace(reason) ? null : reason
+        }, ct);
+
+        var trackedProject = await _projectRepository.GetByIdAsync(projectId, ct);
+        if (trackedProject != null)
+            trackedProject.UpdatedAt = now;
+
+        await _projectRepository.SaveChangesAsync(ct);
+
+        var dto = await _projectRepository.BuildWorkflowDtoAsync(access.Project, ct);
+        return ServiceResult<WorkflowDto>.Ok(dto);
     }
 
     // --- Helpers ---
