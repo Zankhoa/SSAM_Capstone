@@ -1,13 +1,9 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text;
 using System.Threading.RateLimiting;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.IdentityModel.Tokens;
 using SSAM_Server;
 using SSAM_Server.Common.Options;
 using SSAM_Server.Data;
@@ -222,8 +218,7 @@ builder.Services.AddAuthentication(options =>
 builder.Services.AddAuthorization();
 
 // ---- Health checks
-builder.Services.AddHealthChecks()
-    .AddDbContextCheck<AppDbContext>("database", tags: new[] { "ready" });
+builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database", tags: new[] { "ready" });
 
 var app = builder.Build();
 
@@ -242,22 +237,6 @@ using (var scope = app.Services.CreateScope())
     {
         logger.LogError(ex, "An error occurred while migrating the database.");
         throw;
-    }
-
-    try
-    {
-        await db.Database.ExecuteSqlRawAsync(@"
-IF EXISTS (SELECT 1 FROM sys.check_constraints WHERE name = 'CK_DocumentNodes_DocType')
-BEGIN
-    ALTER TABLE [DocumentNodes] DROP CONSTRAINT [CK_DocumentNodes_DocType];
-END
-ALTER TABLE [DocumentNodes] WITH CHECK ADD CONSTRAINT [CK_DocumentNodes_DocType]
-    CHECK (([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('URD','BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER')));
-");
-    }
-    catch
-    {
-        // Ignore if table doesn't exist yet or constraint already updated
     }
 }
 

@@ -30,7 +30,8 @@ public class ServiceResult<T> : ServiceResult
             Errors = error.Errors,
             RequiredPermission = error.RequiredPermission,
             WorkflowIssues = error.WorkflowIssues,
-            Current = error.Current
+            Current = error.Current,
+            UnmetCriteria = error.UnmetCriteria
         };
 
     public new static ServiceResult<T> Validation(Dictionary<string, string[]> errors, string message = "Data Validation Error") =>

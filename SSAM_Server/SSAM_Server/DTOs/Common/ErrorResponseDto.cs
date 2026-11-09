@@ -27,6 +27,10 @@ public class ErrorResponseDto
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public object? Current { get; set; }
 
+    [JsonPropertyName("unmetCriteria")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public object? UnmetCriteria { get; set; }
+
     [JsonPropertyName("traceId")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? TraceId { get; set; }
@@ -40,7 +44,8 @@ public class ErrorResponseDto
         string? traceId = null,
         string? requiredPermission = null,
         object? workflowIssues = null,
-        object? current = null)
+        object? current = null,
+        object? unmetCriteria = null)
     {
         Code = code;
         Message = message;
@@ -49,6 +54,7 @@ public class ErrorResponseDto
         RequiredPermission = requiredPermission;
         WorkflowIssues = workflowIssues;
         Current = current;
+        UnmetCriteria = unmetCriteria;
     }
 }
 
