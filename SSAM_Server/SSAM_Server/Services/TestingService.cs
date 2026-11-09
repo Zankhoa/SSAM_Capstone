@@ -140,7 +140,7 @@ public class TestingService : ITestingService
                 Type = TestActivityTypes.Setup,
                 At = now,
                 ActorId = userId,
-                Text = $"Tạo kế hoạch kiểm thử {name}"
+                Text = $"Created test plan {name}"
             });
 
             await _db.SaveChangesAsync(innerCt);
@@ -296,7 +296,7 @@ public class TestingService : ITestingService
             Type = TestActivityTypes.Setup,
             At = now,
             ActorId = _currentUser.UserId,
-            Text = $"Thêm môi trường {env.Name}"
+            Text = $"Added environment {env.Name}"
         });
 
         plan.UpdatedAt = now;
@@ -361,7 +361,7 @@ public class TestingService : ITestingService
             .CountAsync(e => e.PlanId == env.PlanId && !e.IsDeleted, ct);
         if (activeEnvCount <= 1)
         {
-            return ServiceResult.Conflict("LAST_ENVIRONMENT", "Cần giữ ít nhất 1 môi trường kiểm thử.");
+            return ServiceResult.Conflict("LAST_ENVIRONMENT", "At least one test environment must be maintained.");
         }
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -380,7 +380,7 @@ public class TestingService : ITestingService
             Type = TestActivityTypes.Setup,
             At = now,
             ActorId = _currentUser.UserId,
-            Text = $"Xoá môi trường {env.Name}"
+            Text = $"Deleted environment {env.Name}"
         });
 
         await _db.SaveChangesAsync(ct);
@@ -492,7 +492,7 @@ public class TestingService : ITestingService
             .ToList();
 
         var suffix = fixedKeysText.Count > 0
-            ? $" (fix {string.Join(", ", fixedKeysText)} → {retestCount} câu cần test lại)"
+            ? $" (fixed {string.Join(", ", fixedKeysText)} → {retestCount} case(s) need retest)"
             : string.Empty;
 
         _db.TestActivities.Add(new TestActivity
@@ -503,7 +503,7 @@ public class TestingService : ITestingService
             ActorId = userId,
             EnvId = envId,
             Build = version,
-            Text = $"Deploy build {version} lên {env.Name}{suffix}"
+            Text = $"Deployed build {version} to {env.Name}{suffix}"
         });
 
         env.Plan.UpdatedAt = now;
@@ -614,7 +614,7 @@ public class TestingService : ITestingService
             ActorId = _currentUser.UserId,
             EnvId = envId,
             Build = latestBuild,
-            Text = $"Đánh dấu regression trên {env.Name} ({retestCount} câu PASS → cần test lại)"
+            Text = $"Marked regression on {env.Name} ({retestCount} PASS case(s) need retest)"
         });
 
         env.Plan.UpdatedAt = now;
@@ -740,7 +740,7 @@ public class TestingService : ITestingService
             At = now,
             ActorId = _currentUser.UserId,
             ModuleId = module.Id,
-            Text = $"Thêm module {module.Name} ({doc?.Code ?? $"DOC-{doc?.Id ?? 0}"})"
+            Text = $"Added module {module.Name} ({doc?.Code ?? $"DOC-{doc?.Id ?? 0}"})"
         });
 
         plan.UpdatedAt = now;
@@ -1048,7 +1048,7 @@ public class TestingService : ITestingService
                         ActorId = userId,
                         EnvId = item.EnvId,
                         ModuleId = item.ModuleId,
-                        Text = $"Bỏ phân công {moduleIds[item.ModuleId]} trên {envNames[item.EnvId]}"
+                        Text = $"Unassigned {moduleIds[item.ModuleId]} on {envNames[item.EnvId]}"
                     });
                 }
             }
@@ -1082,7 +1082,7 @@ public class TestingService : ITestingService
                         ActorId = userId,
                         EnvId = item.EnvId,
                         ModuleId = item.ModuleId,
-                        Text = $"Giao {moduleIds[item.ModuleId]} trên {envNames[item.EnvId]} cho {assigneeUser.FullName}"
+                        Text = $"Assigned {moduleIds[item.ModuleId]} on {envNames[item.EnvId]} to {assigneeUser.FullName}"
                     });
                 }
             }
@@ -1331,7 +1331,7 @@ public class TestingService : ITestingService
             ActorId = userId,
             ModuleId = tc.ModuleId,
             TestCaseId = tc.Id,
-            Text = $"Tạo {tc.Code} · {tc.Title}"
+            Text = $"Created {tc.Code} · {tc.Title}"
         });
 
         plan.UpdatedAt = now;
@@ -1430,7 +1430,7 @@ public class TestingService : ITestingService
             ActorId = _currentUser.UserId,
             ModuleId = tc.ModuleId,
             TestCaseId = tc.Id,
-            Text = $"Xoá {tc.Code} · {tc.Title}"
+            Text = $"Deleted {tc.Code} · {tc.Title}"
         });
 
         await _db.SaveChangesAsync(ct);
@@ -1608,7 +1608,7 @@ public class TestingService : ITestingService
                         {
                             IssueId = tc.BugIssue.Id,
                             Action = IssueActivityActions.Transitioned,
-                            Note = $"Chuyển trạng thái từ \"{oldStatusName}\" sang \"{reopenStatus.Name}\" — Mở lại tự động do {tc.Code} FAIL trên {env.Name} ({currentBuild})",
+                            Note = $"Status changed from \"{oldStatusName}\" to \"{reopenStatus.Name}\" — Automatically reopened because {tc.Code} failed on {env.Name} ({currentBuild})",
                             ActorId = userId,
                             CreatedAt = now
                         });
@@ -1632,7 +1632,7 @@ public class TestingService : ITestingService
                         EnvId = request.EnvId,
                         ModuleId = tc.ModuleId,
                         TestCaseId = tc.Id,
-                        Text = $"Mở lại {tc.BugIssue.Key} do test lại vẫn FAIL"
+                        Text = $"Reopened {tc.BugIssue.Key} because retest failed"
                     });
                 }
             }
@@ -1732,7 +1732,7 @@ public class TestingService : ITestingService
                 EnvId = request.EnvId > 0 ? request.EnvId : null,
                 ModuleId = tc.ModuleId,
                 TestCaseId = tc.Id,
-                Text = $"Tạo {createdIssue.Key} trên Kanban"
+                Text = $"Created {createdIssue.Key} on Kanban"
             });
         }
 
@@ -1791,7 +1791,7 @@ public class TestingService : ITestingService
                 ActorId = userId,
                 ModuleId = tc.ModuleId,
                 TestCaseId = tc.Id,
-                Text = $"Gắn vào {issue.Key} sẵn có"
+                Text = $"Linked to existing bug {issue.Key}"
             });
         }
 
@@ -1834,7 +1834,7 @@ public class TestingService : ITestingService
             Type = TestActivityTypes.Handover,
             At = now,
             ActorId = userId,
-            Text = $"Xác nhận bàn giao kiểm thử{(note != null ? $" — \"{note}\"" : string.Empty)}"
+            Text = $"Confirmed test handover{(note != null ? $" — \"{note}\"" : string.Empty)}"
         });
 
         await _db.SaveChangesAsync(ct);
@@ -1867,7 +1867,7 @@ public class TestingService : ITestingService
             Type = TestActivityTypes.Handover,
             At = now,
             ActorId = userId,
-            Text = "Mở lại kế hoạch kiểm thử"
+            Text = "Reopened test plan"
         });
 
         await _db.SaveChangesAsync(ct);
@@ -2175,13 +2175,13 @@ public class TestingService : ITestingService
                     {
                         TempId = $"sg-{seq++}",
                         Title = $"{req.Title} — {TruncateTitle(ac, 90)}",
-                        Preconditions = $"Tài liệu {doc.Code ?? $"DOC-{doc.Id}"} · {req.ReqUid}",
+                        Preconditions = $"Document {doc.Code ?? $"DOC-{doc.Id}"} · {req.ReqUid}",
                         Priority = cat == "Validate" ? TestCasePriorities.Medium : TestCasePriorities.High,
                         Category = cat,
                         Steps = new List<TestStepDto>
                         {
-                            new() { Action = $"Thực hiện chức năng \"{req.Title}\"", Expected = "Màn hình hiển thị sẵn sàng" },
-                            new() { Action = $"Kiểm tra điều kiện: {ac}", Expected = ac }
+                            new() { Action = $"Execute feature \"{req.Title}\"", Expected = "Screen is displayed and ready" },
+                            new() { Action = $"Verify condition: {ac}", Expected = ac }
                         },
                         RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
                         FromCriterion = ac,
@@ -2191,18 +2191,18 @@ public class TestingService : ITestingService
             }
             else
             {
-                var catFunc = "Chức năng";
+                var catFunc = "Functional";
                 suggestions.Add(new SuggestedTestCaseDto
                 {
                     TempId = $"sg-{seq++}",
-                    Title = $"{req.Title} — dữ liệu hợp lệ",
-                    Preconditions = $"Người dùng có quyền truy cập chức năng {req.Title}",
+                    Title = $"{req.Title} — valid data",
+                    Preconditions = $"User has access to feature {req.Title}",
                     Priority = TestCasePriorities.High,
                     Category = catFunc,
                     Steps = new List<TestStepDto>
                     {
-                        new() { Action = $"Mở màn hình \"{req.Title}\"", Expected = "Hiển thị đầy đủ các trường theo đặc tả" },
-                        new() { Action = "Nhập dữ liệu hợp lệ và bấm Lưu / Thực hiện", Expected = "Xử lý thành công và hiển thị thông báo" }
+                        new() { Action = $"Open \"{req.Title}\" screen", Expected = "All specification fields are displayed" },
+                        new() { Action = "Enter valid data and submit / save", Expected = "Process successfully and show success notification" }
                     },
                     RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
                     FromCriterion = null,
@@ -2213,13 +2213,13 @@ public class TestingService : ITestingService
                 suggestions.Add(new SuggestedTestCaseDto
                 {
                     TempId = $"sg-{seq++}",
-                    Title = $"{req.Title} — bỏ trống trường bắt buộc",
-                    Preconditions = $"Người dùng ở màn hình {req.Title}",
+                    Title = $"{req.Title} — mandatory fields empty",
+                    Preconditions = $"User is on {req.Title} screen",
                     Priority = TestCasePriorities.Medium,
                     Category = catVal,
                     Steps = new List<TestStepDto>
                     {
-                        new() { Action = "Để trống trường bắt buộc và bấm Lưu / Thực hiện", Expected = "Hệ thống chặn lưu và hiển thị thông báo lỗi tương ứng" }
+                        new() { Action = "Leave mandatory fields empty and submit / save", Expected = "System blocks submission and displays corresponding error message" }
                     },
                     RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
                     FromCriterion = null,
@@ -2254,8 +2254,8 @@ public class TestingService : ITestingService
             var p = item.Placement ?? new TestPlacementDto
             {
                 DocumentId = item.RequirementRef?.DocumentId ?? 0,
-                SectionTitle = "Mục kiểm thử",
-                Category = item.Category ?? "Chức năng"
+                SectionTitle = "Test Section",
+                Category = item.Category ?? "Functional"
             };
 
             // 1. Ensure Module
@@ -2303,7 +2303,7 @@ public class TestingService : ITestingService
                     var secRes = await CreateSectionAsync(moduleId.Value, new CreateTestSectionRequest
                     {
                         ParentId = null,
-                        Title = !string.IsNullOrWhiteSpace(p.SectionTitle) ? p.SectionTitle : "Mục kiểm thử",
+                        Title = !string.IsNullOrWhiteSpace(p.SectionTitle) ? p.SectionTitle : "Test Section",
                         AnchorId = p.AnchorId
                     }, ct);
                     sectionId = secRes.Data!.SectionId;
@@ -2314,7 +2314,7 @@ public class TestingService : ITestingService
             long? groupId = p.GroupId;
             var groupCategory = !string.IsNullOrWhiteSpace(p.Category)
                 ? p.Category.Trim()
-                : (!string.IsNullOrWhiteSpace(item.Category) ? item.Category.Trim() : "Chức năng");
+                : (!string.IsNullOrWhiteSpace(item.Category) ? item.Category.Trim() : "Functional");
 
             if (!groupId.HasValue || !await _db.TestSections.AnyAsync(s => s.Id == groupId.Value && s.ModuleId == moduleId.Value, ct))
             {
@@ -2367,7 +2367,7 @@ public class TestingService : ITestingService
                 Type = TestActivityTypes.TestCase,
                 At = _clock.GetUtcNow().UtcDateTime,
                 ActorId = _currentUser.UserId,
-                Text = $"Sinh {createdIds.Count} test case từ yêu cầu (AI)"
+                Text = $"Generated {createdIds.Count} test case(s) from requirements (AI)"
             });
             await _db.SaveChangesAsync(ct);
         }
@@ -2432,7 +2432,7 @@ public class TestingService : ITestingService
         {
             var roleCode = pm.Role?.Code ?? string.Empty;
             var roleName = pm.Role?.Name ?? string.Empty;
-            var isQa = Regex.IsMatch(roleCode + " " + roleName, "qa|test|kiểm thử", RegexOptions.IgnoreCase);
+            var isQa = Regex.IsMatch(roleCode + " " + roleName, "qa|test|quality", RegexOptions.IgnoreCase);
             return new TestPersonDto
             {
                 UserId = pm.UserId,
@@ -3058,7 +3058,7 @@ public class TestingService : ITestingService
         string category)
     {
         var cleanSectionTitle = string.IsNullOrWhiteSpace(sectionTitle) ? documentTitle : StripHeadingNumber(sectionTitle);
-        var cleanCategory = string.IsNullOrWhiteSpace(category) ? "Chức năng" : category.Trim();
+        var cleanCategory = string.IsNullOrWhiteSpace(category) ? "Functional" : category.Trim();
 
         var mod = plan?.Modules.FirstOrDefault(m => m.DocumentId == documentId);
         var topSections = mod?.Sections.Where(s => s.ParentId == null).ToList() ?? new List<TestSectionDto>();
@@ -3086,13 +3086,13 @@ public class TestingService : ITestingService
     private static string ClassifyCriterionCategory(string text)
     {
         var lower = text.ToLowerInvariant();
-        if (Regex.IsMatch(lower, "lỗi|báo|không cho|chặn|trống|âm|quá hạn|hết hạn|tối đa|tối thiểu|bắt buộc|hợp lệ|≥|<=|>|<"))
+        if (Regex.IsMatch(lower, "error|fail|invalid|require|mandatory|empty|limit|max|min|expired|negative|exceed|lỗi|báo|không cho|chặn|trống|âm|quá hạn|hết hạn|tối đa|tối thiểu|bắt buộc|hợp lệ|≥|<=|>|<"))
             return "Validate";
-        if (Regex.IsMatch(lower, "quyền|role|đăng nhập|otp|xác thực"))
-            return "Phân quyền";
-        if (Regex.IsMatch(lower, "hiển thị|màn hình|giao diện|placeholder|mặc định|màu|nút"))
-            return "Giao diện";
-        return "Chức năng";
+        if (Regex.IsMatch(lower, "role|permission|auth|login|access|otp|token|quyền|đăng nhập|xác thực"))
+            return "Permission";
+        if (Regex.IsMatch(lower, "ui|screen|display|view|button|color|layout|placeholder|hiển thị|màn hình|giao diện|placeholder|mặc định|màu|nút"))
+            return "UI";
+        return "Functional";
     }
 
     private static string TruncateTitle(string s, int maxLen)

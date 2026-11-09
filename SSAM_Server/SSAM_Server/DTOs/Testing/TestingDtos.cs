@@ -276,7 +276,7 @@ public class SuggestedTestCaseDto
     public string Title { get; set; } = string.Empty;
     public string? Preconditions { get; set; }
     public string Priority { get; set; } = "MEDIUM";
-    public string Category { get; set; } = "Chức năng";
+    public string Category { get; set; } = "Functional";
     public List<TestStepDto> Steps { get; set; } = new();
     public RequirementRefInputDto RequirementRef { get; set; } = new();
     public string? FromCriterion { get; set; }
