@@ -1,19 +1,6 @@
 using SSAM_Server.Common;
-using SSAM_Server.DTOs.Common;
-using SSAM_Server.Models;
 
 namespace SSAM_Server.Interfaces.Security;
-
-public record WorkspaceAccessContext(
-    Workspace Workspace,
-    HashSet<string> Permissions,
-    RoleRefDto? MyRole);
-
-public record ProjectAccessContext(
-    Project Project,
-    Workspace Workspace,
-    HashSet<string> Permissions,
-    RoleRefDto? MyRole);
 
 public interface IPermissionService
 {

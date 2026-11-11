@@ -1,5 +1,4 @@
 using System.Text.Json.Serialization;
-using SSAM_Server.Security;
 
 namespace SSAM_Server.DTOs.Common;
 
@@ -56,86 +55,4 @@ public class ErrorResponseDto
         Current = current;
         UnmetCriteria = unmetCriteria;
     }
-}
-
-public class VersionConflictCurrentDto
-{
-    [JsonPropertyName("rowVersion")]
-    public int RowVersion { get; set; }
-
-    [JsonPropertyName("updatedAt")]
-    public string UpdatedAt { get; set; } = string.Empty;
-
-    [JsonPropertyName("updatedBy")]
-    public UserLiteDto UpdatedBy { get; set; } = new();
-}
-
-public class ItemsDto<T>
-{
-    [JsonPropertyName("items")]
-    public List<T> Items { get; set; } = new();
-
-    public ItemsDto() { }
-
-    public ItemsDto(IEnumerable<T> items)
-    {
-        Items = items.ToList();
-    }
-}
-
-public class PageDto<T>
-{
-    [JsonPropertyName("items")]
-    public List<T> Items { get; set; } = new();
-
-    [JsonPropertyName("page")]
-    public int Page { get; set; }
-
-    [JsonPropertyName("pageSize")]
-    public int PageSize { get; set; }
-
-    [JsonPropertyName("total")]
-    public int Total { get; set; }
-}
-
-public class RoleRefDto
-{
-    [JsonPropertyName("roleId")]
-    public long RoleId { get; set; }
-
-    [JsonPropertyName("code")]
-    public string? Code { get; set; }
-
-    [JsonPropertyName("name")]
-    public string Name { get; set; } = string.Empty;
-
-    [JsonPropertyName("scope")]
-    public string Scope { get; set; } = string.Empty;
-
-    [JsonPropertyName("kind")]
-    public string Kind { get; set; } = RoleKinds.Other;
-}
-
-public class UserRefDto
-{
-    [JsonPropertyName("userId")]
-    public long UserId { get; set; }
-
-    [JsonPropertyName("fullName")]
-    public string FullName { get; set; } = string.Empty;
-
-    [JsonPropertyName("email")]
-    public string Email { get; set; } = string.Empty;
-
-    [JsonPropertyName("avatarUrl")]
-    public string? AvatarUrl { get; set; }
-}
-
-public class UserLiteDto
-{
-    [JsonPropertyName("userId")]
-    public long UserId { get; set; }
-
-    [JsonPropertyName("fullName")]
-    public string FullName { get; set; } = string.Empty;
 }
