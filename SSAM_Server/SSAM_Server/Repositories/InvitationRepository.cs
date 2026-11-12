@@ -1,6 +1,5 @@
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Data;
-using SSAM_Server.DTOs.Invitations;
 using SSAM_Server.Models;
 
 namespace SSAM_Server.Repositories;
@@ -14,41 +13,13 @@ public class InvitationRepository : IInvitationRepository
         _db = db;
     }
 
-    public async Task<InvitationDetailsResponseDto> GetDetailsAsync(string token, DateTime utcNow, CancellationToken ct = default)
-    {
-        var invite = await _db.MembershipRequests
+    public Task<MembershipRequest?> GetInvitationWithDetailsAsync(string token, CancellationToken ct = default)
+        => _db.MembershipRequests
             .AsNoTracking()
-            .Where(m => m.Token == token && m.Source == "admin_invite")
-            .Select(m => new
-            {
-                m.Status,
-                m.ExpiresAt,
-                m.Email,
-                RoleName = m.Role != null ? m.Role.Name : m.RoleName,
-                CompanyName = m.Company.Name,
-                WorkspaceName = m.Workspace != null ? m.Workspace.Name : null
-            })
-            .FirstOrDefaultAsync(ct);
-
-        if (invite == null)
-            return new InvitationDetailsResponseDto { Valid = false, Reason = "NOT_FOUND" };
-        if (invite.Status == "accepted")
-            return new InvitationDetailsResponseDto { Valid = false, Reason = "ALREADY_USED" };
-        if (invite.Status != "pending")
-            return new InvitationDetailsResponseDto { Valid = false, Reason = "NOT_FOUND" };
-        if (invite.ExpiresAt != null && invite.ExpiresAt <= utcNow)
-            return new InvitationDetailsResponseDto { Valid = false, Reason = "EXPIRED" };
-
-        return new InvitationDetailsResponseDto
-        {
-            Valid = true,
-            Email = invite.Email,
-            CompanyName = invite.CompanyName,
-            WorkspaceName = invite.WorkspaceName,
-            RoleName = invite.RoleName,
-            ExpiresAt = invite.ExpiresAt
-        };
-    }
+            .Include(m => m.Company)
+            .Include(m => m.Workspace)
+            .Include(m => m.Role)
+            .FirstOrDefaultAsync(m => m.Token == token && m.Source == "admin_invite", ct);
 
     public Task<MembershipRequest?> GetByTokenAsync(string token, CancellationToken ct = default)
         => _db.MembershipRequests.FirstOrDefaultAsync(m => m.Token == token && m.Source == "admin_invite", ct);

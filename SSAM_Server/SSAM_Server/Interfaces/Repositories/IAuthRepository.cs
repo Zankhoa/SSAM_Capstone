@@ -1,5 +1,3 @@
-using SSAM_Server.DTOs.Auth;
-using SSAM_Server.DTOs.Common;
 using SSAM_Server.Models;
 
 namespace SSAM_Server.Interfaces.Repositories;
@@ -16,8 +14,8 @@ public interface IAuthRepository
     Task<User?> GetUserByIdAsync(long userId, CancellationToken ct = default);
     Task AddUserAsync(User user, CancellationToken ct = default);
 
-    Task<List<UserCompanyDto>> GetUserCompaniesAsync(long userId, CancellationToken ct = default);
-    Task<List<UserWorkspaceDto>> GetUserWorkspacesAsync(long userId, CancellationToken ct = default);
+    Task<List<CompanyMember>> GetUserCompanyMembershipsAsync(long userId, CancellationToken ct = default);
+    Task<List<WorkspaceMember>> GetUserWorkspaceMembershipsAsync(long userId, IEnumerable<long> companyIds, CancellationToken ct = default);
 
     Task<bool> ExternalLoginExistsAsync(string provider, string providerUserId, CancellationToken ct = default);
     Task AddExternalLoginAsync(ExternalLogin externalLogin, CancellationToken ct = default);

@@ -158,8 +158,26 @@ public class InvitationService : IInvitationService
     public async Task<ServiceResult<InvitationDetailsResponseDto>> GetInvitationDetailsAsync(string token, CancellationToken cancellationToken = default)
     {
         var now = _clock.GetUtcNow().UtcDateTime;
-        var details = await _invitationRepository.GetDetailsAsync(token, now, cancellationToken);
-        return ServiceResult<InvitationDetailsResponseDto>.Ok(details);
+        var invite = await _invitationRepository.GetInvitationWithDetailsAsync(token, cancellationToken);
+
+        if (invite == null)
+            return ServiceResult<InvitationDetailsResponseDto>.Ok(new InvitationDetailsResponseDto { Valid = false, Reason = "NOT_FOUND" });
+        if (invite.Status == "accepted")
+            return ServiceResult<InvitationDetailsResponseDto>.Ok(new InvitationDetailsResponseDto { Valid = false, Reason = "ALREADY_USED" });
+        if (invite.Status != "pending")
+            return ServiceResult<InvitationDetailsResponseDto>.Ok(new InvitationDetailsResponseDto { Valid = false, Reason = "NOT_FOUND" });
+        if (invite.ExpiresAt != null && invite.ExpiresAt <= now)
+            return ServiceResult<InvitationDetailsResponseDto>.Ok(new InvitationDetailsResponseDto { Valid = false, Reason = "EXPIRED" });
+
+        return ServiceResult<InvitationDetailsResponseDto>.Ok(new InvitationDetailsResponseDto
+        {
+            Valid = true,
+            Email = invite.Email,
+            CompanyName = invite.Company.Name,
+            WorkspaceName = invite.Workspace?.Name,
+            RoleName = invite.Role != null ? invite.Role.Name : invite.RoleName,
+            ExpiresAt = invite.ExpiresAt
+        });
     }
 
     public async Task<ServiceResult<AcceptInvitationResponseDto>> AcceptInvitationAsync(
