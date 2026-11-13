@@ -253,7 +253,6 @@ builder.Services.AddChatClient(services =>
 .UseFunctionInvocation(); // Enables automatic execution of ExecuteSqlQuery tool calls
 
 // 3. Register your application services
-builder.Services.AddScoped<ISqlServerDatabaseService, SqlServerDatabaseService>();
 builder.Services.AddScoped<AiService>();
 builder.Services.AddScoped<IAiService>(services => services.GetRequiredService<AiService>());
 

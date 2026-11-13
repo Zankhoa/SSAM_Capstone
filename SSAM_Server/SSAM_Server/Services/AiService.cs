@@ -17,20 +17,17 @@ public class AiService : IAiService
     private readonly IChatClient _chatClient;
     private readonly AiOptions _options;
     private readonly ILogger<AiService> _logger;
-    private readonly ISqlServerDatabaseService _dbService;
     private readonly IPromptRepository _promptRepository;
 
     public AiService(
         IChatClient chatClient,
         IOptions<AiOptions> options,
         ILogger<AiService> logger,
-        ISqlServerDatabaseService dbService,
         IPromptRepository promptRepository)
     {
         _chatClient = chatClient;
         _options = options.Value;
         _logger = logger;
-        _dbService = dbService;
         _promptRepository = promptRepository;
     }
 
@@ -55,34 +52,6 @@ public class AiService : IAiService
                 yield return update.Text;
             }
         }
-    }
-
-    public async Task<string> AskDatabaseAsync(string userPrompt, CancellationToken cancellationToken = default)
-    {
-        // 1. Fetch current DB schema
-        string schema = await _dbService.GetDatabaseSchemaAsync();
-
-        // 2. Wrap your C# DB method as a provider-agnostic AI tool
-        var sqlTool = AIFunctionFactory.Create(
-            ([Description("The T-SQL SELECT query string to execute. Example: SELECT TOP 10 * FROM Orders;")] string query) =>
-                _dbService.ExecuteReadOnlyQueryAsync(query),
-            name: "ExecuteSqlQuery",
-            description: "Executes a read-only T-SQL SELECT query against the SQL Server database and returns results.");
-
-        var chatOptions = new ChatOptions
-        {
-            Tools = [sqlTool]
-        };
-
-        var messages = new List<ChatMessage>
-        {
-            new(ChatRole.System, $"You are a SQL Server assistant. Here is the database schema:\n{schema}"),
-            new(ChatRole.User, userPrompt)
-        };
-
-        // 3. IChatClient + UseFunctionInvocation() handles the tool call & final answer automatically
-        var response = await _chatClient.GetResponseAsync(messages, chatOptions, cancellationToken);
-        return response.Text ?? string.Empty;
     }
 
     public async Task<string> GenerateDocumentAsync(GenerateDocRequest request, CancellationToken cancellationToken = default)
