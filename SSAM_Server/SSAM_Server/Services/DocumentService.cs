@@ -16,17 +16,20 @@ public class DocumentService : IDocumentService
     private readonly ICurrentUser _currentUser;
     private readonly IPermissionService _permissions;
     private readonly TimeProvider _clock;
+    private readonly IAiService _aiService;
 
     public DocumentService(
         AppDbContext db,
         ICurrentUser currentUser,
         IPermissionService permissions,
-        TimeProvider clock)
+        TimeProvider clock,
+        IAiService aiService)
     {
         _db = db;
         _currentUser = currentUser;
         _permissions = permissions;
         _clock = clock;
+        _aiService = aiService;
     }
 
     public async Task<ServiceResult<ItemsDto<DocumentNodeDto>>> GetProjectDocumentsAsync(
@@ -1754,7 +1757,36 @@ public class DocumentService : IDocumentService
         var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<ExtractedRequirementDto>>();
 
-        var items = DocumentGeneratorHelper.ExtractRequirementsFromFields(request.Fields ?? new NormalizedFieldsDto());
+        var aiAuth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.AiUse, ct);
+        if (!aiAuth.IsSuccess) return aiAuth.Cast<ItemsDto<ExtractedRequirementDto>>();
+
+        var aiEnabled = await _db.Projects
+            .AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => (bool?)p.AiEnabled)
+            .SingleOrDefaultAsync(ct);
+        if (aiEnabled != true)
+        {
+            return ServiceResult<ItemsDto<ExtractedRequirementDto>>.Forbidden(
+                "AI_DISABLED",
+                "AI features are disabled for this project.");
+        }
+
+        var fields = request.Fields ?? new NormalizedFieldsDto();
+        if (string.IsNullOrWhiteSpace(fields.Scope) &&
+            string.IsNullOrWhiteSpace(fields.Actors) &&
+            string.IsNullOrWhiteSpace(fields.MainFlows) &&
+            string.IsNullOrWhiteSpace(fields.BusinessRules) &&
+            string.IsNullOrWhiteSpace(request.RawNotes))
+        {
+            return ServiceResult<ItemsDto<ExtractedRequirementDto>>.ValidationFailure(
+                new Dictionary<string, string[]>
+                {
+                    ["fields"] = new[] { "Provide normalized fields or raw notes to generate requirements." }
+                });
+        }
+
+        var items = await _aiService.GenerateRequirementDraftsAsync(fields, request.RawNotes, ct);
         return ServiceResult<ItemsDto<ExtractedRequirementDto>>.Success(new ItemsDto<ExtractedRequirementDto>(items));
     }
 
@@ -1776,6 +1808,19 @@ public class DocumentService : IDocumentService
             errors["docType"] = new[] { "docType must be valid (BRD, SRS, ADR, UI_SPEC, TEST_PLAN, OTHER)." };
         if (request.Items == null || request.Items.Count == 0)
             errors["items"] = new[] { "At least 1 requirement item is required." };
+        else if (request.Items.Any(item =>
+                     item is null ||
+                     item.ReviewStatus is not (ExtractedRequirementDto.ReviewAccepted or ExtractedRequirementDto.ReviewRejected)))
+            errors["items"] = new[] { "Review every generated requirement as ACCEPTED or REJECTED before creating the document." };
+
+        var acceptedItems = request.Items?
+            .Where(item => item is not null && item.ReviewStatus == ExtractedRequirementDto.ReviewAccepted)
+            .ToList() ?? new List<ExtractedRequirementDto>();
+        if (request.Items is { Count: > 0 } &&
+            acceptedItems.Count == 0 &&
+            !request.Items.Any(item => item is null ||
+                item.ReviewStatus is not (ExtractedRequirementDto.ReviewAccepted or ExtractedRequirementDto.ReviewRejected)))
+            errors["items"] = new[] { "Accept at least one requirement before creating the document." };
 
         if (errors.Count > 0)
             return ServiceResult<DocumentDetailDto>.ValidationFailure(errors);
@@ -1797,7 +1842,7 @@ public class DocumentService : IDocumentService
             var code = await _db.AllocateDocumentCodeAsync(projectId, docType, innerCt);
 
             var generatedItems = new List<GeneratedItemDto>();
-            foreach (var item in request.Items!)
+            foreach (var item in acceptedItems)
             {
                 var reqUid = await _db.AllocateReqUidAsync(projectId, innerCt);
                 generatedItems.Add(new GeneratedItemDto
@@ -1805,7 +1850,13 @@ public class DocumentService : IDocumentService
                     ReqUid = reqUid,
                     Title = item.Title.Trim(),
                     Description = item.Description.Trim(),
-                    AcceptanceCriteria = item.AcceptanceCriteria ?? new List<string>()
+                    Priority = item.Priority,
+                    AcceptanceCriteria = item.AcceptanceCriteria ?? new List<string>(),
+                    SourceLines = item.SourceLines ?? new List<int>(),
+                    Confidence = item.Confidence,
+                    Diagram = item.Diagram,
+                    IsAiGenerated = true,
+                    ReviewStatus = ExtractedRequirementDto.ReviewAccepted
                 });
             }
 

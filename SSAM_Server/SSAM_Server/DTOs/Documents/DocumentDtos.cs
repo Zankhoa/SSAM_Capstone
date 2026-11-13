@@ -452,6 +452,10 @@ public class NormalizedFieldsDto
 
 public class ExtractedRequirementDto
 {
+    public const string ReviewPending = "PENDING";
+    public const string ReviewAccepted = "ACCEPTED";
+    public const string ReviewRejected = "REJECTED";
+
     [JsonPropertyName("tempId")]
     public string TempId { get; set; } = string.Empty;
 
@@ -469,6 +473,19 @@ public class ExtractedRequirementDto
 
     [JsonPropertyName("sourceLines")]
     public List<int> SourceLines { get; set; } = new();
+
+    [JsonRequired]
+    [JsonPropertyName("confidence")]
+    public double Confidence { get; set; }
+
+    [JsonPropertyName("diagram")]
+    public DiagramProposalDto? Diagram { get; set; }
+
+    [JsonPropertyName("isAiGenerated")]
+    public bool IsAiGenerated { get; set; }
+
+    [JsonPropertyName("reviewStatus")]
+    public string ReviewStatus { get; set; } = ReviewPending;
 }
 
 public class GeneratedItemDto
@@ -493,6 +510,18 @@ public class GeneratedItemDto
 
     [JsonPropertyName("sourceLines")]
     public List<int> SourceLines { get; set; } = new();
+
+    [JsonPropertyName("confidence")]
+    public double Confidence { get; set; }
+
+    [JsonPropertyName("diagram")]
+    public DiagramProposalDto? Diagram { get; set; }
+
+    [JsonPropertyName("isAiGenerated")]
+    public bool IsAiGenerated { get; set; }
+
+    [JsonPropertyName("reviewStatus")]
+    public string ReviewStatus { get; set; } = ExtractedRequirementDto.ReviewAccepted;
 }
 
 public class DocumentGenerationDto

@@ -229,6 +229,19 @@ public static partial class DocumentGeneratorHelper
             {
                 content.Add(DocumentContentHelper.MakeTaskList(item.AcceptanceCriteria));
             }
+
+            if (item.Diagram is not null)
+            {
+                content.Add(new JsonObject
+                {
+                    ["type"] = "mermaidBlock",
+                    ["attrs"] = new JsonObject
+                    {
+                        ["code"] = item.Diagram.Mermaid,
+                        ["kind"] = item.Diagram.Kind
+                    }
+                });
+            }
         }
 
         var doc = new JsonObject
