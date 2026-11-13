@@ -1,4 +1,5 @@
 using SSAM_Server.DTOs.Documents;
+using SSAM_Server.DTOs.Testing;
 
 namespace SSAM_Server.Interfaces.Services;
 
@@ -9,5 +10,8 @@ public interface IAiService
     Task<List<ExtractedRequirementDto>> GenerateRequirementDraftsAsync(
         NormalizedFieldsDto fields,
         string? rawNotes = null,
+        CancellationToken cancellationToken = default);
+    Task<List<AiGeneratedTestCaseDraftDto>> GenerateTestCaseDraftsAsync(
+        IReadOnlyList<TestCaseGenerationContextDto> requirements,
         CancellationToken cancellationToken = default);
 }

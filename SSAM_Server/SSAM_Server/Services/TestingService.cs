@@ -9,6 +9,7 @@ using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Documents;
 using SSAM_Server.DTOs.Kanban;
 using SSAM_Server.DTOs.Testing;
+using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
 using SSAM_Server.Security;
 
@@ -21,6 +22,7 @@ public class TestingService : ITestingService
     private readonly IPermissionService _permissions;
     private readonly IKanbanService _kanbanService;
     private readonly TimeProvider _clock;
+    private readonly IAiService _aiService;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -33,13 +35,15 @@ public class TestingService : ITestingService
         ICurrentUser currentUser,
         IPermissionService permissions,
         IKanbanService kanbanService,
-        TimeProvider clock)
+        TimeProvider clock,
+        IAiService aiService)
     {
         _db = db;
         _currentUser = currentUser;
         _permissions = permissions;
         _kanbanService = kanbanService;
         _clock = clock;
+        _aiService = aiService;
     }
 
     // =========================================================================
@@ -2100,6 +2104,21 @@ public class TestingService : ITestingService
         var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<SuggestedTestCaseDto>>();
 
+        var aiAuth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.AiUse, ct);
+        if (!aiAuth.IsSuccess) return aiAuth.Cast<ItemsDto<SuggestedTestCaseDto>>();
+
+        var aiEnabled = await _db.Projects
+            .AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => (bool?)p.AiEnabled)
+            .SingleOrDefaultAsync(ct);
+        if (aiEnabled != true)
+        {
+            return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Forbidden(
+                "AI_DISABLED",
+                "AI features are disabled for this project.");
+        }
+
         var refs = request.Refs ?? new List<RequirementRefInputDto>();
         if (refs.Count == 0)
             return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>());
@@ -2142,8 +2161,8 @@ public class TestingService : ITestingService
             }
         }
 
-        var suggestions = new List<SuggestedTestCaseDto>();
-        var seq = 1;
+        var selectedRequirements = new List<(RequirementRefInputDto Reference, RequirementItem Requirement,
+            DocumentNode Document, string? SectionAnchor, string SectionTitle, List<string> AcceptanceCriteria)>();
 
         foreach (var rf in refs)
         {
@@ -2166,67 +2185,54 @@ public class TestingService : ITestingService
                 : req.Title;
 
             var criteria = SafeDeserialize<List<string>>(req.AcceptanceCriteria) ?? new List<string>();
-            if (criteria.Count > 0)
-            {
-                foreach (var ac in criteria)
-                {
-                    var cat = ClassifyCriterionCategory(ac);
-                    suggestions.Add(new SuggestedTestCaseDto
-                    {
-                        TempId = $"sg-{seq++}",
-                        Title = $"{req.Title} — {TruncateTitle(ac, 90)}",
-                        Preconditions = $"Document {doc.Code ?? $"DOC-{doc.Id}"} · {req.ReqUid}",
-                        Priority = cat == "Validate" ? TestCasePriorities.Medium : TestCasePriorities.High,
-                        Category = cat,
-                        Steps = new List<TestStepDto>
-                        {
-                            new() { Action = $"Execute feature \"{req.Title}\"", Expected = "Screen is displayed and ready" },
-                            new() { Action = $"Verify condition: {ac}", Expected = ac }
-                        },
-                        RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
-                        FromCriterion = ac,
-                        Placement = ComputePlacement(planDto, doc.Id, doc.Title, sectionAnchor, sectionTitle, cat)
-                    });
-                }
-            }
-            else
-            {
-                var catFunc = "Functional";
-                suggestions.Add(new SuggestedTestCaseDto
-                {
-                    TempId = $"sg-{seq++}",
-                    Title = $"{req.Title} — valid data",
-                    Preconditions = $"User has access to feature {req.Title}",
-                    Priority = TestCasePriorities.High,
-                    Category = catFunc,
-                    Steps = new List<TestStepDto>
-                    {
-                        new() { Action = $"Open \"{req.Title}\" screen", Expected = "All specification fields are displayed" },
-                        new() { Action = "Enter valid data and submit / save", Expected = "Process successfully and show success notification" }
-                    },
-                    RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
-                    FromCriterion = null,
-                    Placement = ComputePlacement(planDto, doc.Id, doc.Title, sectionAnchor, sectionTitle, catFunc)
-                });
-
-                var catVal = "Validate";
-                suggestions.Add(new SuggestedTestCaseDto
-                {
-                    TempId = $"sg-{seq++}",
-                    Title = $"{req.Title} — mandatory fields empty",
-                    Preconditions = $"User is on {req.Title} screen",
-                    Priority = TestCasePriorities.Medium,
-                    Category = catVal,
-                    Steps = new List<TestStepDto>
-                    {
-                        new() { Action = "Leave mandatory fields empty and submit / save", Expected = "System blocks submission and displays corresponding error message" }
-                    },
-                    RequirementRef = new RequirementRefInputDto { DocumentId = doc.Id, ReqUid = req.ReqUid },
-                    FromCriterion = null,
-                    Placement = ComputePlacement(planDto, doc.Id, doc.Title, sectionAnchor, sectionTitle, catVal)
-                });
-            }
+            selectedRequirements.Add((rf, req, doc, sectionAnchor, sectionTitle, criteria));
         }
+
+        if (selectedRequirements.Count == 0)
+            return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>());
+
+        var generationContexts = selectedRequirements
+            .Select((item, index) => new TestCaseGenerationContextDto
+            {
+                RequirementIndex = index,
+                RequirementUid = item.Requirement.ReqUid,
+                Title = item.Requirement.Title,
+                Description = item.Requirement.BodyPreview,
+                AcceptanceCriteria = item.AcceptanceCriteria
+            })
+            .ToList();
+
+        var drafts = await _aiService.GenerateTestCaseDraftsAsync(generationContexts, ct);
+        var suggestions = drafts.Select((draft, index) =>
+        {
+            var source = selectedRequirements[draft.RequirementIndex];
+            var category = draft.Category;
+
+            return new SuggestedTestCaseDto
+            {
+                TempId = $"ai-{index + 1}",
+                Title = draft.Title,
+                Preconditions = draft.Preconditions,
+                Priority = draft.Priority,
+                Category = category,
+                Steps = draft.Steps,
+                RequirementRef = new RequirementRefInputDto
+                {
+                    DocumentId = source.Document.Id,
+                    ReqUid = source.Requirement.ReqUid
+                },
+                FromCriterion = draft.AcceptanceCriterionIndex.HasValue
+                    ? source.AcceptanceCriteria[draft.AcceptanceCriterionIndex.Value]
+                    : null,
+                Placement = ComputePlacement(
+                    planDto,
+                    source.Document.Id,
+                    source.Document.Title,
+                    source.SectionAnchor,
+                    source.SectionTitle,
+                    category)
+            };
+        }).ToList();
 
         return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>(suggestions));
     }
@@ -3081,24 +3087,6 @@ public class TestingService : ITestingService
             SectionTitle = sec?.Title ?? cleanSectionTitle,
             Category = grp?.Title ?? cleanCategory
         };
-    }
-
-    private static string ClassifyCriterionCategory(string text)
-    {
-        var lower = text.ToLowerInvariant();
-        if (Regex.IsMatch(lower, "error|fail|invalid|require|mandatory|empty|limit|max|min|expired|negative|exceed|lỗi|báo|không cho|chặn|trống|âm|quá hạn|hết hạn|tối đa|tối thiểu|bắt buộc|hợp lệ|≥|<=|>|<"))
-            return "Validate";
-        if (Regex.IsMatch(lower, "role|permission|auth|login|access|otp|token|quyền|đăng nhập|xác thực"))
-            return "Permission";
-        if (Regex.IsMatch(lower, "ui|screen|display|view|button|color|layout|placeholder|hiển thị|màn hình|giao diện|placeholder|mặc định|màu|nút"))
-            return "UI";
-        return "Functional";
-    }
-
-    private static string TruncateTitle(string s, int maxLen)
-    {
-        var clean = s.Trim().TrimEnd('.', ';');
-        return clean.Length <= maxLen ? clean : clean[..(maxLen - 1)] + "…";
     }
 
     private static string StripHeadingNumber(string title)
