@@ -286,6 +286,10 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
+    /// <summary>
+    /// Creates a draft document from reviewed AI candidates. Every item must be accepted or rejected;
+    /// only accepted items are inserted into the document.
+    /// </summary>
     // #21 POST /projects/{projectId}/documents/generator/create (and alias document-generation/create)
     [HttpPost("projects/{projectId:long}/documents/generator/create")]
     [HttpPost("projects/{projectId:long}/document-generation/create")]

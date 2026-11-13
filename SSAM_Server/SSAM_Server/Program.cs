@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.IdentityModel.Tokens;
 using SSAM_Server;
@@ -17,6 +18,9 @@ using SSAM_Server.Repositories;
 using SSAM_Server.Security;
 using SSAM_Server.Services;
 using SSAM_Server.Configurations;
+using System.ClientModel;
+using Microsoft.Extensions.AI;
+using OpenAI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -85,6 +89,7 @@ builder.Services.AddScoped<IInvitationRepository, InvitationRepository>();
 builder.Services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
 builder.Services.AddScoped<IRoleRepository, RoleRepository>();
 builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
+builder.Services.AddSingleton<IPromptRepository, PromptRepository>();
 
 // ---- Security & Services
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
@@ -228,10 +233,29 @@ builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database", t
 // ---- AI Service
 // 1. Bind configuration section
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
-// 2. Register HTTP Client (if making direct REST calls later)
-builder.Services.AddHttpClient("AiClient");
-// 3. Register the AI service interface
-builder.Services.AddScoped<IAiService, GeminiAiService>();
+var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
+
+// 2. Register provider-agnostic IChatClient (works with Gemini, OpenAI, OpenRouter, Groq, Ollama)
+builder.Services.AddChatClient(services =>
+{
+    var credential = new ApiKeyCredential(aiOptions.ApiKey);
+    var clientOptions = new OpenAIClientOptions();
+
+    if (!string.IsNullOrWhiteSpace(aiOptions.Endpoint))
+    {
+        clientOptions.Endpoint = new Uri(aiOptions.Endpoint);
+    }
+
+    return new OpenAIClient(credential, clientOptions)
+        .GetChatClient(aiOptions.DefaultModel)
+        .AsIChatClient();
+})
+.UseFunctionInvocation(); // Enables automatic execution of ExecuteSqlQuery tool calls
+
+// 3. Register your application services
+builder.Services.AddScoped<ISqlServerDatabaseService, SqlServerDatabaseService>();
+builder.Services.AddScoped<AiService>();
+builder.Services.AddScoped<IAiService>(services => services.GetRequiredService<AiService>());
 
 var app = builder.Build();
 
