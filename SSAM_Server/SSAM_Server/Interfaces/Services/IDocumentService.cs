@@ -12,7 +12,8 @@ public interface IDocumentService
     Task<ServiceResult> DeleteDocumentNodeAsync(long documentId, CancellationToken ct = default);
     Task<ServiceResult<DocumentDetailDto>> GetDocumentDetailAsync(long documentId, long? versionId, CancellationToken ct = default);
     Task<ServiceResult<SaveContentResultDto>> SaveVersionContentAsync(long documentId, long versionId, SaveDocumentContentRequest request, CancellationToken ct = default);
-    Task<ServiceResult<DocumentDetailDto>> SubmitVersionAsync(long documentId, long versionId, CancellationToken ct = default);
+    Task<ServiceResult<DocumentNodeDto>> SetDocumentApproversAsync(long documentId, UpdateDocumentApproversRequest request, CancellationToken ct = default);
+    Task<ServiceResult<DocumentDetailDto>> SubmitVersionAsync(long documentId, long versionId, SubmitDocumentRequest? request = null, CancellationToken ct = default);
     Task<ServiceResult<DocumentDetailDto>> ApproveVersionAsync(long documentId, long versionId, ApproveDocumentRequest request, CancellationToken ct = default);
     Task<ServiceResult<DocumentDetailDto>> RequestChangesAsync(long documentId, long versionId, RequestChangesRequest request, CancellationToken ct = default);
     Task<ServiceResult<DocumentDetailDto>> CreateRevisionAsync(long documentId, CreateRevisionRequest? request = null, CancellationToken ct = default);

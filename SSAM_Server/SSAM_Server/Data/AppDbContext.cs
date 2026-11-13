@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
 using SSAM_Server.Models;
@@ -49,6 +50,7 @@ public class AppDbContext : DbContext
     public DbSet<DocumentCommentMention> DocumentCommentMentions => Set<DocumentCommentMention>();
     public DbSet<DocumentActivity> DocumentActivities => Set<DocumentActivity>();
     public DbSet<DocumentGeneration> DocumentGenerations => Set<DocumentGeneration>();
+    public DbSet<DocumentVersionReqChange> DocumentVersionReqChanges => Set<DocumentVersionReqChange>();
 
     // Module C — Kanban, Issues & Sprints
     public DbSet<Sprint> Sprints => Set<Sprint>();
@@ -155,8 +157,46 @@ public class AppDbContext : DbContext
         return seq.LastValue;
     }
 
-    public async Task<string> AllocateDocumentCodeAsync(long projectId, string docType, CancellationToken ct = default)
+    public async Task<string> AllocateDocumentCodeAsync(
+        long projectId,
+        string docType,
+        long? parentId = null,
+        CancellationToken ct = default)
     {
+        if (parentId.HasValue)
+        {
+            var parent = await DocumentNodes
+                .AsNoTracking()
+                .FirstOrDefaultAsync(d => d.Id == parentId.Value && d.ProjectId == projectId && !d.IsDeleted, ct);
+
+            if (parent != null &&
+                parent.Kind == DocumentNodeKinds.Page &&
+                !string.IsNullOrWhiteSpace(parent.Code))
+            {
+                var childCodes = await DocumentNodes
+                    .AsNoTracking()
+                    .Where(d => d.ProjectId == projectId &&
+                                d.ParentId == parentId.Value &&
+                                d.Kind == DocumentNodeKinds.Page &&
+                                d.Code != null)
+                    .Select(d => d.Code!)
+                    .ToListAsync(ct);
+
+                var prefixPattern = $"^{Regex.Escape(parent.Code)}\\.(\\d+)$";
+                var maxChild = 0;
+                foreach (var childCode in childCodes)
+                {
+                    var match = Regex.Match(childCode, prefixPattern);
+                    if (match.Success && int.TryParse(match.Groups[1].Value, out var parsed) && parsed > maxChild)
+                    {
+                        maxChild = parsed;
+                    }
+                }
+
+                return $"{parent.Code}.{maxChild + 1}";
+            }
+        }
+
         var scope = SequenceScopes.ForDocType(docType);
         var n = await NextSequenceValueAsync(projectId, scope, ct);
         var prefix = docType == DocumentTypes.Other ? "DOC" : docType;

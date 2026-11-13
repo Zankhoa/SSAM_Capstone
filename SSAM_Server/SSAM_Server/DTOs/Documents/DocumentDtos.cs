@@ -54,6 +54,9 @@ public class DocumentNodeDto
     [JsonPropertyName("reqCount")]
     public int ReqCount { get; set; }
 
+    [JsonPropertyName("requiredApprovers")]
+    public List<UserRefDto> RequiredApprovers { get; set; } = new();
+
     [JsonPropertyName("updatedAt")]
     public string UpdatedAt { get; set; } = string.Empty;
 }
@@ -193,6 +196,33 @@ public class AcceptanceCriterionDto
     public bool Checked { get; set; } = true;
 }
 
+public class ConstraintRowDto
+{
+    [JsonPropertyName("field")]
+    public string Field { get; set; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = string.Empty;
+
+    [JsonPropertyName("required")]
+    public bool Required { get; set; }
+
+    [JsonPropertyName("min")]
+    public double? Min { get; set; }
+
+    [JsonPropertyName("max")]
+    public double? Max { get; set; }
+
+    [JsonPropertyName("lettersAndDigits")]
+    public bool LettersAndDigits { get; set; }
+
+    [JsonPropertyName("options")]
+    public List<string> Options { get; set; } = new();
+
+    [JsonPropertyName("message")]
+    public string? Message { get; set; }
+}
+
 public class RequirementItemDto
 {
     [JsonPropertyName("requirementId")]
@@ -221,6 +251,15 @@ public class RequirementItemDto
 
     [JsonPropertyName("freshness")]
     public string Freshness { get; set; } = "FRESH";
+
+    [JsonPropertyName("actor")]
+    public string? Actor { get; set; }
+
+    [JsonPropertyName("preconditions")]
+    public string? Preconditions { get; set; }
+
+    [JsonPropertyName("constraints")]
+    public List<ConstraintRowDto> Constraints { get; set; } = new();
 
     [JsonPropertyName("changedSinceBaseline")]
     public bool ChangedSinceBaseline { get; set; }
@@ -710,4 +749,22 @@ public class UpdateRequirementRequest
 {
     [JsonPropertyName("priority")]
     public string Priority { get; set; } = "MEDIUM";
+}
+
+public class SubmitDocumentRequest
+{
+    [JsonPropertyName("note")]
+    public string? Note { get; set; }
+
+    [JsonPropertyName("minorReqUids")]
+    public List<string>? MinorReqUids { get; set; }
+}
+
+public class UpdateDocumentApproversRequest
+{
+    [JsonPropertyName("approverIds")]
+    public List<long>? ApproverIds { get; set; }
+
+    [JsonPropertyName("userIds")]
+    public List<long>? UserIds { get; set; }
 }

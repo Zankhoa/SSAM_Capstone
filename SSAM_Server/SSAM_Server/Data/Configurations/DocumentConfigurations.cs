@@ -13,6 +13,7 @@ public class DocumentNodeConfiguration : IEntityTypeConfiguration<DocumentNode>
             t.HasCheckConstraint("CK_DocumentNodes_Kind", "[kind] IN ('FOLDER','PAGE')");
             t.HasCheckConstraint("CK_DocumentNodes_DocType",
                 "([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('URD','BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER'))");
+            t.HasCheckConstraint("CK_DocumentNodes_RequiredApprovers_Json", "ISJSON([required_approvers]) = 1");
         });
 
         builder.HasKey(d => d.Id).HasName("PK_DocumentNodes");
@@ -29,6 +30,11 @@ public class DocumentNodeConfiguration : IEntityTypeConfiguration<DocumentNode>
 
         builder.Property(d => d.CurrentVersionId).HasColumnName("current_version_id");
         builder.Property(d => d.BaselineVersionId).HasColumnName("baseline_version_id");
+        builder.Property(d => d.RequiredApprovers)
+            .HasColumnName("required_approvers")
+            .HasColumnType("nvarchar(max)")
+            .HasDefaultValue("[]")
+            .IsRequired();
         builder.Property(d => d.CreatedById).HasColumnName("created_by_id").IsRequired();
         builder.Property(d => d.IsDeleted).HasColumnName("is_deleted").IsRequired().HasDefaultValue(false);
         builder.Property(d => d.CreatedAt).HasColumnName("created_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
@@ -169,6 +175,9 @@ public class RequirementItemConfiguration : IEntityTypeConfiguration<Requirement
         builder.Property(r => r.Title).HasColumnName("title").IsRequired().HasMaxLength(200);
         builder.Property(r => r.BodyPreview).HasColumnName("body_preview").IsRequired().HasMaxLength(400).HasDefaultValue(string.Empty);
         builder.Property(r => r.BodyLength).HasColumnName("body_length").IsRequired().HasDefaultValue(0);
+        builder.Property(r => r.Actor).HasColumnName("actor").HasMaxLength(200);
+        builder.Property(r => r.Preconditions).HasColumnName("preconditions").HasMaxLength(200);
+        builder.Property(r => r.Constraints).HasColumnName("constraints").IsRequired().HasColumnType("nvarchar(max)").HasDefaultValue("[]");
         builder.Property(r => r.AcceptanceCriteria).HasColumnName("acceptance_criteria").IsRequired().HasColumnType("nvarchar(max)").HasDefaultValue("[]");
         builder.Property(r => r.HasTable).HasColumnName("has_table").IsRequired().HasDefaultValue(false);
         builder.Property(r => r.HasDiagram).HasColumnName("has_diagram").IsRequired().HasDefaultValue(false);
@@ -367,5 +376,28 @@ public class DocumentGenerationConfiguration : IEntityTypeConfiguration<Document
             .HasForeignKey(g => g.CreatedById)
             .HasConstraintName("FK_DocumentGenerations_CreatedBy")
             .OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+public class DocumentVersionReqChangeConfiguration : IEntityTypeConfiguration<DocumentVersionReqChange>
+{
+    public void Configure(EntityTypeBuilder<DocumentVersionReqChange> builder)
+    {
+        builder.ToTable("DocumentVersionReqChanges", t =>
+        {
+            t.HasCheckConstraint("CK_DVRC_Level", "[level] IN ('MINOR','MAJOR')");
+        });
+
+        builder.HasKey(x => new { x.VersionId, x.ReqUid }).HasName("PK_DocumentVersionReqChanges");
+
+        builder.Property(x => x.VersionId).HasColumnName("version_id").IsRequired();
+        builder.Property(x => x.ReqUid).HasColumnName("req_uid").IsRequired().HasMaxLength(64);
+        builder.Property(x => x.Level).HasColumnName("level").IsRequired().HasMaxLength(10);
+
+        builder.HasOne(x => x.Version)
+            .WithMany()
+            .HasForeignKey(x => x.VersionId)
+            .HasConstraintName("FK_DVRC_Version")
+            .OnDelete(DeleteBehavior.Cascade);
     }
 }

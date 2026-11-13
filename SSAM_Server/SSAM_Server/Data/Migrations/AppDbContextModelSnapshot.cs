@@ -599,6 +599,13 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("project_id");
 
+                    b.Property<string>("RequiredApprovers")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("required_approvers");
+
                     b.Property<int>("SortOrder")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
@@ -641,6 +648,8 @@ namespace SSAM_Server.Data.Migrations
                             t.HasCheckConstraint("CK_DocumentNodes_DocType", "([kind] = 'FOLDER' AND [doc_type] IS NULL) OR ([kind] = 'PAGE' AND [doc_type] IN ('URD','BRD','SRS','ADR','UI_SPEC','TEST_PLAN','OTHER'))");
 
                             t.HasCheckConstraint("CK_DocumentNodes_Kind", "[kind] IN ('FOLDER','PAGE')");
+
+                            t.HasCheckConstraint("CK_DocumentNodes_RequiredApprovers_Json", "ISJSON([required_approvers]) = 1");
                         });
                 });
 
@@ -762,6 +771,32 @@ namespace SSAM_Server.Data.Migrations
                     b.ToTable("DocumentVersions", null, t =>
                         {
                             t.HasCheckConstraint("CK_DocumentVersions_Status", "[status] IN ('DRAFT','IN_REVIEW','CHANGES_REQUESTED','APPROVED','SUPERSEDED')");
+                        });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.DocumentVersionReqChange", b =>
+                {
+                    b.Property<long>("VersionId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("version_id");
+
+                    b.Property<string>("ReqUid")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)")
+                        .HasColumnName("req_uid");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)")
+                        .HasColumnName("level");
+
+                    b.HasKey("VersionId", "ReqUid")
+                        .HasName("PK_DocumentVersionReqChanges");
+
+                    b.ToTable("DocumentVersionReqChanges", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_DVRC_Level", "[level] IN ('MINOR','MAJOR')");
                         });
                 });
 
@@ -2322,6 +2357,11 @@ namespace SSAM_Server.Data.Migrations
                         .HasDefaultValue("[]")
                         .HasColumnName("acceptance_criteria");
 
+                    b.Property<string>("Actor")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("actor");
+
                     b.Property<string>("AnchorId")
                         .IsRequired()
                         .HasMaxLength(36)
@@ -2342,6 +2382,13 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("nvarchar(400)")
                         .HasDefaultValue("")
                         .HasColumnName("body_preview");
+
+                    b.Property<string>("Constraints")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("nvarchar(max)")
+                        .HasDefaultValue("[]")
+                        .HasColumnName("constraints");
 
                     b.Property<string>("ContentHash")
                         .IsRequired()
@@ -2369,6 +2416,11 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("bit")
                         .HasDefaultValue(false)
                         .HasColumnName("has_table");
+
+                    b.Property<string>("Preconditions")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("preconditions");
 
                     b.Property<string>("ReqUid")
                         .IsRequired()
@@ -3872,6 +3924,18 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("SubmittedBy");
 
                     b.Navigation("UpdatedBy");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.DocumentVersionReqChange", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.DocumentVersion", "Version")
+                        .WithMany()
+                        .HasForeignKey("VersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_DVRC_Version");
+
+                    b.Navigation("Version");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.EmailVerificationToken", b =>

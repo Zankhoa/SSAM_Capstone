@@ -1,8 +1,10 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using SSAM_Server.DTOs.Documents;
 using SSAM_Server.Models;
 
 namespace SSAM_Server.Services;
@@ -21,6 +23,9 @@ public static partial class DocumentContentHelper
         string Title,
         string BodyPreview,
         int BodyLength,
+        string? Actor,
+        string? Preconditions,
+        List<ConstraintRowDto> Constraints,
         List<string> AcceptanceCriteria,
         bool HasTable,
         bool HasDiagram,
@@ -280,6 +285,9 @@ public static partial class DocumentContentHelper
                 anchorId = anchorId[..36];
             }
 
+            string? actor = null;
+            string? preconditions = null;
+
             if (attrs != null)
             {
                 attrs["id"] = anchorId;
@@ -290,6 +298,8 @@ public static partial class DocumentContentHelper
                 {
                     attrs["priority"] = "MEDIUM";
                 }
+                actor = TrimOrNull(GetStringAttr(attrs["actor"]), 200);
+                preconditions = TrimOrNull(GetStringAttr(attrs["preconditions"]), 200);
             }
 
             // Collect section blocks until next heading with level <= current level
@@ -313,6 +323,7 @@ public static partial class DocumentContentHelper
 
             var bodyParts = new List<string>();
             var acList = new List<string>();
+            var constraintsList = new List<ConstraintRowDto>();
             bool hasTable = false;
             bool hasDiagram = false;
             bool hasFigma = false;
@@ -321,7 +332,7 @@ public static partial class DocumentContentHelper
 
             foreach (var secBlock in sectionBlocks)
             {
-                InspectBlock(secBlock, bodyParts, acList, ref hasTable, ref hasDiagram, ref hasFigma, tableSerializedParts, diagramMermaidParts);
+                InspectBlock(secBlock, bodyParts, acList, constraintsList, ref hasTable, ref hasDiagram, ref hasFigma, tableSerializedParts, diagramMermaidParts);
             }
 
             var fullBody = CollapseSpaces(string.Join(" ", bodyParts));
@@ -331,6 +342,8 @@ public static partial class DocumentContentHelper
             // Compute contentHash SHA-256 hex lowercase
             var canonicalPayload = new StringBuilder();
             canonicalPayload.Append(CollapseSpaces(title).ToLowerInvariant()).Append('\n');
+            canonicalPayload.Append((actor ?? string.Empty).ToLowerInvariant()).Append('\n');
+            canonicalPayload.Append((preconditions ?? string.Empty).ToLowerInvariant()).Append('\n');
             canonicalPayload.Append(fullBody.ToLowerInvariant()).Append('\n');
             canonicalPayload.Append(string.Join("\n", acList.Select(a => CollapseSpaces(a).ToLowerInvariant()))).Append('\n');
             canonicalPayload.Append(string.Join("\n", tableSerializedParts)).Append('\n');
@@ -345,6 +358,9 @@ public static partial class DocumentContentHelper
                 Title: title,
                 BodyPreview: bodyPreview,
                 BodyLength: bodyLength,
+                Actor: actor,
+                Preconditions: preconditions,
+                Constraints: constraintsList,
                 AcceptanceCriteria: acList,
                 HasTable: hasTable,
                 HasDiagram: hasDiagram,
@@ -361,6 +377,7 @@ public static partial class DocumentContentHelper
         JsonObject block,
         List<string> bodyParts,
         List<string> acList,
+        List<ConstraintRowDto> constraintsList,
         ref bool hasTable,
         ref bool hasDiagram,
         ref bool hasFigma,
@@ -371,6 +388,15 @@ public static partial class DocumentContentHelper
 
         switch (type)
         {
+            case "constraints":
+                hasTable = true;
+                var extractedRows = ExtractConstraintRows(block);
+                if (extractedRows.Count > 0)
+                {
+                    constraintsList.AddRange(extractedRows);
+                    tableSerializedParts.Add(JsonSerializer.Serialize(extractedRows).ToLowerInvariant());
+                }
+                break;
             case "taskList":
                 if (block["content"] is JsonArray taskItems)
                 {
@@ -660,5 +686,92 @@ public static partial class DocumentContentHelper
             ["type"] = "taskList",
             ["content"] = arr
         };
+    }
+
+    private static string? TrimOrNull(string? value, int maxLength = 200)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        return trimmed.Length > maxLength ? trimmed[..maxLength] : trimmed;
+    }
+
+    private static string? GetStringAttr(JsonNode? node)
+    {
+        if (node is JsonValue jv && jv.TryGetValue<string>(out var s))
+            return s;
+        return null;
+    }
+
+    private static bool GetBoolAttr(JsonNode? node)
+    {
+        if (node is JsonValue jv && jv.TryGetValue<bool>(out var b))
+            return b;
+        return false;
+    }
+
+    private static double? GetDoubleAttr(JsonNode? node)
+    {
+        if (node is JsonValue jv)
+        {
+            if (jv.TryGetValue<double>(out var d) && !double.IsNaN(d) && !double.IsInfinity(d))
+                return d;
+            if (jv.TryGetValue<int>(out var i))
+                return i;
+            if (jv.TryGetValue<long>(out var l))
+                return l;
+            if (jv.TryGetValue<string>(out var s) &&
+                double.TryParse(s.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed) &&
+                !double.IsNaN(parsed) && !double.IsInfinity(parsed))
+                return parsed;
+        }
+        return null;
+    }
+
+    private static List<ConstraintRowDto> ExtractConstraintRows(JsonObject block)
+    {
+        var list = new List<ConstraintRowDto>();
+        if ((block["attrs"] as JsonObject)?["rows"] is not JsonArray rows)
+            return list;
+
+        foreach (var item in rows)
+        {
+            if (item is not JsonObject row) continue;
+
+            var field = TrimOrNull(GetStringAttr(row["field"]), 200);
+            if (field == null) continue;
+
+            var kind = TrimOrNull(GetStringAttr(row["kind"]), 50) ?? "text";
+            var options = new List<string>();
+            if (row["options"] is JsonArray optArr)
+            {
+                foreach (var opt in optArr)
+                {
+                    var optStr = TrimOrNull(GetStringAttr(opt), 200);
+                    if (optStr != null) options.Add(optStr);
+                }
+            }
+            else if (GetStringAttr(row["options"]) is { } optText)
+            {
+                foreach (var part in optText.Split(',', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var optStr = TrimOrNull(part, 200);
+                    if (optStr != null) options.Add(optStr);
+                }
+            }
+
+            list.Add(new ConstraintRowDto
+            {
+                Field = field,
+                Kind = kind,
+                Required = GetBoolAttr(row["required"]),
+                Min = GetDoubleAttr(row["min"]),
+                Max = GetDoubleAttr(row["max"]),
+                LettersAndDigits = GetBoolAttr(row["lettersAndDigits"]),
+                Options = options,
+                Message = TrimOrNull(GetStringAttr(row["message"]), 500)
+            });
+        }
+
+        return list;
     }
 }
