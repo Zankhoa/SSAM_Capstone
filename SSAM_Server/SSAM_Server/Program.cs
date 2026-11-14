@@ -8,7 +8,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using Microsoft.IdentityModel.Tokens;
 using SSAM_Server;
 using SSAM_Server.Common.Options;
 using SSAM_Server.Data;
@@ -18,9 +17,8 @@ using SSAM_Server.Repositories;
 using SSAM_Server.Security;
 using SSAM_Server.Services;
 using SSAM_Server.Configurations;
-using System.ClientModel;
+using Anthropic;
 using Microsoft.Extensions.AI;
-using OpenAI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -235,20 +233,23 @@ builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database", t
 builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
 var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
 
-// 2. Register provider-agnostic IChatClient (works with Gemini, OpenAI, OpenRouter, Groq, Ollama)
+if (!string.Equals(aiOptions.Provider, "Anthropic", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException("AI:Provider must be set to 'Anthropic' for the configured AI client.");
+}
+
+// 2. Register Anthropic's IChatClient adapter.
 builder.Services.AddChatClient(services =>
 {
-    var credential = new ApiKeyCredential(aiOptions.ApiKey);
-    var clientOptions = new OpenAIClientOptions();
-
-    if (!string.IsNullOrWhiteSpace(aiOptions.Endpoint))
+    var client = new AnthropicClient
     {
-        clientOptions.Endpoint = new Uri(aiOptions.Endpoint);
-    }
+        ApiKey = aiOptions.ApiKey,
+        BaseUrl = string.IsNullOrWhiteSpace(aiOptions.Endpoint)
+            ? "https://api.anthropic.com"
+            : aiOptions.Endpoint
+    };
 
-    return new OpenAIClient(credential, clientOptions)
-        .GetChatClient(aiOptions.DefaultModel)
-        .AsIChatClient();
+    return client.AsIChatClient(aiOptions.DefaultModel);
 })
 .UseFunctionInvocation(); // Enables automatic execution of ExecuteSqlQuery tool calls
 

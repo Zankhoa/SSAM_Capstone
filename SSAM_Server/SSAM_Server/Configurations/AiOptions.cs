@@ -4,8 +4,8 @@ public class AiOptions
 {
     public const string SectionName = "AI";
 
-    public string Provider { get; set; } = "Gemini";
+    public string Provider { get; set; } = "Anthropic";
     public string Endpoint { get; set; } = string.Empty;
     public string ApiKey { get; set; } = string.Empty;
-    public string DefaultModel { get; set; } = "gemini-2.5-flash";
+    public string DefaultModel { get; set; } = "claude-sonnet-5-5";
 }
