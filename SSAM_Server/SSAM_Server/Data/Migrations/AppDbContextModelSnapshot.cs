@@ -2646,7 +2646,7 @@ namespace SSAM_Server.Data.Migrations
 
                     b.ToTable("TestActivities", null, t =>
                         {
-                            t.HasCheckConstraint("CK_TestActivities_Type", "[type] IN (N'RESULT', N'DEPLOY', N'ASSIGN', N'REQ', N'HANDOVER', N'CASE', N'BUG')");
+                            t.HasCheckConstraint("CK_TestActivities_Type", "[type] IN (N'RESULT', N'DEPLOY', N'BUILD', N'ASSIGN', N'REQ', N'HANDOVER', N'CASE', N'TESTCASE', N'BUG', N'SETUP')");
                         });
                 });
 
