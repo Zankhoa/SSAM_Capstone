@@ -279,6 +279,49 @@ public class SuggestedTestCaseDto
     public TestPlacementDto Placement { get; set; } = new();
 }
 
+public class TestCaseGenerationContextDto
+{
+    [JsonPropertyName("requirementIndex")]
+    public int RequirementIndex { get; set; }
+
+    [JsonPropertyName("requirementUid")]
+    public string RequirementUid { get; set; } = string.Empty;
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("description")]
+    public string Description { get; set; } = string.Empty;
+
+    [JsonPropertyName("acceptanceCriteria")]
+    public List<string> AcceptanceCriteria { get; set; } = new();
+}
+
+public class AiGeneratedTestCaseDraftDto
+{
+    [JsonRequired]
+    [JsonPropertyName("requirementIndex")]
+    public int RequirementIndex { get; set; }
+
+    [JsonPropertyName("acceptanceCriterionIndex")]
+    public int? AcceptanceCriterionIndex { get; set; }
+
+    [JsonPropertyName("title")]
+    public string Title { get; set; } = string.Empty;
+
+    [JsonPropertyName("preconditions")]
+    public string Preconditions { get; set; } = string.Empty;
+
+    [JsonPropertyName("priority")]
+    public string Priority { get; set; } = string.Empty;
+
+    [JsonPropertyName("category")]
+    public string Category { get; set; } = string.Empty;
+
+    [JsonPropertyName("steps")]
+    public List<TestStepDto> Steps { get; set; } = new();
+}
+
 // =========================================================================
 // Request & Response Payloads
 // =========================================================================

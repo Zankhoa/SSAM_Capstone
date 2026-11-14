@@ -26,10 +26,11 @@ public static class TestCasePriorities
     public static string Normalize(string? priority) =>
         (priority?.Trim().ToUpperInvariant()) switch
         {
-            "HIGH" or "P0" => High,
-            "LOW" or "P2" or "P3" => Low,
-            "MEDIUM" or "P1" => Medium,
-            _ => Medium
+            "HIGH" or "P0" => P0,
+            "LOW" or "P2" => P2,
+            "P3" => P3,
+            "MEDIUM" or "P1" => P1,
+            _ => P1
         };
 }
 
