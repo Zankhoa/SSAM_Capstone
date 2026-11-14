@@ -1933,18 +1933,12 @@ public class DocumentService : IDocumentService
             errors["docType"] = new[] { "docType must be valid (BRD, SRS, ADR, UI_SPEC, TEST_PLAN, OTHER)." };
         if (request.Items == null || request.Items.Count == 0)
             errors["items"] = new[] { "At least 1 requirement item is required." };
-        else if (request.Items.Any(item =>
-                     item is null ||
-                     item.ReviewStatus is not (ExtractedRequirementDto.ReviewAccepted or ExtractedRequirementDto.ReviewRejected)))
-            errors["items"] = new[] { "Review every generated requirement as ACCEPTED or REJECTED before creating the document." };
 
         var acceptedItems = request.Items?
-            .Where(item => item is not null && item.ReviewStatus == ExtractedRequirementDto.ReviewAccepted)
+            .Where(item => item is not null &&
+                           !string.Equals(item.ReviewStatus, ExtractedRequirementDto.ReviewRejected, StringComparison.OrdinalIgnoreCase))
             .ToList() ?? new List<ExtractedRequirementDto>();
-        if (request.Items is { Count: > 0 } &&
-            acceptedItems.Count == 0 &&
-            !request.Items.Any(item => item is null ||
-                item.ReviewStatus is not (ExtractedRequirementDto.ReviewAccepted or ExtractedRequirementDto.ReviewRejected)))
+        if (request.Items is { Count: > 0 } && acceptedItems.Count == 0)
             errors["items"] = new[] { "Accept at least one requirement before creating the document." };
 
         if (errors.Count > 0)

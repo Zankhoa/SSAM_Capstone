@@ -513,7 +513,6 @@ public class ExtractedRequirementDto
     [JsonPropertyName("sourceLines")]
     public List<int> SourceLines { get; set; } = new();
 
-    [JsonRequired]
     [JsonPropertyName("confidence")]
     public double Confidence { get; set; }
 
