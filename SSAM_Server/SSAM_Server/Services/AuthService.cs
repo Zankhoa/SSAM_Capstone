@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using SSAM_Server.Common;
 using SSAM_Server.DTOs.Auth;
+using SSAM_Server.DTOs.Common;
 using SSAM_Server.Models;
 using SSAM_Server.Repositories;
 using SSAM_Server.Security;
@@ -316,8 +317,12 @@ public class AuthService : IAuthService
         }
 
         var account = await _authRepository.GetAccountByIdAsync(user.AccountId, cancellationToken);
-        var companies = await _authRepository.GetUserCompaniesAsync(userId.Value, cancellationToken);
-        var workspaces = await _authRepository.GetUserWorkspacesAsync(userId.Value, cancellationToken);
+        var companyMemberships = await _authRepository.GetUserCompanyMembershipsAsync(userId.Value, cancellationToken);
+        var activeCompanyRoles = companyMemberships.ToDictionary(cm => cm.CompanyId, cm => cm.Role);
+        var workspaceMemberships = await _authRepository.GetUserWorkspaceMembershipsAsync(userId.Value, activeCompanyRoles.Keys, cancellationToken);
+
+        var companies = BuildUserCompanies(companyMemberships);
+        var workspaces = BuildUserWorkspaces(workspaceMemberships, activeCompanyRoles);
 
         return ServiceResult<AuthMeResponseDto>.Ok(new AuthMeResponseDto
         {
@@ -523,5 +528,93 @@ public class AuthService : IAuthService
             },
             IsNewAccount = isNewAccount
         };
+    }
+
+    private static List<UserCompanyDto> BuildUserCompanies(List<CompanyMember> memberships)
+    {
+        return memberships.Select(cm =>
+        {
+            List<string> perms;
+            if (cm.Role.Code == CompanyRoleCodes.TenantAdmin)
+            {
+                perms = PermissionKeys.AllTenantKeys.ToList();
+            }
+            else if (cm.Role.IsActive)
+            {
+                perms = cm.Role.RolePermissions
+                    .Where(rp => rp.Permission != null && rp.Permission.IsActive)
+                    .OrderBy(rp => rp.Permission.SortOrder)
+                    .Select(rp => rp.Permission.Code)
+                    .ToList();
+            }
+            else
+            {
+                perms = new List<string>();
+            }
+
+            return new UserCompanyDto
+            {
+                CompanyId = cm.CompanyId,
+                CompanyName = cm.Company.Name,
+                RoleName = cm.Role.Name,
+                RoleId = cm.Role.Id,
+                RoleCode = cm.Role.Code,
+                Permissions = perms
+            };
+        }).ToList();
+    }
+
+    private static List<UserWorkspaceDto> BuildUserWorkspaces(
+        List<WorkspaceMember> memberWorkspaces,
+        Dictionary<long, CompanyRole> activeCompanyRoles)
+    {
+        var result = new List<UserWorkspaceDto>();
+
+        foreach (var wm in memberWorkspaces)
+        {
+            var ws = wm.Workspace;
+            var companyId = ws.CompanyId!.Value;
+            if (!activeCompanyRoles.TryGetValue(companyId, out var tenantRole))
+                continue;
+
+            List<string> perms;
+            if (tenantRole.Code == CompanyRoleCodes.TenantAdmin)
+            {
+                perms = PermissionKeys.AllWorkspaceKeys.ToList();
+            }
+            else if (wm.Role != null && wm.Role.IsActive)
+            {
+                perms = wm.Role.RolePermissions
+                    .Where(rp => rp.Permission != null && rp.Permission.IsActive)
+                    .OrderBy(rp => rp.Permission.SortOrder)
+                    .Select(rp => rp.Permission.Code)
+                    .ToList();
+            }
+            else
+            {
+                perms = new List<string>();
+            }
+
+            result.Add(new UserWorkspaceDto
+            {
+                WorkspaceId = ws.Id,
+                WorkspaceName = ws.Name,
+                Code = ws.Code,
+                CompanyId = ws.CompanyId,
+                Status = ws.IsActive ? "ACTIVE" : "ARCHIVED",
+                Role = wm.Role != null
+                    ? new RoleRefDto
+                    {
+                        RoleId = wm.Role.Id,
+                        Code = wm.Role.Code,
+                        Name = wm.Role.Name,
+                        Scope = wm.Role.Scope
+                    }
+                    : null,
+                Permissions = perms
+            });
+        }
+
+        return result;
     }
 }

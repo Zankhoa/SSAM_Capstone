@@ -73,6 +73,8 @@ public class DocumentNode : IHasUpdatedAt
     public long? BaselineVersionId { get; set; }
     public DocumentVersion? BaselineVersion { get; set; }
 
+    public string RequiredApprovers { get; set; } = "[]";
+
     public long CreatedById { get; set; }
     public User CreatedBy { get; set; } = null!;
 
@@ -137,6 +139,9 @@ public class RequirementItem
     public string Title { get; set; } = string.Empty;
     public string BodyPreview { get; set; } = string.Empty;
     public int BodyLength { get; set; } = 0;
+    public string? Actor { get; set; }
+    public string? Preconditions { get; set; }
+    public string Constraints { get; set; } = "[]";
     public string AcceptanceCriteria { get; set; } = "[]";
     public bool HasTable { get; set; } = false;
     public bool HasDiagram { get; set; } = false;
@@ -216,4 +221,13 @@ public class DocumentGeneration
     public User CreatedBy { get; set; } = null!;
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class DocumentVersionReqChange
+{
+    public long VersionId { get; set; }
+    public DocumentVersion Version { get; set; } = null!;
+
+    public string ReqUid { get; set; } = string.Empty;
+    public string Level { get; set; } = "MAJOR";
 }

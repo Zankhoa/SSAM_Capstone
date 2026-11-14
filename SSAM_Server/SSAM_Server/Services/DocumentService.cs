@@ -101,7 +101,11 @@ public class DocumentService : IDocumentService
             nodes = nodes.Where(n => keepIds.Contains(n.Id)).ToList();
         }
 
-        var dtos = nodes.Select(n => MapNodeDto(n, n.CurrentVersionId.HasValue ? reqCounts.GetValueOrDefault(n.CurrentVersionId.Value) : 0)).ToList();
+        var approversByNode = await ResolveApproversMapAsync(nodes, ct);
+        var dtos = nodes.Select(n => MapNodeDto(
+            n,
+            n.CurrentVersionId.HasValue ? reqCounts.GetValueOrDefault(n.CurrentVersionId.Value) : 0,
+            approversByNode.GetValueOrDefault(n.Id))).ToList();
         return ServiceResult<ItemsDto<DocumentNodeDto>>.Success(new ItemsDto<DocumentNodeDto>(dtos));
     }
 
@@ -144,8 +148,8 @@ public class DocumentService : IDocumentService
             var parent = await _db.DocumentNodes
                 .AsNoTracking()
                 .FirstOrDefaultAsync(d => d.Id == request.ParentId.Value && d.ProjectId == projectId && !d.IsDeleted, ct);
-            if (parent == null || parent.Kind != DocumentNodeKinds.Folder)
-                return ServiceResult<object>.BadRequest("INVALID_PARENT", "Parent must be an existing folder in the same project.");
+            if (parent == null || (kind == DocumentNodeKinds.Folder && parent.Kind != DocumentNodeKinds.Folder))
+                return ServiceResult<object>.BadRequest("INVALID_PARENT", "Parent must be an existing folder (or page for child pages) in the same project.");
         }
 
         var userId = _currentUser.UserId;
@@ -179,7 +183,7 @@ public class DocumentService : IDocumentService
 
         return await _db.ExecuteInTransactionAsync(async innerCt =>
         {
-            var code = await _db.AllocateDocumentCodeAsync(projectId, docType!, innerCt);
+            var code = await _db.AllocateDocumentCodeAsync(projectId, docType!, request.ParentId, innerCt);
             string normalizedJson;
             string plainText;
             List<DocumentContentHelper.ExtractedRequirementNode> extractedReqs;
@@ -247,6 +251,9 @@ public class DocumentService : IDocumentService
                     Title = r.Title,
                     BodyPreview = r.BodyPreview,
                     BodyLength = r.BodyLength,
+                    Actor = r.Actor,
+                    Preconditions = r.Preconditions,
+                    Constraints = JsonSerializer.Serialize(r.Constraints),
                     AcceptanceCriteria = JsonSerializer.Serialize(r.AcceptanceCriteria),
                     HasTable = r.HasTable,
                     HasDiagram = r.HasDiagram,
@@ -333,8 +340,9 @@ public class DocumentService : IDocumentService
                     .ToListAsync(ct);
 
                 var byId = allProjectNodes.ToDictionary(d => d.Id);
-                if (!byId.TryGetValue(request.ParentId.Value, out var targetParent) || targetParent.Kind != DocumentNodeKinds.Folder)
-                    return ServiceResult<DocumentNodeDto>.BadRequest("INVALID_PARENT", "Target parent must be an existing folder in the same project.");
+                if (!byId.TryGetValue(request.ParentId.Value, out var targetParent) ||
+                    (node.Kind == DocumentNodeKinds.Folder && targetParent.Kind != DocumentNodeKinds.Folder))
+                    return ServiceResult<DocumentNodeDto>.BadRequest("INVALID_PARENT", "Target parent must be an existing folder (or page for child pages) in the same project.");
 
                 // Check cycle
                 var cursor = targetParent;
@@ -373,7 +381,8 @@ public class DocumentService : IDocumentService
             ? await _db.RequirementItems.CountAsync(r => r.VersionId == node.CurrentVersionId.Value, ct)
             : 0;
 
-        return ServiceResult<DocumentNodeDto>.Success(MapNodeDto(node, reqCount));
+        var approversByNode = await ResolveApproversMapAsync(new[] { node }, ct);
+        return ServiceResult<DocumentNodeDto>.Success(MapNodeDto(node, reqCount, approversByNode.GetValueOrDefault(node.Id)));
     }
 
     public async Task<ServiceResult> DeleteDocumentNodeAsync(long documentId, CancellationToken ct = default)
@@ -466,22 +475,26 @@ public class DocumentService : IDocumentService
         var userPerms = await _permissions.GetProjectPermissionsAsync(userId, node.ProjectId, ct);
         var permSet = new HashSet<string>(userPerms, StringComparer.OrdinalIgnoreCase);
 
+        var requiredApproverIds = ParseRequiredApprovers(node.RequiredApprovers);
         var headStatus = node.CurrentVersion?.Status ?? currentVer.Status;
         var can = new DocumentPermissionsDto
         {
             Edit = permSet.Contains(PermissionKeys.DocumentUpdate) &&
                    currentVer.Status is DocumentVersionStatuses.Draft or DocumentVersionStatuses.ChangesRequested,
             Approve = permSet.Contains(PermissionKeys.DocumentApprove) &&
-                      currentVer.Status == DocumentVersionStatuses.InReview,
+                      currentVer.Status == DocumentVersionStatuses.InReview &&
+                      currentVer.SubmittedById != _currentUser.UserId &&
+                      (requiredApproverIds.Count == 0 || requiredApproverIds.Contains(_currentUser.UserId)),
             Revise = permSet.Contains(PermissionKeys.DocumentCreate) &&
                      headStatus == DocumentVersionStatuses.Approved,
             Delete = permSet.Contains(PermissionKeys.DocumentDelete) &&
                      node.BaselineVersionId == null
         };
 
+        var approversByNode = await ResolveApproversMapAsync(new[] { node }, ct);
         var detail = new DocumentDetailDto
         {
-            Node = MapNodeDto(node, reqCount),
+            Node = MapNodeDto(node, reqCount, approversByNode.GetValueOrDefault(node.Id)),
             Versions = versions.Select(MapVersionSummaryDto).ToList(),
             Current = MapVersionDto(currentVer),
             Can = can
@@ -623,9 +636,63 @@ public class DocumentService : IDocumentService
         }, ct);
     }
 
+    public async Task<ServiceResult<DocumentNodeDto>> SetDocumentApproversAsync(
+        long documentId,
+        UpdateDocumentApproversRequest request,
+        CancellationToken ct = default)
+    {
+        var node = await _db.DocumentNodes
+            .Include(d => d.CurrentVersion)
+            .FirstOrDefaultAsync(d => d.Id == documentId && !d.IsDeleted, ct);
+        if (node == null)
+            return ServiceResult<DocumentNodeDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
+
+        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<DocumentNodeDto>();
+
+        if (node.Kind != DocumentNodeKinds.Page)
+        {
+            return ServiceResult<DocumentNodeDto>.BadRequest(
+                "INVALID_DOCUMENT_KIND",
+                "Chỉ có thể cấu hình người duyệt cho tài liệu dạng PAGE.");
+        }
+
+        var rawIds = request.ApproverIds ?? request.UserIds ?? new List<long>();
+        var distinctIds = rawIds.Where(id => id > 0).Distinct().ToList();
+
+        if (distinctIds.Count > 0)
+        {
+            var validMemberIds = await _db.ProjectMembers
+                .AsNoTracking()
+                .Where(pm => pm.ProjectId == node.ProjectId && distinctIds.Contains(pm.UserId))
+                .Select(pm => pm.UserId)
+                .ToListAsync(ct);
+
+            var invalidIds = distinctIds.Except(validMemberIds).ToList();
+            if (invalidIds.Count > 0)
+            {
+                return ServiceResult<DocumentNodeDto>.ValidationFailure(new Dictionary<string, string[]>
+                {
+                    ["approverIds"] = new[] { $"Người dùng không thuộc dự án: {string.Join(", ", invalidIds)}" }
+                });
+            }
+        }
+
+        node.RequiredApprovers = JsonSerializer.Serialize(distinctIds);
+        node.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        await _db.SaveChangesAsync(ct);
+
+        var reqCount = node.CurrentVersionId.HasValue
+            ? await _db.RequirementItems.CountAsync(r => r.VersionId == node.CurrentVersionId.Value, ct)
+            : 0;
+        var approversByNode = await ResolveApproversMapAsync(new[] { node }, ct);
+        return ServiceResult<DocumentNodeDto>.Success(MapNodeDto(node, reqCount, approversByNode.GetValueOrDefault(node.Id)));
+    }
+
     public async Task<ServiceResult<DocumentDetailDto>> SubmitVersionAsync(
         long documentId,
         long versionId,
+        SubmitDocumentRequest? request = null,
         CancellationToken ct = default)
     {
         var node = await _db.DocumentNodes
@@ -648,8 +715,60 @@ public class DocumentService : IDocumentService
                 "Chỉ có thể gửi duyệt phiên bản ở trạng thái DRAFT hoặc CHANGES_REQUESTED.");
         }
 
+        var reqUids = await _db.RequirementItems
+            .AsNoTracking()
+            .Where(r => r.VersionId == versionId)
+            .Select(r => r.ReqUid)
+            .ToListAsync(ct);
+
+        if (reqUids.Count == 0)
+        {
+            return ServiceResult<DocumentDetailDto>.Conflict(
+                "NO_REQUIREMENTS",
+                "Phiên bản chưa có yêu cầu (REQ) nào.");
+        }
+
+        var needsConfirmCount = CountOccurrences(version.ContentText, "[Cần BA xác nhận]");
+        if (needsConfirmCount > 0)
+        {
+            return ServiceResult<DocumentDetailDto>.Conflict(
+                "NEEDS_CONFIRMATION",
+                $"Còn {needsConfirmCount} chỗ [Cần BA xác nhận] — xác nhận hoặc sửa nội dung rồi mới gửi duyệt được.");
+        }
+
         var userId = _currentUser.UserId;
+        var requiredApproverIds = ParseRequiredApprovers(node.RequiredApprovers);
+        if (requiredApproverIds.Count == 1 && requiredApproverIds[0] == userId)
+        {
+            return ServiceResult<DocumentDetailDto>.Conflict(
+                "SOLE_APPROVER_IS_SUBMITTER",
+                "Bạn là người duyệt duy nhất được chỉ định cho tài liệu này nên không thể tự gửi duyệt.");
+        }
+
         var now = _clock.GetUtcNow().UtcDateTime;
+
+        var existingReqChanges = await _db.DocumentVersionReqChanges
+            .Where(c => c.VersionId == versionId)
+            .ToListAsync(ct);
+        if (existingReqChanges.Count > 0)
+        {
+            _db.DocumentVersionReqChanges.RemoveRange(existingReqChanges);
+        }
+
+        var minorSet = (request?.MinorReqUids ?? new List<string>())
+            .Where(s => !string.IsNullOrWhiteSpace(s))
+            .Select(s => s.Trim().ToUpperInvariant())
+            .ToHashSet();
+
+        foreach (var reqUid in reqUids.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            _db.DocumentVersionReqChanges.Add(new DocumentVersionReqChange
+            {
+                VersionId = versionId,
+                ReqUid = reqUid,
+                Level = minorSet.Contains(reqUid.ToUpperInvariant()) ? "MINOR" : "MAJOR"
+            });
+        }
 
         version.Status = DocumentVersionStatuses.InReview;
         version.SubmittedById = userId;
@@ -704,16 +823,19 @@ public class DocumentService : IDocumentService
 
         var userId = _currentUser.UserId;
 
-        // Check self-approval unless Company Admin / Workspace Admin
         if (version.SubmittedById == userId)
         {
-            var isAdminBypass = await IsCompanyOrWorkspaceAdminAsync(userId, node.ProjectId, ct);
-            if (!isAdminBypass)
-            {
-                return ServiceResult<DocumentDetailDto>.Forbidden(
-                    "SELF_APPROVAL_FORBIDDEN",
-                    "Người gửi duyệt không thể tự phê duyệt phiên bản của chính mình.");
-            }
+            return ServiceResult<DocumentDetailDto>.Conflict(
+                "SELF_APPROVAL_NOT_ALLOWED",
+                "Người gửi duyệt không thể tự phê duyệt phiên bản của chính mình.");
+        }
+
+        var requiredApproverIds = ParseRequiredApprovers(node.RequiredApprovers);
+        if (requiredApproverIds.Count > 0 && !requiredApproverIds.Contains(userId))
+        {
+            return ServiceResult<DocumentDetailDto>.Forbidden(
+                "NOT_REQUIRED_APPROVER",
+                "Bạn không nằm trong danh sách người duyệt được chỉ định cho tài liệu này.");
         }
 
         var openCommentsCount = await _db.DocumentComments
@@ -1048,6 +1170,9 @@ public class DocumentService : IDocumentService
                     Title = r.Title,
                     BodyPreview = r.BodyPreview,
                     BodyLength = r.BodyLength,
+                    Actor = r.Actor,
+                    Preconditions = r.Preconditions,
+                    Constraints = r.Constraints,
                     AcceptanceCriteria = r.AcceptanceCriteria,
                     HasTable = r.HasTable,
                     HasDiagram = r.HasDiagram,
@@ -1830,8 +1955,8 @@ public class DocumentService : IDocumentService
             var parent = await _db.DocumentNodes
                 .AsNoTracking()
                 .FirstOrDefaultAsync(d => d.Id == request.ParentId.Value && d.ProjectId == projectId && !d.IsDeleted, ct);
-            if (parent == null || parent.Kind != DocumentNodeKinds.Folder)
-                return ServiceResult<DocumentDetailDto>.BadRequest("INVALID_PARENT", "Parent must be an existing folder in the same project.");
+            if (parent == null)
+                return ServiceResult<DocumentDetailDto>.BadRequest("INVALID_PARENT", "Parent must be an existing folder or page in the same project.");
         }
 
         var userId = _currentUser.UserId;
@@ -1839,7 +1964,7 @@ public class DocumentService : IDocumentService
 
         return await _db.ExecuteInTransactionAsync(async innerCt =>
         {
-            var code = await _db.AllocateDocumentCodeAsync(projectId, docType, innerCt);
+            var code = await _db.AllocateDocumentCodeAsync(projectId, docType, request.ParentId, innerCt);
 
             var generatedItems = new List<GeneratedItemDto>();
             foreach (var item in acceptedItems)
@@ -1915,6 +2040,9 @@ public class DocumentService : IDocumentService
                     Title = r.Title,
                     BodyPreview = r.BodyPreview,
                     BodyLength = r.BodyLength,
+                    Actor = r.Actor,
+                    Preconditions = r.Preconditions,
+                    Constraints = JsonSerializer.Serialize(r.Constraints),
                     AcceptanceCriteria = JsonSerializer.Serialize(r.AcceptanceCriteria),
                     HasTable = r.HasTable,
                     HasDiagram = r.HasDiagram,
@@ -2089,7 +2217,7 @@ public class DocumentService : IDocumentService
         return map;
     }
 
-    private static DocumentNodeDto MapNodeDto(DocumentNode n, int reqCount)
+    private static DocumentNodeDto MapNodeDto(DocumentNode n, int reqCount, List<UserRefDto>? requiredApprovers = null)
     {
         return new DocumentNodeDto
         {
@@ -2112,8 +2240,60 @@ public class DocumentService : IDocumentService
             IsBaselined = n.BaselineVersionId.HasValue,
             BaselineVersionId = n.BaselineVersionId,
             ReqCount = reqCount,
+            RequiredApprovers = requiredApprovers ?? new List<UserRefDto>(),
             UpdatedAt = FormatUtc(n.UpdatedAt)
         };
+    }
+
+    private static List<long> ParseRequiredApprovers(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new List<long>();
+        var list = SafeDeserialize<List<long>>(json);
+        return list == null ? new List<long>() : list.Where(id => id > 0).Distinct().ToList();
+    }
+
+    private async Task<Dictionary<long, List<UserRefDto>>> ResolveApproversMapAsync(
+        IEnumerable<DocumentNode> nodes,
+        CancellationToken ct)
+    {
+        var nodeList = nodes.ToList();
+        var idsByNode = nodeList.ToDictionary(n => n.Id, n => ParseRequiredApprovers(n.RequiredApprovers));
+        var allUserIds = idsByNode.Values.SelectMany(x => x).Distinct().ToList();
+        if (allUserIds.Count == 0)
+        {
+            return nodeList.ToDictionary(n => n.Id, _ => new List<UserRefDto>());
+        }
+
+        var usersById = await _db.Users
+            .AsNoTracking()
+            .Where(u => allUserIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => MapUserRef(u), ct);
+
+        var result = new Dictionary<long, List<UserRefDto>>();
+        foreach (var (nodeId, userIds) in idsByNode)
+        {
+            var refs = new List<UserRefDto>();
+            foreach (var uid in userIds)
+            {
+                if (usersById.TryGetValue(uid, out var userRef))
+                    refs.Add(userRef);
+            }
+            result[nodeId] = refs;
+        }
+        return result;
+    }
+
+    private static int CountOccurrences(string? text, string needle)
+    {
+        if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(needle)) return 0;
+        var count = 0;
+        var index = 0;
+        while ((index = text.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+        {
+            count++;
+            index += needle.Length;
+        }
+        return count;
     }
 
     private static DocumentVersionSummaryDto MapVersionSummaryDto(DocumentVersion v)
@@ -2190,6 +2370,9 @@ public class DocumentService : IDocumentService
             Title = r.Title,
             Priority = "MEDIUM",
             Freshness = "FRESH",
+            Actor = r.Actor,
+            Preconditions = r.Preconditions,
+            Constraints = SafeDeserialize<List<ConstraintRowDto>>(r.Constraints) ?? new List<ConstraintRowDto>(),
             ChangedSinceBaseline = false,
             BodyPreview = r.BodyPreview,
             BodyLength = r.BodyLength,

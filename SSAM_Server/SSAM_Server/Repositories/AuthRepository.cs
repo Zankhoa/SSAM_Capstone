@@ -1,9 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Data;
-using SSAM_Server.DTOs.Auth;
-using SSAM_Server.DTOs.Common;
 using SSAM_Server.Models;
-using SSAM_Server.Security;
 
 namespace SSAM_Server.Repositories;
 
@@ -43,9 +40,8 @@ public class AuthRepository : IAuthRepository
     public async Task AddUserAsync(User user, CancellationToken ct = default)
         => await _db.Users.AddAsync(user, ct);
 
-    public async Task<List<UserCompanyDto>> GetUserCompaniesAsync(long userId, CancellationToken ct = default)
-    {
-        var memberships = await _db.CompanyMembers
+    public Task<List<CompanyMember>> GetUserCompanyMembershipsAsync(long userId, CancellationToken ct = default)
+        => _db.CompanyMembers
             .AsNoTracking()
             .Include(cm => cm.Company)
             .Include(cm => cm.Role)
@@ -55,49 +51,8 @@ public class AuthRepository : IAuthRepository
             .OrderBy(cm => cm.JoinedAt)
             .ToListAsync(ct);
 
-        return memberships.Select(cm =>
-        {
-            List<string> perms;
-            if (cm.Role.Code == CompanyRoleCodes.TenantAdmin)
-            {
-                perms = PermissionKeys.AllTenantKeys.ToList();
-            }
-            else if (cm.Role.IsActive)
-            {
-                perms = cm.Role.RolePermissions
-                    .Where(rp => rp.Permission != null && rp.Permission.IsActive)
-                    .OrderBy(rp => rp.Permission.SortOrder)
-                    .Select(rp => rp.Permission.Code)
-                    .ToList();
-            }
-            else
-            {
-                perms = new List<string>();
-            }
-
-            return new UserCompanyDto
-            {
-                CompanyId = cm.CompanyId,
-                CompanyName = cm.Company.Name,
-                RoleName = cm.Role.Name,
-                RoleId = cm.Role.Id,
-                RoleCode = cm.Role.Code,
-                Permissions = perms
-            };
-        }).ToList();
-    }
-
-    public async Task<List<UserWorkspaceDto>> GetUserWorkspacesAsync(long userId, CancellationToken ct = default)
-    {
-        var activeCompanyRoles = await _db.CompanyMembers
-            .AsNoTracking()
-            .Include(cm => cm.Role)
-            .Where(cm => cm.UserId == userId && cm.IsActive)
-            .ToDictionaryAsync(cm => cm.CompanyId, cm => cm.Role, ct);
-
-        var activeCompanyIds = activeCompanyRoles.Keys.ToHashSet();
-
-        var memberWorkspaces = await _db.WorkspaceMembers
+    public Task<List<WorkspaceMember>> GetUserWorkspaceMembershipsAsync(long userId, IEnumerable<long> companyIds, CancellationToken ct = default)
+        => _db.WorkspaceMembers
             .AsNoTracking()
             .Include(wm => wm.Workspace)
             .Include(wm => wm.Role)
@@ -107,58 +62,9 @@ public class AuthRepository : IAuthRepository
                 wm.UserId == userId &&
                 wm.IsActive &&
                 wm.Workspace.CompanyId != null &&
-                activeCompanyIds.Contains(wm.Workspace.CompanyId.Value))
+                companyIds.Contains(wm.Workspace.CompanyId.Value))
             .OrderBy(wm => wm.JoinedAt)
             .ToListAsync(ct);
-
-        var result = new List<UserWorkspaceDto>();
-
-        foreach (var wm in memberWorkspaces)
-        {
-            var ws = wm.Workspace;
-            var companyId = ws.CompanyId!.Value;
-            var tenantRole = activeCompanyRoles[companyId];
-
-            List<string> perms;
-            if (tenantRole.Code == CompanyRoleCodes.TenantAdmin)
-            {
-                perms = PermissionKeys.AllWorkspaceKeys.ToList();
-            }
-            else if (wm.Role != null && wm.Role.IsActive)
-            {
-                perms = wm.Role.RolePermissions
-                    .Where(rp => rp.Permission != null && rp.Permission.IsActive)
-                    .OrderBy(rp => rp.Permission.SortOrder)
-                    .Select(rp => rp.Permission.Code)
-                    .ToList();
-            }
-            else
-            {
-                perms = new List<string>();
-            }
-
-            result.Add(new UserWorkspaceDto
-            {
-                WorkspaceId = ws.Id,
-                WorkspaceName = ws.Name,
-                Code = ws.Code,
-                CompanyId = ws.CompanyId,
-                Status = ws.IsActive ? "ACTIVE" : "ARCHIVED",
-                Role = wm.Role != null
-                    ? new RoleRefDto
-                    {
-                        RoleId = wm.Role.Id,
-                        Code = wm.Role.Code,
-                        Name = wm.Role.Name,
-                        Scope = wm.Role.Scope
-                    }
-                    : null,
-                Permissions = perms
-            });
-        }
-
-        return result;
-    }
 
     public Task<bool> ExternalLoginExistsAsync(string provider, string providerUserId, CancellationToken ct = default)
         => _db.ExternalLogins.AsNoTracking().AnyAsync(el => el.Provider == provider && el.ProviderUserId == providerUserId, ct);

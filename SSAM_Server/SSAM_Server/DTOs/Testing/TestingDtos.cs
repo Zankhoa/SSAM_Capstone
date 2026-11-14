@@ -5,10 +5,6 @@ using SSAM_Server.DTOs.Kanban;
 
 namespace SSAM_Server.DTOs.Testing;
 
-// =========================================================================
-// Shared / Nested Value DTOs
-// =========================================================================
-
 public class TestPersonDto
 {
     public long UserId { get; set; }

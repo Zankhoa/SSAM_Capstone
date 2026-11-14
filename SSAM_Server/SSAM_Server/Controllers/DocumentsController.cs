@@ -84,14 +84,26 @@ public class DocumentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
+    // #7a PUT /documents/{documentId}/approvers
+    [HttpPut("documents/{documentId:long}/approvers")]
+    public async Task<IActionResult> SetDocumentApprovers(
+        long documentId,
+        [FromBody] UpdateDocumentApproversRequest request,
+        CancellationToken ct)
+    {
+        var result = await _documents.SetDocumentApproversAsync(documentId, request, ct);
+        return result.ToActionResult(this);
+    }
+
     // #7 POST /documents/{documentId}/versions/{versionId}/submit
     [HttpPost("documents/{documentId:long}/versions/{versionId:long}/submit")]
     public async Task<IActionResult> SubmitVersion(
         long documentId,
         long versionId,
+        [FromBody] SubmitDocumentRequest? request,
         CancellationToken ct)
     {
-        var result = await _documents.SubmitVersionAsync(documentId, versionId, ct);
+        var result = await _documents.SubmitVersionAsync(documentId, versionId, request, ct);
         return result.ToActionResult(this);
     }
 

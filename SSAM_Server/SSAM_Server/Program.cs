@@ -8,6 +8,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.IdentityModel.Tokens;
 using SSAM_Server;
 using SSAM_Server.Common.Options;
 using SSAM_Server.Data;
@@ -252,7 +253,6 @@ builder.Services.AddChatClient(services =>
 .UseFunctionInvocation(); // Enables automatic execution of ExecuteSqlQuery tool calls
 
 // 3. Register your application services
-builder.Services.AddScoped<ISqlServerDatabaseService, SqlServerDatabaseService>();
 builder.Services.AddScoped<AiService>();
 builder.Services.AddScoped<IAiService>(services => services.GetRequiredService<AiService>());
 
@@ -293,22 +293,7 @@ else
     app.UseHttpsRedirection();
 }
 
-app.Use(async (context, next) =>
-{
-    context.Response.OnStarting(() =>
-    {
-        var headers = context.Response.Headers;
-        headers["X-Content-Type-Options"] = "nosniff";
-        headers["X-Frame-Options"] = "DENY";
-        headers["Referrer-Policy"] = "no-referrer";
-        if (context.Request.Path.StartsWithSegments("/api"))
-        {
-            headers["Cache-Control"] = "no-store";
-        }
-        return Task.CompletedTask;
-    });
-    await next();
-});
+app.UseSecurityHeaders();
 
 app.UseCors("AllowFrontend");
 app.UseRateLimiter();
