@@ -7,18 +7,12 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using SSAM_Server;
 using SSAM_Server.Common.Options;
+using SSAM_Server.Configurations;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.Middlewares;
-using SSAM_Server.Repositories;
-using SSAM_Server.Security;
-using SSAM_Server.Services;
-using SSAM_Server.Configurations;
-using Anthropic;
-using Microsoft.Extensions.AI;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -45,8 +39,6 @@ builder.Services.AddControllers()
 builder.Services.AddOpenApi();
 
 builder.Services.AddHttpContextAccessor();
-builder.Services.TryAddSingleton(TimeProvider.System);
-builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
 builder.Services.AddProblemDetails();
 
@@ -67,49 +59,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.ConfigureWarnings(w => w.Ignore(RelationalEventId.PendingModelChangesWarning));
 });
 
-// ---- Options
-builder.Services.AddOptions<JwtSettings>()
-    .Bind(builder.Configuration.GetSection(JwtSettings.SectionName))
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
-
-builder.Services.AddOptions<ClientAppOptions>()
-    .Bind(builder.Configuration.GetSection(ClientAppOptions.SectionName))
-    .ValidateDataAnnotations()
-    .ValidateOnStart();
-
-builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection(SmtpSettings.SectionName));
-
-// ---- Repositories
-builder.Services.AddScoped<IAuthRepository, AuthRepository>();
-builder.Services.AddScoped<ICompanyRepository, CompanyRepository>();
-builder.Services.AddScoped<IInvitationRepository, InvitationRepository>();
-builder.Services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
-builder.Services.AddScoped<IRoleRepository, RoleRepository>();
-builder.Services.AddScoped<IProjectRepository, ProjectRepository>();
-builder.Services.AddSingleton<IPromptRepository, PromptRepository>();
-
-// ---- Security & Services
-builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
-builder.Services.AddSingleton<IJwtTokenGenerator, JwtTokenGenerator>();
-builder.Services.AddSingleton<IGoogleTokenValidator, GoogleTokenValidator>();
-builder.Services.AddScoped<IPermissionService, PermissionService>();
-
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<ICompanyService, CompanyService>();
-builder.Services.AddScoped<IInvitationService, InvitationService>();
-builder.Services.AddScoped<IWorkspaceService, WorkspaceService>();
-builder.Services.AddScoped<IRoleService, RoleService>();
-builder.Services.AddScoped<IProjectService, ProjectService>();
-builder.Services.AddScoped<IDocumentService, DocumentService>();
-builder.Services.AddScoped<IKanbanService, KanbanService>();
-builder.Services.AddScoped<ITestingService, TestingService>();
-builder.Services.AddScoped<IWorkService, WorkService>();
-
-builder.Services.AddScoped<SmtpEmailService>();
-builder.Services.AddSingleton<EmailQueue>();
-builder.Services.AddSingleton<IEmailService, QueuedEmailService>();
-builder.Services.AddHostedService<EmailDispatcherService>();
+// ---- Options & Application Services
+builder.Services.AddApplicationOptions(builder.Configuration);
+builder.Services.AddApplicationServices(builder.Configuration);
 
 // ---- CORS
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
@@ -227,35 +179,6 @@ builder.Services.AddAuthorization();
 
 // ---- Health checks
 builder.Services.AddHealthChecks().AddDbContextCheck<AppDbContext>("database", tags: new[] { "ready" });
-
-// ---- AI Service
-// 1. Bind configuration section
-builder.Services.Configure<AiOptions>(builder.Configuration.GetSection(AiOptions.SectionName));
-var aiOptions = builder.Configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
-
-if (!string.Equals(aiOptions.Provider, "Anthropic", StringComparison.OrdinalIgnoreCase))
-{
-    throw new InvalidOperationException("AI:Provider must be set to 'Anthropic' for the configured AI client.");
-}
-
-// 2. Register Anthropic's IChatClient adapter.
-builder.Services.AddChatClient(services =>
-{
-    var client = new AnthropicClient
-    {
-        ApiKey = aiOptions.ApiKey,
-        BaseUrl = string.IsNullOrWhiteSpace(aiOptions.Endpoint)
-            ? "https://api.anthropic.com"
-            : aiOptions.Endpoint
-    };
-
-    return client.AsIChatClient(aiOptions.DefaultModel);
-})
-.UseFunctionInvocation(); // Enables automatic execution of ExecuteSqlQuery tool calls
-
-// 3. Register your application services
-builder.Services.AddScoped<AiService>();
-builder.Services.AddScoped<IAiService>(services => services.GetRequiredService<AiService>());
 
 var app = builder.Build();
 
