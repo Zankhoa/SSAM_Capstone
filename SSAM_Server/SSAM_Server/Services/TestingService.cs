@@ -19,31 +19,31 @@ public class TestingService : ITestingService
 {
     private readonly AppDbContext _db;
     private readonly ICurrentUser _currentUser;
-    private readonly IPermissionService _permissions;
+    private readonly IProjectAccessGuard _accessGuard;
     private readonly IKanbanService _kanbanService;
     private readonly TimeProvider _clock;
     private readonly IAiService _aiService;
+    private readonly IFigmaService _figmaService;
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        PropertyNameCaseInsensitive = true
-    };
+    private static readonly JsonSerializerOptions JsonOptions = ServiceMappingExtensions.DefaultJsonOptions;
+    private static readonly Regex HexColorRegex = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
 
     public TestingService(
         AppDbContext db,
         ICurrentUser currentUser,
-        IPermissionService permissions,
+        IProjectAccessGuard accessGuard,
         IKanbanService kanbanService,
         TimeProvider clock,
-        IAiService aiService)
+        IAiService aiService,
+        IFigmaService figmaService)
     {
         _db = db;
         _currentUser = currentUser;
-        _permissions = permissions;
+        _accessGuard = accessGuard;
         _kanbanService = kanbanService;
         _clock = clock;
         _aiService = aiService;
+        _figmaService = figmaService;
     }
 
     // =========================================================================
@@ -54,7 +54,7 @@ public class TestingService : ITestingService
         long projectId,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestPlanDto>>();
 
         var planIds = await _db.TestPlans
@@ -79,7 +79,7 @@ public class TestingService : ITestingService
         CreateTestPlanRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
 
         var name = request.Name?.Trim() ?? string.Empty;
@@ -165,7 +165,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
         if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
 
         var dto = await BuildPlanDtoAsync(planId, ct);
@@ -181,7 +181,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
 
         if (!string.IsNullOrWhiteSpace(request.Name))
@@ -212,7 +212,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
         if (!auth.IsSuccess) return auth;
 
         return await _db.ExecuteInTransactionAsync(async innerCt =>
@@ -264,7 +264,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<TestEnvironmentDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestEnvironmentDto>();
 
         var name = request.Name?.Trim() ?? string.Empty;
@@ -331,7 +331,7 @@ public class TestingService : ITestingService
         if (env == null)
             return ServiceResult<TestEnvironmentDto>.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
 
-        var auth = await EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestEnvironmentDto>();
 
         if (!string.IsNullOrWhiteSpace(request.Name))
@@ -358,7 +358,7 @@ public class TestingService : ITestingService
         if (env == null)
             return ServiceResult.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
 
-        var auth = await EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
         if (!auth.IsSuccess) return auth;
 
         var activeEnvCount = await _db.TestEnvironments
@@ -402,7 +402,7 @@ public class TestingService : ITestingService
         if (env == null)
             return ServiceResult<DeployTestBuildResponse>.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
 
-        var auth = await EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestRunExecute, ct);
         if (!auth.IsSuccess) return auth.Cast<DeployTestBuildResponse>();
 
         var version = request.Version?.Trim() ?? string.Empty;
@@ -547,7 +547,7 @@ public class TestingService : ITestingService
         if (env == null)
             return ServiceResult<TriggerRegressionResponse>.NotFound("ENVIRONMENT_NOT_FOUND", "Test environment not found.");
 
-        var auth = await EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(env.Plan.ProjectId, PermissionKeys.TestRunExecute, ct);
         if (!auth.IsSuccess) return auth.Cast<TriggerRegressionResponse>();
 
         var latestBuild = env.Builds
@@ -645,7 +645,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<TestModuleDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestModuleDto>();
 
         DocumentNode? doc = null;
@@ -765,7 +765,7 @@ public class TestingService : ITestingService
         if (module == null)
             return ServiceResult<TestModuleDto>.NotFound("MODULE_NOT_FOUND", "Test module not found.");
 
-        var auth = await EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestModuleDto>();
 
         if (!string.IsNullOrWhiteSpace(request.Name))
@@ -790,7 +790,7 @@ public class TestingService : ITestingService
         if (module == null)
             return ServiceResult.NotFound("MODULE_NOT_FOUND", "Test module not found.");
 
-        var auth = await EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
         if (!auth.IsSuccess) return auth;
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -839,7 +839,7 @@ public class TestingService : ITestingService
         if (module == null)
             return ServiceResult<TestSectionDto>.NotFound("MODULE_NOT_FOUND", "Test module not found.");
 
-        var auth = await EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(module.Plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestSectionDto>();
 
         var title = request.Title?.Trim() ?? string.Empty;
@@ -907,7 +907,7 @@ public class TestingService : ITestingService
         if (section == null)
             return ServiceResult<TestSectionDto>.NotFound("SECTION_NOT_FOUND", "Test section not found.");
 
-        var auth = await EnsureProjectPermissionAsync(section.Module.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(section.Module.Plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestSectionDto>();
 
         if (!string.IsNullOrWhiteSpace(request.Title))
@@ -945,7 +945,7 @@ public class TestingService : ITestingService
         if (section == null)
             return ServiceResult.NotFound("SECTION_NOT_FOUND", "Test section not found.");
 
-        var auth = await EnsureProjectPermissionAsync(section.Module.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(section.Module.Plan.ProjectId, PermissionKeys.TestCaseDelete, ct);
         if (!auth.IsSuccess) return auth;
 
         var moduleId = section.ModuleId;
@@ -1003,7 +1003,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<ItemsDto<TestAssignmentDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestAssignmentDto>>();
 
         var items = request.Items ?? new List<AssignmentInputItemDto>();
@@ -1119,7 +1119,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<SheetLayoutDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<SheetLayoutDto>();
 
         var layout = NormalizeLayout(request);
@@ -1139,7 +1139,7 @@ public class TestingService : ITestingService
         ListTestCasesQuery query,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
 
         var dbQuery = _db.TestCases
@@ -1214,7 +1214,7 @@ public class TestingService : ITestingService
         if (tc == null)
             return ServiceResult<TestCaseDto>.NotFound("TEST_CASE_NOT_FOUND", "Test case not found.");
 
-        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseView, ct);
         if (!auth.IsSuccess) return auth.Cast<TestCaseDto>();
 
         var dtos = await LoadAndMapTestCasesAsync(tc.ProjectId, new List<long> { testCaseId }, ct);
@@ -1246,7 +1246,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<TestCaseDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestCaseDto>();
 
         var section = await _db.TestSections
@@ -1357,8 +1357,11 @@ public class TestingService : ITestingService
         if (tc == null)
             return ServiceResult<TestCaseDto>.NotFound("TEST_CASE_NOT_FOUND", "Test case not found.");
 
-        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<TestCaseDto>();
+
+        if (tc.Plan.Status == TestPlanStatuses.HandedOver)
+            return ServiceResult<TestCaseDto>.BadRequest("PLAN_HANDED_OVER", "Test plan has already been handed over.");
 
         var now = _clock.GetUtcNow().UtcDateTime;
         await ApplyCaseChangesAsync(tc, request, now, ct);
@@ -1379,8 +1382,11 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
+
+        if (plan.Status == TestPlanStatuses.HandedOver)
+            return ServiceResult<ItemsDto<TestCaseDto>>.BadRequest("PLAN_HANDED_OVER", "Test plan has already been handed over.");
 
         var items = request.Items ?? new List<BulkUpdateTestCaseItemDto>();
         if (items.Count == 0)
@@ -1418,7 +1424,7 @@ public class TestingService : ITestingService
         if (tc == null)
             return ServiceResult.NotFound("TEST_CASE_NOT_FOUND", "Test case not found.");
 
-        var auth = await EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseDelete, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(tc.ProjectId, PermissionKeys.TestCaseDelete, ct);
         if (!auth.IsSuccess) return auth;
 
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -1473,7 +1479,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<RecordTestResultsResponse>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
         if (!auth.IsSuccess) return auth.Cast<RecordTestResultsResponse>();
 
         var resultVal = request.Result?.Trim().ToUpperInvariant() ?? string.Empty;
@@ -1663,7 +1669,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<ReportTestBugResponse>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
         if (!auth.IsSuccess) return auth.Cast<ReportTestBugResponse>();
 
         var caseIds = (request.TestCaseIds ?? new List<long>()).Distinct().ToList();
@@ -1765,7 +1771,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
 
         var issue = await _db.Issues
@@ -1819,7 +1825,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
         if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
 
         var userId = _currentUser.UserId;
@@ -1853,7 +1859,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestRunExecute, ct);
         if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
 
         var userId = _currentUser.UserId;
@@ -1895,7 +1901,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<ItemsDto<TestActivityDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestActivityDto>>();
 
         var dbQuery = _db.TestActivities
@@ -1955,7 +1961,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<ItemsDto<TraceRowDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<TraceRowDto>>();
 
         var targetEnvId = envId;
@@ -2033,18 +2039,9 @@ public class TestingService : ITestingService
 
                 foreach (var tc in matchingCases)
                 {
-                    var effStatus = TestResultValues.Untest;
-                    if (targetEnvId.HasValue)
-                    {
-                        var hasFlag = tc.RetestFlags.Any(f => f.EnvId == targetEnvId.Value);
-                        var latestRes = tc.Results
-                            .Where(res => res.EnvId == targetEnvId.Value)
-                            .OrderByDescending(res => res.At)
-                            .ThenByDescending(res => res.Id)
-                            .FirstOrDefault()?.Result ?? TestResultValues.Untest;
-
-                        effStatus = hasFlag ? "RETEST" : latestRes;
-                    }
+                    var effStatus = targetEnvId.HasValue
+                        ? TestStatusEvaluator.ComputeEffectiveEnvStatus(tc, targetEnvId.Value)
+                        : TestResultValues.Untest;
 
                     traceCases.Add(new TraceCaseDto
                     {
@@ -2101,10 +2098,10 @@ public class TestingService : ITestingService
         SuggestTestCasesRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<SuggestedTestCaseDto>>();
 
-        var aiAuth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.AiUse, ct);
+        var aiAuth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.AiUse, ct);
         if (!aiAuth.IsSuccess) return aiAuth.Cast<ItemsDto<SuggestedTestCaseDto>>();
 
         var aiEnabled = await _db.Projects
@@ -2122,6 +2119,14 @@ public class TestingService : ITestingService
         var refs = request.Refs ?? new List<RequirementRefInputDto>();
         if (refs.Count == 0)
             return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>());
+
+        if (request.Designs is { Count: > 5 })
+        {
+            return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["designs"] = new[] { "Tối đa 5 thiết kế mỗi lượt." }
+            });
+        }
 
         var planDto = request.PlanId.HasValue
             ? await BuildPlanDtoAsync(request.PlanId.Value, ct)
@@ -2191,22 +2196,87 @@ public class TestingService : ITestingService
         if (selectedRequirements.Count == 0)
             return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>());
 
-        var generationContexts = selectedRequirements
-            .Select((item, index) => new TestCaseGenerationContextDto
+        // Existing test case titles in the plan (for duplicate avoidance - Section 5)
+        var existingTitles = request.PlanId.HasValue
+            ? await _db.TestCases
+                .AsNoTracking()
+                .Where(tc => tc.PlanId == request.PlanId.Value && tc.Status != TestCaseStatuses.Deleted)
+                .Select(tc => tc.Title)
+                .Take(100)
+                .ToListAsync(ct)
+            : new List<string>();
+
+        // Resolve attached designs (never fail the whole request if one design fails)
+        var resolvedDesigns = new List<(TestCaseDesignInput Input, string? ThumbnailUrl)>();
+        if (request.Designs is { Count: > 0 })
+        {
+            foreach (var d in request.Designs)
             {
-                RequirementIndex = index,
-                RequirementUid = item.Requirement.ReqUid,
-                Title = item.Requirement.Title,
-                Description = item.Requirement.BodyPreview,
-                AcceptanceCriteria = item.AcceptanceCriteria
+                var reqIdx = selectedRequirements.FindIndex(sr =>
+                    sr.Document.Id == d.DocumentId &&
+                    string.Equals(sr.Requirement.ReqUid, d.ReqUid, StringComparison.OrdinalIgnoreCase));
+                if (reqIdx < 0 || d.Source == null) continue;
+
+                var kind = d.Source.Kind?.Trim().ToLowerInvariant();
+                if (kind == "figma" && !string.IsNullOrWhiteSpace(d.Source.Url))
+                {
+                    var figma = await _figmaService.FetchNodeImageForSuggestAsync(d.Source.Url, ct);
+                    if (figma != null)
+                    {
+                        var idx = resolvedDesigns.Count;
+                        resolvedDesigns.Add((new TestCaseDesignInput(idx, reqIdx, figma.Name, figma.ImageBytes, figma.MimeType), figma.ThumbnailUrl));
+                    }
+                }
+                else if (kind == "image" && TryDecodeDataUrlImage(d.Source.DataUrl, out var bytes, out var mime))
+                {
+                    var idx = resolvedDesigns.Count;
+                    var name = string.IsNullOrWhiteSpace(d.Source.Name) ? $"image-{idx + 1}" : d.Source.Name.Trim();
+                    resolvedDesigns.Add((new TestCaseDesignInput(idx, reqIdx, name, bytes, mime), null));
+                }
+            }
+        }
+
+        var generationContexts = selectedRequirements
+            .Select((item, index) =>
+            {
+                var constraints = (SafeDeserialize<List<ConstraintRowDto>>(item.Requirement.Constraints) ?? new List<ConstraintRowDto>())
+                    .Select(c => JsonSerializer.Serialize(c, JsonOptions))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .ToList();
+
+                return new TestCaseGenerationContextDto
+                {
+                    RequirementIndex = index,
+                    RequirementUid = item.Requirement.ReqUid,
+                    Title = item.Requirement.Title,
+                    Description = item.Requirement.BodyPreview,
+                    Actor = NullIfEmpty(item.Requirement.Actor),
+                    Preconditions = NullIfEmpty(item.Requirement.Preconditions),
+                    Constraints = constraints,
+                    AcceptanceCriteria = item.AcceptanceCriteria,
+                    ExistingTestCaseTitles = existingTitles,
+                    DesignNames = resolvedDesigns.Where(rd => rd.Input.RequirementIndex == index).Select(rd => rd.Input.Name).ToList()
+                };
             })
             .ToList();
 
-        var drafts = await _aiService.GenerateTestCaseDraftsAsync(generationContexts, ct);
+        var designInputs = resolvedDesigns.Select(rd => rd.Input).ToList();
+        var drafts = await _aiService.GenerateTestCaseDraftsAsync(generationContexts, designInputs, ct);
         var suggestions = drafts.Select((draft, index) =>
         {
             var source = selectedRequirements[draft.RequirementIndex];
-            var category = draft.Category;
+            var isFromDesign = draft.DesignIndex.HasValue && draft.DesignIndex.Value >= 0 && draft.DesignIndex.Value < resolvedDesigns.Count;
+            var category = isFromDesign ? "Giao diện" : draft.Category;
+            SuggestedTestCaseDesignDto? designDto = null;
+            if (isFromDesign)
+            {
+                var rd = resolvedDesigns[draft.DesignIndex!.Value];
+                designDto = new SuggestedTestCaseDesignDto
+                {
+                    Name = rd.Input.Name,
+                    ThumbnailUrl = rd.ThumbnailUrl
+                };
+            }
 
             return new SuggestedTestCaseDto
             {
@@ -2215,6 +2285,8 @@ public class TestingService : ITestingService
                 Preconditions = draft.Preconditions,
                 Priority = draft.Priority,
                 Category = category,
+                Source = isFromDesign ? "FIGMA" : "AI",
+                Design = designDto,
                 Steps = draft.Steps,
                 RequirementRef = new RequirementRefInputDto
                 {
@@ -2237,6 +2309,45 @@ public class TestingService : ITestingService
         return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>(suggestions));
     }
 
+    private static bool TryDecodeDataUrlImage(string? dataUrl, out byte[] bytes, out string mimeType)
+    {
+        bytes = Array.Empty<byte>();
+        mimeType = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(dataUrl)) return false;
+        var commaIdx = dataUrl.IndexOf(',');
+        if (commaIdx <= 0) return false;
+
+        var header = dataUrl[..commaIdx];
+        if (!header.StartsWith("data:", StringComparison.OrdinalIgnoreCase) ||
+            !header.Contains(";base64", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var base64Part = dataUrl[(commaIdx + 1)..].Trim();
+        // Quick length check before allocating (5MB * 4/3 + padding)
+        if (base64Part.Length > 7_000_000) return false;
+
+        try
+        {
+            bytes = Convert.FromBase64String(base64Part);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        if (bytes.Length == 0 || bytes.Length > 5 * 1024 * 1024)
+            return false;
+
+        var detected = FigmaService.DetectImageMimeType(bytes);
+        if (detected == null) return false;
+
+        mimeType = detected;
+        return true;
+    }
+
     public async Task<ServiceResult<ItemsDto<TestCaseDto>>> AiApplyTestCasesAsync(
         long planId,
         AiApplyTestCasesRequest request,
@@ -2246,7 +2357,7 @@ public class TestingService : ITestingService
         if (plan == null)
             return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
 
-        var auth = await EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
 
         var items = request.Items ?? new List<AiApplyItemDto>();
@@ -2758,10 +2869,12 @@ public class TestingService : ITestingService
                             DocumentCode = docCode,
                             DocumentTitle = docTitle,
                             ReqUid = l.ReqUid,
-                            ReqKey = $"{docCode}:{l.ReqUid}",
-                            Title = rItem?.Title ?? l.ReqUid,
+                            ReqKey = rItem != null ? $"{docCode}:{l.ReqUid}" : null,
+                            Title = rItem?.Title,
                             AnchorId = rItem?.AnchorId,
-                            Changed = l.ChangedVersionLabel != null
+                            Changed = l.ChangedVersionLabel != null,
+                            Freshness = rItem == null ? null : (l.ChangedVersionLabel != null ? "STALE" : "FRESH"),
+                            ChangedNote = l.ChangedVersionLabel != null ? $"Đổi trong bản {l.ChangedVersionLabel}" : null
                         };
                     })
                     .ToList();
@@ -2831,6 +2944,7 @@ public class TestingService : ITestingService
                     Category = NullIfEmpty(tc.Category),
                     Browser = NullIfEmpty(tc.Browser),
                     CustomFields = customFields,
+                    CellStyles = DeserializeCellStyles(tc.CellStyles),
                     Status = tc.Status,
                     Position = tc.Position,
                     Bug = bugDto,
@@ -2887,6 +3001,23 @@ public class TestingService : ITestingService
         if (changes.CustomFields != null)
             tc.CustomFields = JsonSerializer.Serialize(changes.CustomFields, JsonOptions);
 
+        if (changes.CellStyles != null)
+        {
+            var merged = DeserializeCellStyles(tc.CellStyles);
+            foreach (var (rawKey, rawStyle) in changes.CellStyles)
+            {
+                var key = rawKey?.Trim();
+                if (string.IsNullOrEmpty(key) || key.Length > 64) continue;
+
+                var cleaned = CleanCellStyle(rawStyle);
+                if (cleaned == null)
+                    merged.Remove(key);
+                else
+                    merged[key] = cleaned;
+            }
+            tc.CellStyles = JsonSerializer.Serialize(merged, JsonOptions);
+        }
+
         if (!string.IsNullOrWhiteSpace(changes.Status))
         {
             var st = changes.Status.Trim().ToUpperInvariant();
@@ -2902,7 +3033,83 @@ public class TestingService : ITestingService
             await SyncTestCaseReqLinksAsync(tc, tc.ProjectId, changes.RequirementRefs, now, ct);
         }
 
-        tc.UpdatedAt = now;
+        var hasNonStyleChange =
+            changes.SectionId.HasValue ||
+            changes.Title != null ||
+            changes.PreconditionsSpecified ||
+            changes.Steps != null ||
+            changes.ActualSpecified ||
+            changes.AiSuggestedReqs.HasValue ||
+            !string.IsNullOrWhiteSpace(changes.Priority) ||
+            changes.CategorySpecified ||
+            changes.BrowserSpecified ||
+            changes.CustomFields != null ||
+            !string.IsNullOrWhiteSpace(changes.Status) ||
+            changes.Position.HasValue ||
+            changes.RequirementRefs != null;
+
+        if (hasNonStyleChange)
+        {
+            tc.UpdatedAt = now;
+        }
+    }
+
+    private static Dictionary<string, CellStyleDto> DeserializeCellStyles(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return new Dictionary<string, CellStyleDto>();
+        try
+        {
+            var raw = JsonSerializer.Deserialize<Dictionary<string, CellStyleDto?>>(json, JsonOptions);
+            if (raw == null) return new Dictionary<string, CellStyleDto>();
+            var result = new Dictionary<string, CellStyleDto>();
+            foreach (var (k, v) in raw)
+            {
+                var key = k?.Trim();
+                if (string.IsNullOrEmpty(key) || key.Length > 64) continue;
+                var cleaned = CleanCellStyle(v);
+                if (cleaned != null) result[key] = cleaned;
+            }
+            return result;
+        }
+        catch
+        {
+            return new Dictionary<string, CellStyleDto>();
+        }
+    }
+
+    private static CellStyleDto? CleanCellStyle(CellStyleDto? raw)
+    {
+        if (raw == null) return null;
+
+        bool? b = raw.B == true ? true : null;
+        bool? i = raw.I == true ? true : null;
+        bool? u = raw.U == true ? true : null;
+        bool? s = raw.S == true ? true : null;
+        int? size = raw.Size is 11 or 12 or 14 or 16 or 18 or 20 or 24 ? raw.Size : null;
+        string? color = !string.IsNullOrWhiteSpace(raw.Color) && HexColorRegex.IsMatch(raw.Color.Trim())
+            ? raw.Color.Trim().ToLowerInvariant()
+            : null;
+        string? fill = !string.IsNullOrWhiteSpace(raw.Fill) && HexColorRegex.IsMatch(raw.Fill.Trim())
+            ? raw.Fill.Trim().ToLowerInvariant()
+            : null;
+        string? align = raw.Align?.Trim().ToLowerInvariant() is "center" or "right"
+            ? raw.Align.Trim().ToLowerInvariant()
+            : null;
+
+        if (b == null && i == null && u == null && s == null && size == null && color == null && fill == null && align == null)
+            return null;
+
+        return new CellStyleDto
+        {
+            B = b,
+            I = i,
+            U = u,
+            S = s,
+            Size = size,
+            Color = color,
+            Fill = fill,
+            Align = align
+        };
     }
 
     private async Task SyncTestCaseReqLinksAsync(
@@ -3196,9 +3403,6 @@ public class TestingService : ITestingService
             ? null
             : d.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
-    private static string FormatUtc(DateTime dt)
-        => DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
-
     private static string? NullIfEmpty(string? s)
         => string.IsNullOrWhiteSpace(s) ? null : s;
 
@@ -3219,49 +3423,11 @@ public class TestingService : ITestingService
             _ => "SETUP"
         };
 
-    private static T? SafeDeserialize<T>(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return default;
-        try
-        {
-            return JsonSerializer.Deserialize<T>(json, JsonOptions);
-        }
-        catch
-        {
-            return default;
-        }
-    }
-
-    private static UserRefDto MapUserRef(User user)
-        => new()
-        {
-            UserId = user.Id,
-            FullName = user.FullName,
-            Email = user.Email,
-            AvatarUrl = user.AvatarUrl
-        };
-
     private async Task<UserRefDto> GetUserRefAsync(long userId, CancellationToken ct)
     {
         var u = await _db.Users.AsNoTracking().FirstOrDefaultAsync(x => x.Id == userId, ct);
         return u != null
             ? MapUserRef(u)
             : new UserRefDto { UserId = userId, FullName = "System", Email = "" };
-    }
-
-    private async Task<ServiceResult> EnsureProjectPermissionAsync(long projectId, string permission, CancellationToken ct)
-    {
-        if (!_currentUser.IsAuthenticated || _currentUser.UserIdOrNull is null)
-            return ServiceResult.Unauthorized();
-
-        var projectExists = await _db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct);
-        if (!projectExists)
-            return ServiceResult.NotFound("PROJECT_NOT_FOUND", "Project not found.");
-
-        var hasPerm = await _permissions.HasProjectPermissionAsync(_currentUser.UserId, projectId, permission, ct);
-        if (!hasPerm)
-            return ServiceResult.PermissionDenied(permission);
-
-        return ServiceResult.Success();
     }
 }

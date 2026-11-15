@@ -17,22 +17,25 @@ public class KanbanService : IKanbanService
     private readonly ICurrentUser _currentUser;
     private readonly IPermissionService _permissions;
     private readonly TimeProvider _clock;
+    private readonly IProjectAccessGuard _accessGuard;
 
     public KanbanService(
         AppDbContext db,
         ICurrentUser currentUser,
         IPermissionService permissions,
-        TimeProvider clock)
+        TimeProvider clock,
+        IProjectAccessGuard accessGuard)
     {
         _db = db;
         _currentUser = currentUser;
         _permissions = permissions;
         _clock = clock;
+        _accessGuard = accessGuard;
     }
 
     public async Task<ServiceResult<BoardDto>> GetBoardAsync(long projectId, CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueView, ct);
         if (!auth.IsSuccess) return auth.Cast<BoardDto>();
 
         var statuses = await _db.WorkflowStatuses
@@ -85,7 +88,7 @@ public class KanbanService : IKanbanService
         UpdateWipLimitsRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.ProjectWorkflowManage, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.ProjectWorkflowManage, ct);
         if (!auth.IsSuccess) return auth.Cast<BoardDto>();
 
         if (request.Limits == null)
@@ -155,7 +158,7 @@ public class KanbanService : IKanbanService
         IssueListQuery query,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<IssueSummaryDto>>();
 
         var q = _db.Issues
@@ -265,7 +268,7 @@ public class KanbanService : IKanbanService
         CreateIssueRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<IssueDetailDto>();
 
         var errors = new Dictionary<string, string[]>();
@@ -417,7 +420,7 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult<IssueDetailDto>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueView, ct);
         if (!auth.IsSuccess) return auth.Cast<IssueDetailDto>();
 
         var summaries = await BuildIssueSummaryDtosAsync(issue.ProjectId, new List<Issue> { issue }, ct);
@@ -427,19 +430,12 @@ public class KanbanService : IKanbanService
             .AsNoTracking()
             .Include(s => s.Status)
             .Include(s => s.Assignee)
+            .Include(s => s.RequirementLinks)
             .Where(s => s.ParentId == issue.Id && !s.IsDeleted)
             .OrderBy(s => s.Id)
             .ToListAsync(ct);
 
-        var subtaskDtos = subtasks.Select(s => new IssueSubtaskRefDto
-        {
-            IssueId = s.Id,
-            Key = s.Key,
-            Title = s.Title,
-            StatusId = s.StatusId,
-            StatusCategory = s.Status.Category,
-            Assignee = s.Assignee != null ? MapUserRef(s.Assignee) : null
-        }).ToList();
+        var subtaskDtos = await BuildIssueSummaryDtosAsync(issue.ProjectId, subtasks, ct);
 
         var userId = _currentUser.UserId;
         var userPerms = await _permissions.GetProjectPermissionsAsync(userId, issue.ProjectId, ct);
@@ -498,7 +494,7 @@ public class KanbanService : IKanbanService
         var testCaseDtos = linkedBugCases
             .Select(tc =>
             {
-                var (lastResult, envId, _) = ComputeWorstTestCaseResult(tc);
+                var (lastResult, envId, _) = TestStatusEvaluator.ComputeWorstTestCaseResult(tc);
                 return new IssueLinkedTestCaseDto
                 {
                     TestCaseId = tc.Id,
@@ -577,11 +573,11 @@ public class KanbanService : IKanbanService
                             request.Labels == null && !request.DueDateSpecified;
 
         var requiredPerm = onlyAssignee ? PermissionKeys.IssueAssign : PermissionKeys.IssueUpdate;
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, requiredPerm, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, requiredPerm, ct);
         if (!auth.IsSuccess && onlyAssignee)
         {
             // Fallback to issue.update if user has issue.update
-            auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
+            auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
         }
         if (!auth.IsSuccess) return auth.Cast<IssueDetailDto>();
 
@@ -728,7 +724,7 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueDelete, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueDelete, ct);
         if (!auth.IsSuccess) return auth;
 
         var userId = _currentUser.UserId;
@@ -769,7 +765,7 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult<IssueDetailDto>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueTransition, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueTransition, ct);
         if (!auth.IsSuccess) return auth.Cast<IssueDetailDto>();
 
         var targetStatus = await _db.WorkflowStatuses
@@ -918,10 +914,10 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult<IssueSummaryDto>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
         if (!auth.IsSuccess)
         {
-            auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueTransition, ct);
+            auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueTransition, ct);
         }
         if (!auth.IsSuccess) return auth.Cast<IssueSummaryDto>();
 
@@ -979,7 +975,7 @@ public class KanbanService : IKanbanService
         CreateIssuesFromRequirementsRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<IssueDetailDto>>();
 
         if ((request.Items == null || request.Items.Count == 0) && request.Refs != null && request.Refs.Count > 0)
@@ -1144,7 +1140,7 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult<IssueDetailDto>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<IssueDetailDto>();
 
         var userId = _currentUser.UserId;
@@ -1187,7 +1183,7 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult<IssueDetailDto>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<IssueDetailDto>();
 
         var userId = _currentUser.UserId;
@@ -1238,7 +1234,7 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult<ItemsDto<IssueCommentDto>>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<IssueCommentDto>>();
 
         var comments = await _db.IssueComments
@@ -1275,7 +1271,7 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult<IssueCommentDto>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueComment, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueComment, ct);
         if (!auth.IsSuccess) return auth.Cast<IssueCommentDto>();
 
         var body = request.Body?.Trim() ?? string.Empty;
@@ -1361,7 +1357,7 @@ public class KanbanService : IKanbanService
         if (issue == null)
             return ServiceResult<ItemsDto<IssueActivityDto>>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
 
-        var auth = await EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<IssueActivityDto>>();
 
         var activities = await _db.IssueActivities
@@ -1390,7 +1386,7 @@ public class KanbanService : IKanbanService
         string? status,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.IssueView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<SprintDto>>();
 
         var q = _db.Sprints
@@ -1424,7 +1420,7 @@ public class KanbanService : IKanbanService
         CreateSprintRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.SprintManage, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.SprintManage, ct);
         if (!auth.IsSuccess) return auth.Cast<SprintDto>();
 
         var errors = new Dictionary<string, string[]>();
@@ -1487,7 +1483,7 @@ public class KanbanService : IKanbanService
         if (sprint == null)
             return ServiceResult<SprintDto>.NotFound("SPRINT_NOT_FOUND", "Sprint not found.");
 
-        var auth = await EnsureProjectPermissionAsync(sprint.ProjectId, PermissionKeys.SprintManage, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(sprint.ProjectId, PermissionKeys.SprintManage, ct);
         if (!auth.IsSuccess) return auth.Cast<SprintDto>();
 
         if (string.Equals(request.Status?.Trim(), SprintStatuses.Active, StringComparison.OrdinalIgnoreCase) &&
@@ -1561,7 +1557,7 @@ public class KanbanService : IKanbanService
         if (sprint == null)
             return ServiceResult<SprintDto>.NotFound("SPRINT_NOT_FOUND", "Sprint not found.");
 
-        var auth = await EnsureProjectPermissionAsync(sprint.ProjectId, PermissionKeys.SprintManage, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(sprint.ProjectId, PermissionKeys.SprintManage, ct);
         if (!auth.IsSuccess) return auth.Cast<SprintDto>();
 
         if (sprint.Status != SprintStatuses.Planned)
@@ -1622,7 +1618,7 @@ public class KanbanService : IKanbanService
         if (sprint == null)
             return ServiceResult<SprintDto>.NotFound("SPRINT_NOT_FOUND", "Sprint not found.");
 
-        var auth = await EnsureProjectPermissionAsync(sprint.ProjectId, PermissionKeys.SprintManage, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(sprint.ProjectId, PermissionKeys.SprintManage, ct);
         if (!auth.IsSuccess) return auth.Cast<SprintDto>();
 
         if (sprint.Status != SprintStatuses.Active)
@@ -1698,22 +1694,6 @@ public class KanbanService : IKanbanService
     }
 
     // --- Helpers ---
-
-    private async Task<ServiceResult> EnsureProjectPermissionAsync(long projectId, string permission, CancellationToken ct)
-    {
-        if (!_currentUser.IsAuthenticated || _currentUser.UserIdOrNull is null)
-            return ServiceResult.Unauthorized();
-
-        var projectExists = await _db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct);
-        if (!projectExists)
-            return ServiceResult.NotFound("PROJECT_NOT_FOUND", "Project not found.");
-
-        var hasPerm = await _permissions.HasProjectPermissionAsync(_currentUser.UserId, projectId, permission, ct);
-        if (!hasPerm)
-            return ServiceResult.PermissionDenied(permission);
-
-        return ServiceResult.Success();
-    }
 
     private async Task<ServiceResult> AttachRequirementRefsAsync(
         Issue issue,
@@ -1857,7 +1837,7 @@ public class KanbanService : IKanbanService
                 int pass = 0, fail = 0, blocked = 0, notRun = 0, needsRerun = 0;
                 foreach (var tc in linkedCases)
                 {
-                    var (lastResult, _, isRetest) = ComputeWorstTestCaseResult(tc);
+                    var (lastResult, _, isRetest) = TestStatusEvaluator.ComputeWorstTestCaseResult(tc);
                     switch (lastResult)
                     {
                         case "PASS": pass++; break;
@@ -2009,57 +1989,6 @@ public class KanbanService : IKanbanService
         return assignedRank;
     }
 
-    private static (string? LastResult, long? EnvId, bool IsRetest) ComputeWorstTestCaseResult(TestCase tc)
-    {
-        var activeEnvs = tc.Plan?.Environments
-            .Where(e => !e.IsDeleted)
-            .OrderBy(e => e.Position)
-            .ThenBy(e => e.Id)
-            .ToList() ?? new List<TestEnvironment>();
-
-        var testedEnvs = new List<(long EnvId, string Status)>();
-        foreach (var env in activeEnvs)
-        {
-            var hasFlag = tc.RetestFlags.Any(f => f.EnvId == env.Id);
-            var envResults = tc.Results
-                .Where(r => r.EnvId == env.Id)
-                .OrderByDescending(r => r.At)
-                .ThenByDescending(r => r.Id)
-                .ToList();
-
-            var hasNonUntest = envResults.Any(r => r.Result != TestResultValues.Untest);
-            if (!hasFlag && !hasNonUntest)
-                continue;
-
-            var status = hasFlag
-                ? "RETEST"
-                : (envResults.FirstOrDefault()?.Result ?? TestResultValues.Untest);
-            testedEnvs.Add((env.Id, status));
-        }
-
-        if (testedEnvs.Count == 0)
-        {
-            return (null, activeEnvs.FirstOrDefault()?.Id, false);
-        }
-
-        bool anyRetest = testedEnvs.Any(x => x.Status == "RETEST");
-
-        // Priority: FAIL > RETEST / UNTEST > NA > PASS
-        var failHit = testedEnvs.FirstOrDefault(x => x.Status == TestResultValues.Fail);
-        if (failHit.EnvId != 0)
-            return ("FAIL", failHit.EnvId, anyRetest);
-
-        var retestHit = testedEnvs.FirstOrDefault(x => x.Status is "RETEST" or TestResultValues.Untest);
-        if (retestHit.EnvId != 0)
-            return ("NOT_RUN", retestHit.EnvId, anyRetest);
-
-        var naHit = testedEnvs.FirstOrDefault(x => x.Status == TestResultValues.Na);
-        if (naHit.EnvId != 0)
-            return ("BLOCKED", naHit.EnvId, anyRetest);
-
-        return ("PASS", testedEnvs[0].EnvId, anyRetest);
-    }
-
     private static string FormatRank(int n) => n.ToString("D8", CultureInfo.InvariantCulture);
 
     private static SprintDto MapSprintDto(Sprint s, SprintStatsDto stats) => new()
@@ -2088,22 +2017,4 @@ public class KanbanService : IKanbanService
         CreatedAt = FormatUtc(c.CreatedAt),
         Replies = replies.Select(r => MapIssueCommentDto(r, new List<IssueComment>())).ToList()
     };
-
-    private static UserRefDto MapUserRef(User u) => new()
-    {
-        UserId = u.Id,
-        FullName = u.FullName,
-        Email = u.Email,
-        AvatarUrl = u.AvatarUrl
-    };
-
-    private static string FormatUtc(DateTime dt) =>
-        DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-
-    private static T? SafeDeserialize<T>(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return default;
-        try { return JsonSerializer.Deserialize<T>(json); }
-        catch { return default; }
-    }
 }
