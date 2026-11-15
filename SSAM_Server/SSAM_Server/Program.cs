@@ -123,6 +123,21 @@ builder.Services.AddRateLimiter(options =>
 
     options.AddPolicy(RateLimitPolicies.Auth, http => PerIp(http, RateLimitPolicies.Auth, authPermits));
     options.AddPolicy(RateLimitPolicies.Email, http => PerIp(http, RateLimitPolicies.Email, emailPermits));
+    options.AddPolicy("diagram", http =>
+    {
+        var key = http.User?.FindFirst("sub")?.Value
+                  ?? http.User?.Identity?.Name
+                  ?? http.Connection.RemoteIpAddress?.ToString()
+                  ?? "anon";
+        return RateLimitPartition.GetFixedWindowLimiter(
+            $"diagram:{key}",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 60,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            });
+    });
 });
 
 // ---- JWT authentication

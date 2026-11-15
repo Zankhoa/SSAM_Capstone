@@ -2,7 +2,7 @@ using SSAM_Server.Common;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Documents;
 
-namespace SSAM_Server.Services;
+namespace SSAM_Server.Interfaces.Services;
 
 public interface IDocumentService
 {

@@ -30,6 +30,8 @@ public static class DependencyInjectionExtensions
 
         services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
         services.Configure<AiOptions>(configuration.GetSection(AiOptions.SectionName));
+        services.Configure<PlantUmlOptions>(configuration.GetSection(PlantUmlOptions.SectionName));
+        services.Configure<FigmaOptions>(configuration.GetSection(FigmaOptions.SectionName));
 
         return services;
     }
@@ -72,6 +74,11 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IKanbanService, KanbanService>();
         services.AddScoped<ITestingService, TestingService>();
         services.AddScoped<IWorkService, WorkService>();
+        services.AddScoped<IDiagramService, DiagramService>();
+        services.AddScoped<IFigmaService, FigmaService>();
+        services.AddMemoryCache();
+        services.AddHttpClient("PlantUml");
+        services.AddHttpClient("Figma");
 
         // Email pipeline
         services.AddScoped<SmtpEmailService>();

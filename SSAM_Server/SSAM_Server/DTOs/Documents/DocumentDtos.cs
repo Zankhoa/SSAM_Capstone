@@ -771,6 +771,9 @@ public class CreateRevisionRequest
 
     [JsonPropertyName("changeSummary")]
     public string? ChangeSummary { get; set; }
+
+    [JsonPropertyName("summary")]
+    public string? Summary { get; set; }
 }
 
 public class UpdateRequirementRequest

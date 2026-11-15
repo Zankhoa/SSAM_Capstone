@@ -2768,6 +2768,10 @@ namespace SSAM_Server.Data.Migrations
                         .HasDefaultValue("FUNCTIONAL")
                         .HasColumnName("category");
 
+                    b.Property<string>("CellStyles")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(30)

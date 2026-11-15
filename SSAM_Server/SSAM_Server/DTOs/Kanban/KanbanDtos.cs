@@ -339,7 +339,7 @@ public class IssueDetailDto : IssueSummaryDto
     public UserRefDto Reporter { get; set; } = new();
 
     [JsonPropertyName("subtasks")]
-    public List<IssueSubtaskRefDto> Subtasks { get; set; } = new();
+    public List<IssueSummaryDto> Subtasks { get; set; } = new();
 
     [JsonPropertyName("testCases")]
     public List<IssueLinkedTestCaseDto> TestCases { get; set; } = new();
