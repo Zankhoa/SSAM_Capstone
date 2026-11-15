@@ -226,7 +226,7 @@ public class AiService : IAiService
                 "Use requirementIndex to reference the supplied requirement and acceptanceCriterionIndex to reference one of its " +
                 "acceptance criteria, or null when the case covers the overall requirement. " +
                 "Cover positive, negative, and boundary behavior only where supported by the requirement. " +
-                "Each test case must have a clear title, preconditions, priority P0, P1, P2, or P3, " +
+                "Each test case must have a clear title and preconditions as a concise string, priority P0, P1, P2, or P3, " +
                 "category FUNCTIONAL, BOUNDARY, NEGATIVE, UI, SECURITY, or PERFORMANCE, and ordered steps. " +
                 "Each step must contain a specific action and an observable expected result. " +
                 "Do not invent screens, data, limits, roles, or behavior not supported by the requirement. " +
@@ -251,7 +251,7 @@ public class AiService : IAiService
         try
         {
             drafts = JsonSerializer.Deserialize<List<AiGeneratedTestCaseDraftDto>>(
-                response.Text,
+                NormalizeJsonResponse(response.Text),
                 AiResponseJsonOptions);
         }
         catch (JsonException ex)
@@ -315,6 +315,26 @@ public class AiService : IAiService
         }
 
         return drafts;
+    }
+
+    private static string NormalizeJsonResponse(string responseText)
+    {
+        var trimmed = responseText.Trim();
+        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            return trimmed;
+        }
+
+        var openingFenceEnd = trimmed.IndexOf('\n');
+        var closingFenceStart = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+        if (openingFenceEnd < 0 ||
+            closingFenceStart <= openingFenceEnd ||
+            !string.IsNullOrWhiteSpace(trimmed[(closingFenceStart + 3)..]))
+        {
+            return trimmed;
+        }
+
+        return trimmed[(openingFenceEnd + 1)..closingFenceStart].Trim();
     }
 
     private void EnsureDraftResponseComplete(ChatResponse response, string draftType)
