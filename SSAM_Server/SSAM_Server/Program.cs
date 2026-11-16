@@ -235,9 +235,9 @@ else
 app.UseSecurityHeaders();
 
 app.UseCors("AllowFrontend");
-app.UseRateLimiter();
 
 app.UseAuthentication();
+app.UseRateLimiter();
 app.UseAuthorization();
 
 app.MapControllers();

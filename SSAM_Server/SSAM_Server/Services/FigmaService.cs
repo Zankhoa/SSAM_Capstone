@@ -16,7 +16,7 @@ public class FigmaService : IFigmaService
 {
     private const int MaxImageBytes = 5 * 1024 * 1024;
     private static readonly Regex FigmaPathRegex = new(
-        @"^/(?:design|file|proto|board)/([A-Za-z0-9]+)(?:/|$)",
+        @"^/(?:design|file|proto|board)/([A-Za-z0-9_-]+)(?:/branch/([A-Za-z0-9_-]+))?(?:/|$)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly IHttpClientFactory _httpClientFactory;
@@ -152,7 +152,7 @@ public class FigmaService : IFigmaService
         if (!match.Success)
             return false;
 
-        fileKey = match.Groups[1].Value;
+        fileKey = match.Groups[2].Success ? match.Groups[2].Value : match.Groups[1].Value;
 
         var query = QueryHelpers.ParseQuery(uri.Query);
         if (!query.TryGetValue("node-id", out var nodeVal) || string.IsNullOrWhiteSpace(nodeVal))
@@ -203,7 +203,7 @@ public class FigmaService : IFigmaService
 
         using (resp)
         {
-            if (resp.StatusCode == HttpStatusCode.Forbidden)
+            if (resp.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
             {
                 return (ServiceResult<ResolveDesignResponse>.Forbidden(
                     "FIGMA_NO_ACCESS",

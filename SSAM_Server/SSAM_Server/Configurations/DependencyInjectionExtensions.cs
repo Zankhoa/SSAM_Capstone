@@ -109,6 +109,7 @@ public static class DependencyInjectionExtensions
 
         services.AddScoped<AiService>();
         services.AddScoped<IAiService>(sp => sp.GetRequiredService<AiService>());
+        services.AddScoped<IAiChatService, AiChatService>();
 
         return services;
     }

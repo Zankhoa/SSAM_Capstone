@@ -297,7 +297,6 @@ public class AiService : IAiService
                 (draft.DesignIndex is int designIdx &&
                     (designIdx < 0 || designIdx >= designs.Count)) ||
                 string.IsNullOrWhiteSpace(draft.Title) ||
-                draft.Title.Trim().Length < 6 ||
                 draft.Title.Length > 500 ||
                 string.IsNullOrWhiteSpace(draft.Preconditions) ||
                 string.IsNullOrWhiteSpace(draft.Priority) ||
@@ -310,7 +309,6 @@ public class AiService : IAiService
                     step is null ||
                     string.IsNullOrWhiteSpace(step.Action) ||
                     string.IsNullOrWhiteSpace(step.Expected) ||
-                    string.Equals(step.Action.Trim(), step.Expected.Trim(), StringComparison.OrdinalIgnoreCase) ||
                     step.Action.Length > 2000 ||
                     step.Expected.Length > 2000))
             {
