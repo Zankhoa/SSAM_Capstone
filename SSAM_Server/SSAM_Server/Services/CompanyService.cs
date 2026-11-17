@@ -15,6 +15,10 @@ public class CompanyService : ICompanyService
         "gmail.com", "yahoo.com", "outlook.com", "hotmail.com", "icloud.com", "aol.com", "mail.com", "zoho.com"
     };
 
+    private static readonly Regex EmailDomainRegex = new(
+        @"^[a-z0-9-]+(\.[a-z0-9-]+)+$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private readonly ICompanyRepository _companyRepository;
     private readonly IAuthRepository _authRepository;
     private readonly IPermissionService _permissionService;
@@ -33,6 +37,97 @@ public class CompanyService : ICompanyService
         _permissionService = permissionService;
         _currentUser = currentUser;
         _clock = clock;
+    }
+
+    public async Task<ServiceResult<CompanyDto>> GetCompanyAsync(long companyId, CancellationToken cancellationToken = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+        {
+            return ServiceResult<CompanyDto>.Unauthorized("Your session is invalid or has expired.");
+        }
+
+        var isMember = await _companyRepository.IsMemberAsync(companyId, userId.Value, cancellationToken);
+        if (!isMember)
+        {
+            return ServiceResult<CompanyDto>.Forbidden("FORBIDDEN", "Bạn không phải thành viên của công ty này.");
+        }
+
+        var company = await _companyRepository.GetByIdAsync(companyId, cancellationToken);
+        if (company == null || !company.IsActive)
+        {
+            return ServiceResult<CompanyDto>.NotFound("Không tìm thấy công ty.");
+        }
+
+        return ServiceResult<CompanyDto>.Ok(MapToDto(company));
+    }
+
+    public async Task<ServiceResult<CompanyDto>> UpdateCompanyAsync(long companyId, UpdateCompanyRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+        {
+            return ServiceResult<CompanyDto>.Unauthorized("Your session is invalid or has expired.");
+        }
+
+        var auth = await _permissionService.RequireTenantAsync(userId.Value, companyId, PermissionKeys.CompanyUpdate, cancellationToken);
+        if (!auth.IsSuccess)
+        {
+            return ServiceResult<CompanyDto>.FromError(auth);
+        }
+
+        var validationErrors = new Dictionary<string, string[]>();
+        var name = request.Name?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            validationErrors["name"] = new[] { "Tên công ty là bắt buộc." };
+        }
+        else if (name.Length > 200)
+        {
+            validationErrors["name"] = new[] { "Tên công ty không được vượt quá 200 ký tự." };
+        }
+
+        var taxCode = request.TaxCode?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(taxCode))
+        {
+            validationErrors["taxCode"] = new[] { "Mã số thuế là bắt buộc." };
+        }
+
+        var address = request.Address?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            validationErrors["address"] = new[] { "Địa chỉ công ty là bắt buộc." };
+        }
+
+        string? normalizedDomain = null;
+        if (!string.IsNullOrWhiteSpace(request.EmailDomain))
+        {
+            normalizedDomain = request.EmailDomain.Trim().ToLowerInvariant();
+            if (!EmailDomainRegex.IsMatch(normalizedDomain))
+            {
+                validationErrors["emailDomain"] = new[] { "Tên miền email không đúng định dạng." };
+            }
+        }
+
+        if (validationErrors.Count > 0)
+        {
+            return ServiceResult<CompanyDto>.Validation(validationErrors);
+        }
+
+        var company = await _companyRepository.GetByIdAsync(companyId, cancellationToken);
+        if (company == null || !company.IsActive)
+        {
+            return ServiceResult<CompanyDto>.NotFound("Không tìm thấy công ty.");
+        }
+
+        company.Name = name;
+        company.TaxCode = taxCode;
+        company.Address = address;
+        company.EmailDomain = normalizedDomain;
+        company.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+
+        await _companyRepository.SaveChangesAsync(cancellationToken);
+        return ServiceResult<CompanyDto>.Ok(MapToDto(company));
     }
 
     public async Task<ServiceResult<CompanyMatchResponseDto>> MatchDomainAsync(string email, CancellationToken cancellationToken = default)

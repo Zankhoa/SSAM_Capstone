@@ -1196,7 +1196,9 @@ public class TestingService : ITestingService
                 (c.Preconditions != null && c.Preconditions.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
                 (c.Actual != null && c.Actual.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
                 c.Steps.Any(st => st.Action.Contains(s, StringComparison.OrdinalIgnoreCase) || st.Expected.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
-                c.Requirements.Any(r => r.ReqKey.Contains(s, StringComparison.OrdinalIgnoreCase) || r.Title.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                c.Requirements.Any(r =>
+                    (r.ReqKey != null && r.ReqKey.Contains(s, StringComparison.OrdinalIgnoreCase)) ||
+                    (r.Title != null && r.Title.Contains(s, StringComparison.OrdinalIgnoreCase))) ||
                 (c.Bug != null && (c.Bug.Key.Contains(s, StringComparison.OrdinalIgnoreCase) || c.Bug.Title.Contains(s, StringComparison.OrdinalIgnoreCase)))
             ).ToList();
         }
@@ -2262,7 +2264,9 @@ public class TestingService : ITestingService
 
         var designInputs = resolvedDesigns.Select(rd => rd.Input).ToList();
         var drafts = await _aiService.GenerateTestCaseDraftsAsync(generationContexts, designInputs, ct);
-        var suggestions = drafts.Select((draft, index) =>
+        var suggestions = drafts
+            .Where(draft => draft.RequirementIndex >= 0 && draft.RequirementIndex < selectedRequirements.Count)
+            .Select((draft, index) =>
         {
             var source = selectedRequirements[draft.RequirementIndex];
             var isFromDesign = draft.DesignIndex.HasValue && draft.DesignIndex.Value >= 0 && draft.DesignIndex.Value < resolvedDesigns.Count;
@@ -2294,6 +2298,8 @@ public class TestingService : ITestingService
                     ReqUid = source.Requirement.ReqUid
                 },
                 FromCriterion = draft.AcceptanceCriterionIndex.HasValue
+                    && draft.AcceptanceCriterionIndex.Value >= 0
+                    && draft.AcceptanceCriterionIndex.Value < source.AcceptanceCriteria.Count
                     ? source.AcceptanceCriteria[draft.AcceptanceCriterionIndex.Value]
                     : null,
                 Placement = ComputePlacement(

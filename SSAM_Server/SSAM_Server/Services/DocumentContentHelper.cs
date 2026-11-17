@@ -434,9 +434,11 @@ public static partial class DocumentContentHelper
                 break;
 
             case "codeBlock":
-                var lang = (block["attrs"] as JsonObject)?["language"]?.GetValue<string>() ?? string.Empty;
+                var lang = ((block["attrs"] as JsonObject)?["language"]?.GetValue<string>() ?? string.Empty).Trim();
                 var cbText = ExtractPlainText(block);
-                if (lang.Equals("mermaid", StringComparison.OrdinalIgnoreCase))
+                if (lang.Equals("mermaid", StringComparison.OrdinalIgnoreCase)
+                    || lang.Equals("plantuml", StringComparison.OrdinalIgnoreCase)
+                    || lang.Equals("puml", StringComparison.OrdinalIgnoreCase))
                 {
                     hasDiagram = true;
                     diagramMermaidParts.Add(CollapseSpaces(cbText));

@@ -14,10 +14,7 @@ public class ProjectAccessGuard : IProjectAccessGuard
     private readonly ICurrentUser _currentUser;
     private readonly IPermissionService _permissions;
 
-    public ProjectAccessGuard(
-        AppDbContext db,
-        ICurrentUser currentUser,
-        IPermissionService permissions)
+    public ProjectAccessGuard( AppDbContext db, ICurrentUser currentUser, IPermissionService permissions)
     {
         _db = db;
         _currentUser = currentUser;
@@ -42,23 +39,17 @@ public class ProjectAccessGuard : IProjectAccessGuard
 
     public async Task<bool> IsCompanyOrWorkspaceAdminAsync(long userId, long projectId, CancellationToken ct = default)
     {
-        var project = await _db.Projects
-            .AsNoTracking()
-            .Include(p => p.Workspace)
-            .FirstOrDefaultAsync(p => p.Id == projectId, ct);
+        var project = await _db.Projects.AsNoTracking().Include(p => p.Workspace).FirstOrDefaultAsync(p => p.Id == projectId, ct);
         if (project == null) return false;
-
         var wsPerms = await _permissions.GetWorkspacePermissionsAsync(userId, project.WorkspaceId, ct);
         if (wsPerms.Contains(PermissionKeys.WorkspaceSettingsManage, StringComparer.OrdinalIgnoreCase))
             return true;
-
         if (project.Workspace.CompanyId.HasValue)
         {
             var companyPerms = await _permissions.GetCompanyPermissionsAsync(userId, ct);
             if (companyPerms.Contains(PermissionKeys.CompanyRolesManage, StringComparer.OrdinalIgnoreCase))
                 return true;
         }
-
         return false;
     }
 }
