@@ -1,4 +1,5 @@
-﻿using Moq;
+﻿using Microsoft.Extensions.Time.Testing;
+using Moq;
 using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Interfaces.Security;
@@ -13,6 +14,7 @@ public abstract class AuthServiceTestBase
     protected readonly Mock<IEmailService> EmailServiceMock = new();
     protected readonly Mock<IGoogleTokenValidator> GoogleTokenValidatorMock = new();
     protected readonly Mock<ICurrentUser> CurrentUserMock = new();
+    protected readonly FakeTimeProvider Clock = new(new DateTimeOffset(2026, 11, 19, 10, 0, 0, TimeSpan.Zero));
     protected readonly SSAM_Server.Services.AuthService AuthService;
 
     protected AuthServiceTestBase()
@@ -24,7 +26,7 @@ public abstract class AuthServiceTestBase
             EmailServiceMock.Object,
             GoogleTokenValidatorMock.Object,
             CurrentUserMock.Object,
-            TimeProvider.System
+            Clock
         );
     }
 }

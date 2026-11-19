@@ -2,7 +2,6 @@
 using Moq;
 using SSAM_Server.DTOs.Auth;
 using SSAM_Server.Models;
-using Xunit;
 
 namespace SSAM_Server.UnitTests.Services.AuthService;
 
