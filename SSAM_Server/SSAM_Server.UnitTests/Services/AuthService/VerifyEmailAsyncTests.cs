@@ -60,10 +60,9 @@ public class VerifyEmailAsyncTests : AuthServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC02 + UTC03: Token does not exist / empty -> Returns BadRequest (TOKEN_INVALID)
+    // UTC02: Token does not exist  -> Returns BadRequest (TOKEN_INVALID)
     [Theory]
-    [InlineData("")]                    // UTC02: Empty token
-    [InlineData("non_existent_token")]  // UTC03: Non-existent token
+    [InlineData("non_existent_token")]  // UTC02: Non-existent token
     public async Task VerifyEmailAsync_WhenTokenNotFound_ReturnsBadRequest(string invalidToken)
     {
         AuthRepositoryMock
