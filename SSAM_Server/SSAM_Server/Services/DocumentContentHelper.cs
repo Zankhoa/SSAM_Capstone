@@ -329,10 +329,11 @@ public static partial class DocumentContentHelper
             bool hasFigma = false;
             var tableSerializedParts = new List<string>();
             var diagramMermaidParts = new List<string>();
+            var figmaParts = new List<string>();
 
             foreach (var secBlock in sectionBlocks)
             {
-                InspectBlock(secBlock, bodyParts, acList, constraintsList, ref hasTable, ref hasDiagram, ref hasFigma, tableSerializedParts, diagramMermaidParts);
+                InspectBlock(secBlock, bodyParts, acList, constraintsList, ref hasTable, ref hasDiagram, ref hasFigma, tableSerializedParts, diagramMermaidParts, figmaParts);
             }
 
             var fullBody = CollapseSpaces(string.Join(" ", bodyParts));
@@ -347,7 +348,8 @@ public static partial class DocumentContentHelper
             canonicalPayload.Append(fullBody.ToLowerInvariant()).Append('\n');
             canonicalPayload.Append(string.Join("\n", acList.Select(a => CollapseSpaces(a).ToLowerInvariant()))).Append('\n');
             canonicalPayload.Append(string.Join("\n", tableSerializedParts)).Append('\n');
-            canonicalPayload.Append(string.Join("\n", diagramMermaidParts));
+            canonicalPayload.Append(string.Join("\n", diagramMermaidParts)).Append('\n');
+            canonicalPayload.Append(string.Join("\n", figmaParts));
 
             var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(canonicalPayload.ToString()));
             var contentHash = Convert.ToHexStringLower(hashBytes);
@@ -382,7 +384,8 @@ public static partial class DocumentContentHelper
         ref bool hasDiagram,
         ref bool hasFigma,
         List<string> tableSerializedParts,
-        List<string> diagramMermaidParts)
+        List<string> diagramMermaidParts,
+        List<string> figmaParts)
     {
         var type = block["type"]?.GetValue<string>() ?? string.Empty;
 
@@ -452,6 +455,10 @@ public static partial class DocumentContentHelper
             case "figmaEmbed":
             case "figma":
                 hasFigma = true;
+                if (block["attrs"] is JsonNode figmaAttrs)
+                {
+                    figmaParts.Add(figmaAttrs.ToJsonString().ToLowerInvariant());
+                }
                 break;
 
             default:

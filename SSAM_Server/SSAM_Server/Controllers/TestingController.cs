@@ -64,6 +64,23 @@ public class TestingController : ControllerBase
         return FromResult(result);
     }
 
+    [HttpGet("projects/{projectId:long}/test-repository")]
+    public async Task<IActionResult> GetTestRepository(long projectId, CancellationToken ct)
+    {
+        var result = await _testingService.GetTestRepositoryAsync(projectId, ct);
+        return FromResult(result);
+    }
+
+    [HttpPost("test-plans/{planId:long}/testcases/from-repository")]
+    public async Task<IActionResult> AddFromRepository(
+        long planId,
+        [FromBody] AddFromRepositoryRequest request,
+        CancellationToken ct)
+    {
+        var result = await _testingService.AddTestCasesFromRepositoryAsync(planId, request, ct);
+        return FromResult(result);
+    }
+
     // --- Environments & Builds ---
 
     [HttpPost("test-plans/{planId:long}/environments")]

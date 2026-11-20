@@ -148,15 +148,6 @@ public class IssueRequirementRefDto
     public string? ChangedNote => ChangedVersionLabel != null ? $"Đổi trong bản v{ChangedVersionLabel}" : null;
 }
 
-public class IssueSubtaskCountDto
-{
-    [JsonPropertyName("total")]
-    public int Total { get; set; }
-
-    [JsonPropertyName("done")]
-    public int Done { get; set; }
-}
-
 public class IssueTestSummaryDto
 {
     [JsonPropertyName("total")]
@@ -257,27 +248,6 @@ public class IssueSummaryDto
 
     [JsonPropertyName("updatedAt")]
     public string UpdatedAt { get; set; } = string.Empty;
-}
-
-public class IssueSubtaskRefDto
-{
-    [JsonPropertyName("issueId")]
-    public long IssueId { get; set; }
-
-    [JsonPropertyName("key")]
-    public string Key { get; set; } = string.Empty;
-
-    [JsonPropertyName("title")]
-    public string Title { get; set; } = string.Empty;
-
-    [JsonPropertyName("statusId")]
-    public long StatusId { get; set; }
-
-    [JsonPropertyName("statusCategory")]
-    public string StatusCategory { get; set; } = string.Empty;
-
-    [JsonPropertyName("assignee")]
-    public UserRefDto? Assignee { get; set; }
 }
 
 public class IssuePermissionsDto

@@ -12,6 +12,8 @@ public interface ITestingService
     Task<ServiceResult<TestPlanDto>> GetTestPlanAsync(long planId, CancellationToken ct = default);
     Task<ServiceResult<TestPlanDto>> UpdateTestPlanAsync(long planId, UpdateTestPlanRequest request, CancellationToken ct = default);
     Task<ServiceResult> DeleteTestPlanAsync(long planId, CancellationToken ct = default);
+    Task<ServiceResult<TestPlanDto>> GetTestRepositoryAsync(long projectId, CancellationToken ct = default);
+    Task<ServiceResult<ItemsDto<TestCaseDto>>> AddTestCasesFromRepositoryAsync(long planId, AddFromRepositoryRequest request, CancellationToken ct = default);
 
     // --- Environments & Builds ---
     Task<ServiceResult<TestEnvironmentDto>> CreateEnvironmentAsync(long planId, CreateTestEnvironmentRequest request, CancellationToken ct = default);

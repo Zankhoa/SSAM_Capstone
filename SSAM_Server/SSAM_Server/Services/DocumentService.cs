@@ -488,9 +488,7 @@ public class DocumentService : IDocumentService
             Edit = permSet.Contains(PermissionKeys.DocumentUpdate) &&
                    currentVer.Status is DocumentVersionStatuses.Draft or DocumentVersionStatuses.ChangesRequested,
             Approve = permSet.Contains(PermissionKeys.DocumentApprove) &&
-                      currentVer.Status == DocumentVersionStatuses.InReview &&
-                      currentVer.SubmittedById != _currentUser.UserId &&
-                      (requiredApproverIds.Count == 0 || requiredApproverIds.Contains(_currentUser.UserId)),
+                      currentVer.Status == DocumentVersionStatuses.InReview,
             Revise = permSet.Contains(PermissionKeys.DocumentCreate) &&
                      headStatus == DocumentVersionStatuses.Approved,
             Delete = permSet.Contains(PermissionKeys.DocumentDelete) &&
