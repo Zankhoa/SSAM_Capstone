@@ -713,3 +713,8 @@ public class AiApplyTestCasesRequest
 {
     public List<AiApplyItemDto> Items { get; set; } = new();
 }
+
+public class AddFromRepositoryRequest
+{
+    public List<long> TestCaseIds { get; set; } = new();
+}

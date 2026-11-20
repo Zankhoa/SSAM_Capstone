@@ -25,6 +25,7 @@ public class TestingService : ITestingService
     private readonly IAiService _aiService;
     private readonly IFigmaService _figmaService;
 
+    private const string RepositoryPlanName = "__REPOSITORY__";
     private static readonly JsonSerializerOptions JsonOptions = ServiceMappingExtensions.DefaultJsonOptions;
     private static readonly Regex HexColorRegex = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
 
@@ -59,7 +60,7 @@ public class TestingService : ITestingService
 
         var planIds = await _db.TestPlans
             .AsNoTracking()
-            .Where(p => p.ProjectId == projectId)
+            .Where(p => p.ProjectId == projectId && p.Name != RepositoryPlanName)
             .OrderBy(p => p.Id)
             .Select(p => p.Id)
             .ToListAsync(ct);
@@ -72,6 +73,189 @@ public class TestingService : ITestingService
         }
 
         return ServiceResult<ItemsDto<TestPlanDto>>.Success(new ItemsDto<TestPlanDto>(items));
+    }
+
+    public async Task<ServiceResult<TestPlanDto>> GetTestRepositoryAsync(
+        long projectId,
+        CancellationToken ct = default)
+    {
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.TestCaseView, ct);
+        if (!auth.IsSuccess) return auth.Cast<TestPlanDto>();
+
+        var repo = await _db.TestPlans
+            .FirstOrDefaultAsync(p => p.ProjectId == projectId && p.Name == RepositoryPlanName, ct);
+
+        if (repo == null)
+        {
+            var actorId = _currentUser.UserIdOrNull ?? 1;
+            var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
+            var now = _clock.GetUtcNow().UtcDateTime;
+            repo = new TestPlan
+            {
+                ProjectId = projectId,
+                Name = RepositoryPlanName,
+                StartDate = today,
+                EndDate = today.AddYears(1),
+                Status = TestPlanStatuses.Open,
+                CreatedById = actorId,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _db.TestPlans.Add(repo);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        var dto = await BuildPlanDtoAsync(repo.Id, ct);
+        return dto != null
+            ? ServiceResult<TestPlanDto>.Success(dto)
+            : ServiceResult<TestPlanDto>.NotFound("TEST_PLAN_NOT_FOUND", "Test repository not found.");
+    }
+
+    public async Task<ServiceResult<ItemsDto<TestCaseDto>>> AddTestCasesFromRepositoryAsync(
+        long planId,
+        AddFromRepositoryRequest request,
+        CancellationToken ct = default)
+    {
+        var plan = await _db.TestPlans.FirstOrDefaultAsync(p => p.Id == planId, ct);
+        if (plan == null)
+            return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("TEST_PLAN_NOT_FOUND", "Test plan not found.");
+
+        if (plan.Name == RepositoryPlanName)
+            return ServiceResult<ItemsDto<TestCaseDto>>.BadRequest("INVALID_PLAN", "Cannot import into the repository itself.");
+
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(plan.ProjectId, PermissionKeys.TestCaseManage, ct);
+        if (!auth.IsSuccess) return auth.Cast<ItemsDto<TestCaseDto>>();
+
+        if (plan.Status == TestPlanStatuses.HandedOver)
+            return ServiceResult<ItemsDto<TestCaseDto>>.Conflict("PLAN_HANDED_OVER", "Test plan is already handed over.");
+
+        var ids = (request.TestCaseIds ?? new List<long>()).Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            return ServiceResult<ItemsDto<TestCaseDto>>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["testCaseIds"] = new[] { "Pick at least 1 test case." }
+            });
+        }
+
+        var sources = await _db.TestCases
+            .Include(c => c.Module)
+            .Include(c => c.Section)
+            .Include(c => c.RequirementLinks)
+            .Where(c => ids.Contains(c.Id) && c.ProjectId == plan.ProjectId && c.Status == TestCaseStatuses.Active)
+            .OrderBy(c => c.Position)
+            .ThenBy(c => c.Id)
+            .ToListAsync(ct);
+
+        if (sources.Count == 0)
+            return ServiceResult<ItemsDto<TestCaseDto>>.NotFound("TEST_CASE_NOT_FOUND", "No matching test cases found.");
+
+        var actorId = _currentUser.UserIdOrNull ?? 1;
+        var now = _clock.GetUtcNow().UtcDateTime;
+
+        var targetModules = await _db.TestModules
+            .Include(m => m.Sections)
+            .Where(m => m.PlanId == planId)
+            .ToListAsync(ct);
+
+        var nextModPos = targetModules.Count > 0 ? targetModules.Max(m => m.Position) : 0;
+        var createdIds = new List<long>(sources.Count);
+
+        foreach (var src in sources)
+        {
+            var mod = targetModules.FirstOrDefault(m =>
+                string.Equals(m.ShortCode, src.Module.ShortCode, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(m.Name, src.Module.Name, StringComparison.OrdinalIgnoreCase));
+            if (mod == null)
+            {
+                mod = new TestModule
+                {
+                    PlanId = planId,
+                    DocumentId = src.Module.DocumentId,
+                    Name = src.Module.Name,
+                    ShortCode = src.Module.ShortCode,
+                    Position = ++nextModPos,
+                    CaseSeq = 0
+                };
+                _db.TestModules.Add(mod);
+                await _db.SaveChangesAsync(ct);
+                targetModules.Add(mod);
+            }
+
+            var sec = mod.Sections.FirstOrDefault(s =>
+                string.Equals(s.Title, src.Section.Title, StringComparison.OrdinalIgnoreCase));
+            if (sec == null)
+            {
+                var nextSecPos = mod.Sections.Count > 0 ? mod.Sections.Max(s => s.Position) + 1 : 1;
+                sec = new TestSection
+                {
+                    ModuleId = mod.Id,
+                    Code = src.Section.Code,
+                    Title = src.Section.Title,
+                    AnchorId = src.Section.AnchorId,
+                    Position = nextSecPos
+                };
+                _db.TestSections.Add(sec);
+                await _db.SaveChangesAsync(ct);
+                mod.Sections.Add(sec);
+            }
+
+            mod.CaseSeq += 1;
+            var code = $"{mod.ShortCode}_{mod.CaseSeq}";
+            var clone = new TestCase
+            {
+                ProjectId = plan.ProjectId,
+                PlanId = planId,
+                ModuleId = mod.Id,
+                SectionId = sec.Id,
+                Code = code,
+                Title = src.Title,
+                Preconditions = src.Preconditions,
+                Steps = src.Steps,
+                Actual = string.Empty,
+                AiSuggestedReqs = src.AiSuggestedReqs,
+                Priority = src.Priority,
+                Category = src.Category,
+                Browser = src.Browser,
+                CustomFields = src.CustomFields,
+                CellStyles = src.CellStyles,
+                Status = TestCaseStatuses.Active,
+                Position = mod.CaseSeq,
+                CreatedById = actorId,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            _db.TestCases.Add(clone);
+            await _db.SaveChangesAsync(ct);
+
+            foreach (var link in src.RequirementLinks)
+            {
+                _db.TestCaseRequirementLinks.Add(new TestCaseRequirementLink
+                {
+                    TestCaseId = clone.Id,
+                    DocumentId = link.DocumentId,
+                    ReqUid = link.ReqUid,
+                    ReqHash = link.ReqHash,
+                    ChangedVersionLabel = link.ChangedVersionLabel,
+                    LinkedAt = now
+                });
+            }
+
+            createdIds.Add(clone.Id);
+        }
+
+        _db.TestActivities.Add(new TestActivity
+        {
+            PlanId = planId,
+            Type = TestActivityTypes.TestCase,
+            ActorId = actorId,
+            At = now,
+            Text = $"Đã lấy {createdIds.Count} testcase từ Kho"
+        });
+        await _db.SaveChangesAsync(ct);
+
+        var dtos = await LoadAndMapTestCasesAsync(plan.ProjectId, createdIds, ct);
+        return ServiceResult<ItemsDto<TestCaseDto>>.Created(new ItemsDto<TestCaseDto>(dtos));
     }
 
     public async Task<ServiceResult<TestPlanDto>> CreateTestPlanAsync(

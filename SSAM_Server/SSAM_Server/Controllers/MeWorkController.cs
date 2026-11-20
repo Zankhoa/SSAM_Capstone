@@ -19,10 +19,7 @@ public class MeWorkController : ControllerBase
 
     // #23 GET /me/document-work?companyId=&projectId=
     [HttpGet("document-work")]
-    public async Task<IActionResult> GetMyDocumentWork(
-        [FromQuery] long? companyId,
-        [FromQuery] long? projectId,
-        CancellationToken ct)
+    public async Task<IActionResult> GetMyDocumentWork([FromQuery] long? companyId,[FromQuery] long? projectId, CancellationToken ct)
     {
         var result = await _work.GetMyDocumentWorkAsync(projectId, companyId, ct);
         return result.ToActionResult(this);
