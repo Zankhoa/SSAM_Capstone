@@ -559,6 +559,14 @@ public class AuthService : IAuthService
                 RoleName = cm.Role.Name,
                 RoleId = cm.Role.Id,
                 RoleCode = cm.Role.Code,
+                Department = cm.Department == null
+                    ? null
+                    : new SSAM_Server.DTOs.Companies.DepartmentRefDto
+                    {
+                        DepartmentId = cm.Department.Id,
+                        Name = cm.Department.Name,
+                        Code = cm.Department.Code
+                    },
                 Permissions = perms
             };
         }).ToList();

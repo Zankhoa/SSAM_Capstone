@@ -50,6 +50,10 @@ public class MembershipRequestConfiguration : IEntityTypeConfiguration<Membershi
             .HasColumnName("workspace_role_id")
             .IsRequired(false);
 
+        builder.Property(mr => mr.DepartmentId)
+            .HasColumnName("department_id")
+            .IsRequired(false);
+
         builder.Property(mr => mr.Token)
             .HasColumnName("token")
             .HasMaxLength(255)
@@ -88,6 +92,12 @@ public class MembershipRequestConfiguration : IEntityTypeConfiguration<Membershi
             .HasForeignKey(mr => mr.UserId)
             .HasConstraintName("FK_MembershipRequests_Users")
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(mr => mr.Department)
+            .WithMany()
+            .HasForeignKey(mr => mr.DepartmentId)
+            .HasConstraintName("FK_MembershipRequests_Departments")
+            .OnDelete(DeleteBehavior.NoAction);
 
         builder.HasOne(mr => mr.Role)
             .WithMany()

@@ -68,6 +68,6 @@ public class CompanyMemberConfiguration : IEntityTypeConfiguration<CompanyMember
             .WithMany(d => d.Members)
             .HasForeignKey(cm => cm.DepartmentId)
             .HasConstraintName("FK_CompanyMembers_Departments")
-            .OnDelete(DeleteBehavior.SetNull);
+            .OnDelete(DeleteBehavior.NoAction);
     }
 }

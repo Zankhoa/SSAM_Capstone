@@ -66,7 +66,7 @@ namespace SSAM_Server.Data.Migrations
                 column: "department_id",
                 principalTable: "Departments",
                 principalColumn: "id",
-                onDelete: ReferentialAction.SetNull);
+                onDelete: ReferentialAction.NoAction);
         }
 
         /// <inheritdoc />

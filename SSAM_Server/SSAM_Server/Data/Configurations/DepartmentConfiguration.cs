@@ -37,3 +37,28 @@ public class DepartmentConfiguration : IEntityTypeConfiguration<Department>
             .HasConstraintName("FK_Departments_Companies");
     }
 }
+
+public class WorkspaceDepartmentConfiguration : IEntityTypeConfiguration<WorkspaceDepartment>
+{
+    public void Configure(EntityTypeBuilder<WorkspaceDepartment> builder)
+    {
+        builder.ToTable("WorkspaceDepartments");
+        builder.HasKey(x => new { x.WorkspaceId, x.DepartmentId }).HasName("PK_WorkspaceDepartments");
+
+        builder.Property(x => x.WorkspaceId).HasColumnName("workspace_id").IsRequired();
+        builder.Property(x => x.DepartmentId).HasColumnName("department_id").IsRequired();
+        builder.Property(x => x.CreatedAt).HasColumnName("created_at").HasColumnType("datetime2(3)").HasDefaultValueSql("SYSUTCDATETIME()").IsRequired();
+
+        builder.HasOne(x => x.Workspace)
+            .WithMany(w => w.WorkspaceDepartments)
+            .HasForeignKey(x => x.WorkspaceId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_WorkspaceDepartments_Workspaces");
+
+        builder.HasOne(x => x.Department)
+            .WithMany()
+            .HasForeignKey(x => x.DepartmentId)
+            .OnDelete(DeleteBehavior.NoAction)
+            .HasConstraintName("FK_WorkspaceDepartments_Departments");
+    }
+}

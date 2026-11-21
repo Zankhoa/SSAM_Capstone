@@ -1,6 +1,8 @@
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SSAM_Server.Common;
 using SSAM_Server.Common.Options;
+using SSAM_Server.Data;
 using SSAM_Server.DTOs.Invitations;
 using SSAM_Server.Models;
 using SSAM_Server.Repositories;
@@ -14,6 +16,7 @@ public class InvitationService : IInvitationService
     private readonly ICompanyRepository _companyRepository;
     private readonly IAuthRepository _authRepository;
     private readonly IWorkspaceRepository _workspaceRepository;
+    private readonly AppDbContext _db;
     private readonly IPermissionService _permissionService;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
@@ -27,6 +30,7 @@ public class InvitationService : IInvitationService
         ICompanyRepository companyRepository,
         IAuthRepository authRepository,
         IWorkspaceRepository workspaceRepository,
+        AppDbContext db,
         IPermissionService permissionService,
         IPasswordHasher passwordHasher,
         IJwtTokenGenerator jwtTokenGenerator,
@@ -39,6 +43,7 @@ public class InvitationService : IInvitationService
         _companyRepository = companyRepository;
         _authRepository = authRepository;
         _workspaceRepository = workspaceRepository;
+        _db = db;
         _permissionService = permissionService;
         _passwordHasher = passwordHasher;
         _jwtTokenGenerator = jwtTokenGenerator;
@@ -127,6 +132,15 @@ public class InvitationService : IInvitationService
             }
         }
 
+        if (request.DepartmentId.HasValue)
+        {
+            var deptExists = await _db.Departments
+                .AsNoTracking()
+                .AnyAsync(d => d.Id == request.DepartmentId.Value && d.CompanyId == companyId && d.IsActive, cancellationToken);
+            if (!deptExists)
+                return ServiceResult<CreateInvitationResponseDto>.NotFound("Không tìm thấy phòng ban.");
+        }
+
         var now = _clock.GetUtcNow().UtcDateTime;
         var expiresAt = now.AddDays(7);
         var token = AuthService.GenerateSecureToken();
@@ -138,6 +152,7 @@ public class InvitationService : IInvitationService
             RoleName = resolvedTenantRole?.Name ?? request.RoleName ?? "Member",
             WorkspaceId = request.WorkspaceId,
             WorkspaceRoleId = request.WorkspaceId.HasValue ? request.WorkspaceRoleId : null,
+            DepartmentId = request.DepartmentId,
             Source = "admin_invite",
             Status = "pending",
             Token = token,
@@ -311,6 +326,7 @@ public class InvitationService : IInvitationService
                     CompanyId = trackedInvite.CompanyId,
                     UserId = userId,
                     RoleId = roleId,
+                    DepartmentId = trackedInvite.DepartmentId,
                     IsActive = true,
                     JoinedAt = now
                 }, ct);

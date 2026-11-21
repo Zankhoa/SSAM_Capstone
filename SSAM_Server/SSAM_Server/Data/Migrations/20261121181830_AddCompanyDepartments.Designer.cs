@@ -3846,7 +3846,7 @@ namespace SSAM_Server.Data.Migrations
                     b.HasOne("SSAM_Server.Models.Department", "Department")
                         .WithMany("Members")
                         .HasForeignKey("DepartmentId")
-                        .OnDelete(DeleteBehavior.SetNull)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .HasConstraintName("FK_CompanyMembers_Departments");
 
                     b.HasOne("SSAM_Server.Models.CompanyRole", "Role")

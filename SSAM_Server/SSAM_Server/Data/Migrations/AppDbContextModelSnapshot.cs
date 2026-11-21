@@ -1364,6 +1364,10 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("SYSUTCDATETIME()");
 
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -1417,6 +1421,8 @@ namespace SSAM_Server.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId");
+
+                    b.HasIndex("DepartmentId");
 
                     b.HasIndex("RoleId");
 
@@ -3762,6 +3768,30 @@ namespace SSAM_Server.Data.Migrations
                     b.ToTable("Workspaces", (string)null);
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.WorkspaceDepartment", b =>
+                {
+                    b.Property<long>("WorkspaceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("workspace_id");
+
+                    b.Property<long>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.HasKey("WorkspaceId", "DepartmentId")
+                        .HasName("PK_WorkspaceDepartments");
+
+                    b.HasIndex("DepartmentId");
+
+                    b.ToTable("WorkspaceDepartments", (string)null);
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.WorkspaceMember", b =>
                 {
                     b.Property<long>("Id")
@@ -3843,7 +3873,7 @@ namespace SSAM_Server.Data.Migrations
                     b.HasOne("SSAM_Server.Models.Department", "Department")
                         .WithMany("Members")
                         .HasForeignKey("DepartmentId")
-                        .OnDelete(DeleteBehavior.SetNull)
+                        .OnDelete(DeleteBehavior.NoAction)
                         .HasConstraintName("FK_CompanyMembers_Departments");
 
                     b.HasOne("SSAM_Server.Models.CompanyRole", "Role")
@@ -4316,6 +4346,12 @@ namespace SSAM_Server.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("FK_MembershipRequests_Companies");
 
+                    b.HasOne("SSAM_Server.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_MembershipRequests_Departments");
+
                     b.HasOne("SSAM_Server.Models.CompanyRole", "Role")
                         .WithMany()
                         .HasForeignKey("RoleId")
@@ -4341,6 +4377,8 @@ namespace SSAM_Server.Data.Migrations
                         .HasConstraintName("FK_MembershipRequests_WorkspaceRole");
 
                     b.Navigation("Company");
+
+                    b.Navigation("Department");
 
                     b.Navigation("Role");
 
@@ -5004,6 +5042,27 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Creator");
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.WorkspaceDepartment", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkspaceDepartments_Departments");
+
+                    b.HasOne("SSAM_Server.Models.Workspace", "Workspace")
+                        .WithMany("WorkspaceDepartments")
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkspaceDepartments_Workspaces");
+
+                    b.Navigation("Department");
+
+                    b.Navigation("Workspace");
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.WorkspaceMember", b =>
                 {
                     b.HasOne("SSAM_Server.Models.CompanyRole", "Role")
@@ -5200,6 +5259,8 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Members");
 
                     b.Navigation("Projects");
+
+                    b.Navigation("WorkspaceDepartments");
                 });
 #pragma warning restore 612, 618
         }

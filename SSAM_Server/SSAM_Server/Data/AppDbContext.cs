@@ -29,6 +29,7 @@ public class AppDbContext : DbContext
     // Onboarding & Workspaces
     public DbSet<Workspace> Workspaces => Set<Workspace>();
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
+    public DbSet<WorkspaceDepartment> WorkspaceDepartments => Set<WorkspaceDepartment>();
     public DbSet<MembershipRequest> MembershipRequests => Set<MembershipRequest>();
 
     // RBAC & Projects & Workflow

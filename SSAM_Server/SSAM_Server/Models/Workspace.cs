@@ -19,6 +19,7 @@ public class Workspace : IHasUpdatedAt
     public DateTime? ArchivedAt { get; set; }
 
     public ICollection<WorkspaceMember> Members { get; set; } = new List<WorkspaceMember>();
+    public ICollection<WorkspaceDepartment> WorkspaceDepartments { get; set; } = new List<WorkspaceDepartment>();
     public ICollection<Project> Projects { get; set; } = new List<Project>();
 }
 
