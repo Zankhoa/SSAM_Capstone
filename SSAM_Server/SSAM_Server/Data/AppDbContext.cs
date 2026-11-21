@@ -62,6 +62,7 @@ public class AppDbContext : DbContext
     public DbSet<IssueComment> IssueComments => Set<IssueComment>();
     public DbSet<IssueCommentMention> IssueCommentMentions => Set<IssueCommentMention>();
     public DbSet<IssueActivity> IssueActivities => Set<IssueActivity>();
+    public DbSet<IssueAttachment> IssueAttachments => Set<IssueAttachment>();
 
     // Module D — Test Cases & Test Plans (v2)
     public DbSet<TestPlan> TestPlans => Set<TestPlan>();

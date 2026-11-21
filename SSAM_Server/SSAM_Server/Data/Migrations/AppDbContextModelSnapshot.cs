@@ -1041,6 +1041,10 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("GETUTCDATE()");
 
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
                     b.Property<string>("Description")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -1153,6 +1157,8 @@ namespace SSAM_Server.Data.Migrations
 
                     b.HasIndex("AssigneeId");
 
+                    b.HasIndex("DepartmentId");
+
                     b.HasIndex("ParentId")
                         .HasDatabaseName("IX_Issues_Parent");
 
@@ -1229,6 +1235,62 @@ namespace SSAM_Server.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_IssueActivities_Action", "[action] IN ('CREATED','UPDATED','TRANSITIONED','ASSIGNED','SPRINT_CHANGED','REQ_LINKED','REQ_ACKED','REQ_CHANGED','COMMENTED','DELETED')");
                         });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.IssueAttachment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size");
+
+                    b.Property<long>("IssueId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("issue_id");
+
+                    b.Property<string>("StoredFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("stored_file_name");
+
+                    b.Property<long>("UploadedById")
+                        .HasColumnType("bigint")
+                        .HasColumnName("uploaded_by_id");
+
+                    b.HasKey("Id")
+                        .HasName("PK_IssueAttachments");
+
+                    b.HasIndex("UploadedById");
+
+                    b.HasIndex("IssueId", "CreatedAt")
+                        .HasDatabaseName("IX_IssueAttachments_Issue_Time");
+
+                    b.ToTable("IssueAttachments", (string)null);
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.IssueComment", b =>
@@ -4191,6 +4253,12 @@ namespace SSAM_Server.Data.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .HasConstraintName("FK_Issues_Assignee");
 
+                    b.HasOne("SSAM_Server.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_Issues_Department");
+
                     b.HasOne("SSAM_Server.Models.Issue", "Parent")
                         .WithMany("Subtasks")
                         .HasForeignKey("ParentId")
@@ -4226,6 +4294,8 @@ namespace SSAM_Server.Data.Migrations
 
                     b.Navigation("Assignee");
 
+                    b.Navigation("Department");
+
                     b.Navigation("Parent");
 
                     b.Navigation("Project");
@@ -4255,6 +4325,27 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Actor");
 
                     b.Navigation("Issue");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.IssueAttachment", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.Issue", "Issue")
+                        .WithMany()
+                        .HasForeignKey("IssueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_IssueAttachments_Issue");
+
+                    b.HasOne("SSAM_Server.Models.User", "UploadedBy")
+                        .WithMany()
+                        .HasForeignKey("UploadedById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_IssueAttachments_UploadedBy");
+
+                    b.Navigation("Issue");
+
+                    b.Navigation("UploadedBy");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.IssueComment", b =>

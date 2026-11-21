@@ -74,6 +74,7 @@ public class IssueConfiguration : IEntityTypeConfiguration<Issue>
         builder.Property(i => i.StatusId).HasColumnName("status_id").IsRequired();
         builder.Property(i => i.Priority).HasColumnName("priority").IsRequired().HasMaxLength(10).IsUnicode(false);
         builder.Property(i => i.Points).HasColumnName("points");
+        builder.Property(i => i.DepartmentId).HasColumnName("department_id");
         builder.Property(i => i.AssigneeId).HasColumnName("assignee_id");
         builder.Property(i => i.ReporterId).HasColumnName("reporter_id").IsRequired();
         builder.Property(i => i.SprintId).HasColumnName("sprint_id");
@@ -128,6 +129,12 @@ public class IssueConfiguration : IEntityTypeConfiguration<Issue>
             .WithMany()
             .HasForeignKey(i => i.AssigneeId)
             .HasConstraintName("FK_Issues_Assignee")
+            .OnDelete(DeleteBehavior.NoAction);
+
+        builder.HasOne(i => i.Department)
+            .WithMany()
+            .HasForeignKey(i => i.DepartmentId)
+            .HasConstraintName("FK_Issues_Department")
             .OnDelete(DeleteBehavior.NoAction);
 
         builder.HasOne(i => i.Reporter)
@@ -323,6 +330,40 @@ public class IssueActivityConfiguration : IEntityTypeConfiguration<IssueActivity
             .WithMany()
             .HasForeignKey(a => a.ActorId)
             .HasConstraintName("FK_IssueActivities_Actor")
+            .OnDelete(DeleteBehavior.NoAction);
+    }
+}
+
+public class IssueAttachmentConfiguration : IEntityTypeConfiguration<IssueAttachment>
+{
+    public void Configure(EntityTypeBuilder<IssueAttachment> builder)
+    {
+        builder.ToTable("IssueAttachments");
+
+        builder.HasKey(a => a.Id).HasName("PK_IssueAttachments");
+        builder.Property(a => a.Id).HasColumnName("id").UseIdentityColumn(1, 1);
+
+        builder.Property(a => a.IssueId).HasColumnName("issue_id").IsRequired();
+        builder.Property(a => a.FileName).HasColumnName("file_name").IsRequired().HasMaxLength(255);
+        builder.Property(a => a.StoredFileName).HasColumnName("stored_file_name").IsRequired().HasMaxLength(255);
+        builder.Property(a => a.ContentType).HasColumnName("content_type").IsRequired().HasMaxLength(150);
+        builder.Property(a => a.FileSize).HasColumnName("file_size").IsRequired();
+        builder.Property(a => a.UploadedById).HasColumnName("uploaded_by_id").IsRequired();
+        builder.Property(a => a.CreatedAt).HasColumnName("created_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");
+
+        builder.HasIndex(a => new { a.IssueId, a.CreatedAt })
+            .HasDatabaseName("IX_IssueAttachments_Issue_Time");
+
+        builder.HasOne(a => a.Issue)
+            .WithMany()
+            .HasForeignKey(a => a.IssueId)
+            .HasConstraintName("FK_IssueAttachments_Issue")
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(a => a.UploadedBy)
+            .WithMany()
+            .HasForeignKey(a => a.UploadedById)
+            .HasConstraintName("FK_IssueAttachments_UploadedBy")
             .OnDelete(DeleteBehavior.NoAction);
     }
 }
