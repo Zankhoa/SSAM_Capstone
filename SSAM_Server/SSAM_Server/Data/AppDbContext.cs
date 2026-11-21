@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Company> Companies => Set<Company>();
+    public DbSet<Department> Departments => Set<Department>();
     public DbSet<CompanyMember> CompanyMembers => Set<CompanyMember>();
     public DbSet<CompanyRole> CompanyRoles => Set<CompanyRole>();
     public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();

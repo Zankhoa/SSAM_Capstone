@@ -67,6 +67,7 @@ public static class DependencyInjectionExtensions
         // Domain services
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ICompanyService, CompanyService>();
+        services.AddScoped<IDepartmentService, DepartmentService>();
         services.AddScoped<IInvitationService, InvitationService>();
         services.AddScoped<IWorkspaceService, WorkspaceService>();
         services.AddScoped<IRoleService, RoleService>();

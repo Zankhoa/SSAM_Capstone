@@ -336,6 +336,12 @@ public class CompanyRepository : ICompanyRepository
                     Scope = cm.Role.Scope,
                     Kind = cm.Role.Kind
                 },
+                Department = cm.Department == null ? null : new DepartmentRefDto
+                {
+                    DepartmentId = cm.Department.Id,
+                    Name = cm.Department.Name,
+                    Code = cm.Department.Code
+                },
                 Status = cm.IsActive ? "ACTIVE" : "DEACTIVATED",
                 WorkspaceCount = _db.WorkspaceMembers.Count(wm =>
                     wm.UserId == cm.UserId &&
@@ -371,6 +377,12 @@ public class CompanyRepository : ICompanyRepository
                     Name = cm.Role.Name,
                     Scope = cm.Role.Scope,
                     Kind = cm.Role.Kind
+                },
+                Department = cm.Department == null ? null : new DepartmentRefDto
+                {
+                    DepartmentId = cm.Department.Id,
+                    Name = cm.Department.Name,
+                    Code = cm.Department.Code
                 },
                 Status = cm.IsActive ? "ACTIVE" : "DEACTIVATED",
                 WorkspaceCount = _db.WorkspaceMembers.Count(wm =>

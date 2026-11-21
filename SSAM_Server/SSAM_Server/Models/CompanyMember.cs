@@ -12,6 +12,9 @@ public class CompanyMember
     public long RoleId { get; set; }
     public CompanyRole Role { get; set; } = null!;
 
+    public long? DepartmentId { get; set; }
+    public Department? Department { get; set; }
+
     public bool IsActive { get; set; } = true;
     public DateTime JoinedAt { get; set; } = DateTime.UtcNow;
 }
