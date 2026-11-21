@@ -30,6 +30,7 @@ public class AiToolCallRecordDto
 public class AiChatResponseDto
 {
     public string Reply { get; set; } = string.Empty;
+    public List<AiCitationDto> Citations { get; set; } = new();
     public List<AiToolCallRecordDto> UsedToolCalls { get; set; } = new();
     public string Model { get; set; } = string.Empty;
     public bool IsRealAi { get; set; }

@@ -4,3 +4,21 @@ GET {{SSAM_Server_HostAddress}}/weatherforecast/
 Accept: application/json
 
 ###
+
+@projectId = 1
+@accessToken = replace-with-a-project-member-access-token
+
+### Run a project-scoped document chat task
+POST {{SSAM_Server_HostAddress}}/api/v1/projects/{{projectId}}/ai/tasks
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "task": "doc-chat",
+  "input": {
+    "documentId": 1,
+    "question": "What does this requirement say?",
+    "selection": "",
+    "history": []
+  }
+}
