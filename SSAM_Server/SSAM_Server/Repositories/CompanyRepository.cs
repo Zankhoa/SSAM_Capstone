@@ -55,7 +55,7 @@ public class CompanyRepository : ICompanyRepository
                 new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectCreate, PermissionKeys.ProjectInheritAccess }),
             (CompanyRoleCodes.WorkspaceMember, "Workspace Member", RoleScopes.Workspace, RoleKinds.Other,
                 "Thành viên mặc định khi được thêm vào workspace.",
-                new[] { PermissionKeys.WorkspaceMemberView, PermissionKeys.ProjectInheritAccess }),
+                new[] { PermissionKeys.WorkspaceMemberView }),
             (CompanyRoleCodes.ProjectManager, "Project Manager", RoleScopes.Project, RoleKinds.Pm,
                 "Khởi tạo Sprint, cấu hình Phase SDLC, duyệt thành viên dự án. Gán cho người tạo dự án.",
                 PermissionKeys.AllProjectKeys),

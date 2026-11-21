@@ -1,4 +1,5 @@
 using Anthropic;
+using Google.GenAI;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using SSAM_Server.Common.Options;
@@ -76,6 +77,8 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IWorkService, WorkService>();
         services.AddScoped<IDiagramService, DiagramService>();
         services.AddScoped<IFigmaService, FigmaService>();
+        services.AddScoped<IFigmaWatchService, FigmaWatchService>();
+        services.AddHostedService<FigmaPollingWorker>();
         services.AddMemoryCache();
         services.AddHttpClient("PlantUml");
         services.AddHttpClient("Figma");
@@ -86,15 +89,29 @@ public static class DependencyInjectionExtensions
         services.AddSingleton<IEmailService, QueuedEmailService>();
         services.AddHostedService<EmailDispatcherService>();
 
-        // AI client & service
+        // AI client & service (supports both Gemini and Anthropic)
         var aiOptions = configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
-        if (!string.Equals(aiOptions.Provider, "Anthropic", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException("AI:Provider must be set to 'Anthropic' for the configured AI client.");
-        }
+        var useGemini = string.Equals(aiOptions.Provider, "Gemini", StringComparison.OrdinalIgnoreCase)
+            || (!string.IsNullOrWhiteSpace(aiOptions.DefaultModel)
+                && aiOptions.DefaultModel.StartsWith("gemini", StringComparison.OrdinalIgnoreCase));
 
         services.AddChatClient(_ =>
         {
+            if (useGemini)
+            {
+                var geminiKey = !string.IsNullOrWhiteSpace(aiOptions.ApiKey)
+                    ? aiOptions.ApiKey
+                    : configuration["GEMINI_API_KEY"];
+                var geminiClient = new Client(apiKey: geminiKey);
+                var model = string.IsNullOrWhiteSpace(aiOptions.DefaultModel) ? "gemini-2.5-flash" : aiOptions.DefaultModel;
+                return geminiClient.AsIChatClient(model);
+            }
+
+            if (!string.Equals(aiOptions.Provider, "Anthropic", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("AI:Provider must be 'Anthropic' or 'Gemini'.");
+            }
+
             var client = new AnthropicClient
             {
                 ApiKey = aiOptions.ApiKey,

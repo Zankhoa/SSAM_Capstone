@@ -891,6 +891,68 @@ namespace SSAM_Server.Data.Migrations
                     b.ToTable("ExternalLogins", (string)null);
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.FigmaFileWatch", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<string>("FileKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("file_key");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("file_name");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastChangedAt")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("last_changed_at");
+
+                    b.Property<DateTime?>("LastCheckedAt")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("last_checked_at");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastVersion")
+                        .HasMaxLength(80)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("last_version");
+
+                    b.HasKey("Id")
+                        .HasName("PK_FigmaFileWatches");
+
+                    b.HasIndex("FileKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_FigmaFileWatches_FileKey");
+
+                    b.ToTable("FigmaFileWatches", (string)null);
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.Issue", b =>
                 {
                     b.Property<long>("Id")
@@ -2894,6 +2956,45 @@ namespace SSAM_Server.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.TestCaseFigmaLink", b =>
+                {
+                    b.Property<long>("TestCaseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("test_case_id");
+
+                    b.Property<string>("FileKey")
+                        .HasMaxLength(100)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("file_key");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<string>("NodeId")
+                        .HasMaxLength(80)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("node_id");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("url");
+
+                    b.HasKey("TestCaseId", "FileKey")
+                        .HasName("PK_TestCaseFigmaLinks");
+
+                    b.HasIndex("FileKey")
+                        .HasDatabaseName("IX_TestCaseFigmaLinks_FileKey");
+
+                    b.ToTable("TestCaseFigmaLinks", (string)null);
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.TestCaseRequirementLink", b =>
                 {
                     b.Property<long>("TestCaseId")
@@ -4520,6 +4621,18 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Section");
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.TestCaseFigmaLink", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
+                        .WithMany("FigmaLinks")
+                        .HasForeignKey("TestCaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestCaseFigmaLinks_Case");
+
+                    b.Navigation("TestCase");
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.TestCaseRequirementLink", b =>
                 {
                     b.HasOne("SSAM_Server.Models.DocumentNode", "Document")
@@ -4931,6 +5044,8 @@ namespace SSAM_Server.Data.Migrations
 
             modelBuilder.Entity("SSAM_Server.Models.TestCase", b =>
                 {
+                    b.Navigation("FigmaLinks");
+
                     b.Navigation("RequirementLinks");
 
                     b.Navigation("Results");

@@ -832,3 +832,45 @@ public class TestActivityConfiguration : IEntityTypeConfiguration<TestActivity>
             .HasConstraintName("FK_TestActivities_BehalfOf");
     }
 }
+
+public class FigmaFileWatchConfiguration : IEntityTypeConfiguration<FigmaFileWatch>
+{
+    public void Configure(EntityTypeBuilder<FigmaFileWatch> builder)
+    {
+        builder.ToTable("FigmaFileWatches");
+        builder.HasKey(x => x.Id).HasName("PK_FigmaFileWatches");
+        builder.Property(x => x.Id).HasColumnName("id").UseIdentityColumn();
+        builder.Property(x => x.FileKey).HasColumnName("file_key").HasMaxLength(100).IsUnicode(false).IsRequired();
+        builder.Property(x => x.FileName).HasColumnName("file_name").HasMaxLength(200).IsRequired();
+        builder.Property(x => x.LastVersion).HasColumnName("last_version").HasMaxLength(80).IsUnicode(false);
+        builder.Property(x => x.LastModified).HasColumnName("last_modified").HasColumnType("datetime2(3)");
+        builder.Property(x => x.LastCheckedAt).HasColumnName("last_checked_at").HasColumnType("datetime2(3)");
+        builder.Property(x => x.LastChangedAt).HasColumnName("last_changed_at").HasColumnType("datetime2(3)");
+        builder.Property(x => x.IsActive).HasColumnName("is_active").HasDefaultValue(true).IsRequired();
+        builder.Property(x => x.CreatedAt).HasColumnName("created_at").HasColumnType("datetime2(3)").HasDefaultValueSql("SYSUTCDATETIME()").IsRequired();
+
+        builder.HasIndex(x => x.FileKey).IsUnique().HasDatabaseName("UX_FigmaFileWatches_FileKey");
+    }
+}
+
+public class TestCaseFigmaLinkConfiguration : IEntityTypeConfiguration<TestCaseFigmaLink>
+{
+    public void Configure(EntityTypeBuilder<TestCaseFigmaLink> builder)
+    {
+        builder.ToTable("TestCaseFigmaLinks");
+        builder.HasKey(x => new { x.TestCaseId, x.FileKey }).HasName("PK_TestCaseFigmaLinks");
+        builder.Property(x => x.TestCaseId).HasColumnName("test_case_id").IsRequired();
+        builder.Property(x => x.FileKey).HasColumnName("file_key").HasMaxLength(100).IsUnicode(false).IsRequired();
+        builder.Property(x => x.NodeId).HasColumnName("node_id").HasMaxLength(80).IsUnicode(false);
+        builder.Property(x => x.Url).HasColumnName("url").HasMaxLength(1000).IsRequired();
+        builder.Property(x => x.CreatedAt).HasColumnName("created_at").HasColumnType("datetime2(3)").HasDefaultValueSql("SYSUTCDATETIME()").IsRequired();
+
+        builder.HasIndex(x => x.FileKey).HasDatabaseName("IX_TestCaseFigmaLinks_FileKey");
+
+        builder.HasOne(x => x.TestCase)
+            .WithMany(tc => tc.FigmaLinks)
+            .HasForeignKey(x => x.TestCaseId)
+            .OnDelete(DeleteBehavior.Cascade)
+            .HasConstraintName("FK_TestCaseFigmaLinks_Case");
+    }
+}

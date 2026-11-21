@@ -70,6 +70,8 @@ public class AppDbContext : DbContext
     public DbSet<TestAssignment> TestAssignments => Set<TestAssignment>();
     public DbSet<TestCase> TestCases => Set<TestCase>();
     public DbSet<TestCaseRequirementLink> TestCaseRequirementLinks => Set<TestCaseRequirementLink>();
+    public DbSet<TestCaseFigmaLink> TestCaseFigmaLinks => Set<TestCaseFigmaLink>();
+    public DbSet<FigmaFileWatch> FigmaFileWatches => Set<FigmaFileWatch>();
     public DbSet<TestResult> TestResults => Set<TestResult>();
     public DbSet<TestRetestFlag> TestRetestFlags => Set<TestRetestFlag>();
     public DbSet<TestActivity> TestActivities => Set<TestActivity>();
