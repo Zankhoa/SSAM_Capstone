@@ -262,6 +262,35 @@ public class PermissionService : IPermissionService
         return access != null && access.Permissions.Contains(permission);
     }
 
+    public async Task<bool> HasAnyProjectPermissionAsync(long userId, string permission, CancellationToken ct = default)
+    {
+        // Personal workspace owner has all project permissions
+        if (await _db.Workspaces.AsNoTracking().AnyAsync(w => w.CompanyId == null && w.CreatedBy == userId, ct))
+            return true;
+
+        // Tenant admin has all project permissions in their company
+        if (await _db.CompanyMembers.AsNoTracking()
+            .AnyAsync(cm => cm.UserId == userId && cm.IsActive && cm.Role.Code == CompanyRoleCodes.TenantAdmin, ct))
+            return true;
+
+        // Explicit project role permission
+        if (await _db.ProjectMembers.AsNoTracking()
+            .AnyAsync(pm => pm.UserId == userId && pm.IsActive && pm.Role != null && pm.Role.IsActive &&
+                pm.Role.RolePermissions.Any(rp => rp.Permission.IsActive && rp.Permission.Code == permission), ct))
+            return true;
+
+        // Explicit workspace role permission
+        if (await _db.WorkspaceMembers.AsNoTracking()
+            .AnyAsync(wm => wm.UserId == userId && wm.IsActive && wm.Role != null && wm.Role.IsActive &&
+                wm.Role.RolePermissions.Any(rp => rp.Permission.IsActive && rp.Permission.Code == permission), ct))
+            return true;
+
+        // Tenant role permission
+        return await _db.CompanyMembers.AsNoTracking()
+            .AnyAsync(cm => cm.UserId == userId && cm.IsActive && cm.Role.IsActive &&
+                cm.Role.RolePermissions.Any(rp => rp.Permission.IsActive && rp.Permission.Code == permission), ct);
+    }
+
     public async Task<IReadOnlyCollection<string>> GetProjectPermissionsAsync(long userId, long projectId, CancellationToken ct = default)
     {
         var access = await GetProjectAccessAsync(userId, projectId, ct);

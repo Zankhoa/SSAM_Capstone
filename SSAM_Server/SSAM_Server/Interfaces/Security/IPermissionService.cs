@@ -13,6 +13,7 @@ public interface IPermissionService
     Task<ServiceResult<ProjectAccessContext>> RequireProjectAsync(long userId, long projectId, string? requiredPermission = null, CancellationToken ct = default);
 
     Task<bool> HasProjectPermissionAsync(long userId, long projectId, string permission, CancellationToken ct = default);
+    Task<bool> HasAnyProjectPermissionAsync(long userId, string permission, CancellationToken ct = default);
     Task<IReadOnlyCollection<string>> GetProjectPermissionsAsync(long userId, long projectId, CancellationToken ct = default);
     Task<IReadOnlyCollection<string>> GetWorkspacePermissionsAsync(long userId, long workspaceId, CancellationToken ct = default);
     Task<IReadOnlyCollection<string>> GetCompanyPermissionsAsync(long userId, CancellationToken ct = default);

@@ -127,3 +127,18 @@ public class UpdateCompanyUserRoleRequestDto
     public long RoleId { get; set; }
 }
 
+public class UpdateCompanyRequestDto
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("taxCode")]
+    public string TaxCode { get; set; } = string.Empty;
+
+    [JsonPropertyName("address")]
+    public string Address { get; set; } = string.Empty;
+
+    [JsonPropertyName("emailDomain")]
+    public string? EmailDomain { get; set; }
+}
+

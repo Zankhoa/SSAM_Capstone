@@ -22,6 +22,22 @@ public class CompaniesController : ControllerBase
         _invitationService = invitationService;
     }
 
+    [HttpGet("{companyId:long}")]
+    [ProducesResponseType(typeof(CompanyDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetById(long companyId, CancellationToken cancellationToken)
+    {
+        var result = await _companyService.GetCompanyAsync(companyId, cancellationToken);
+        return result.ToActionResult(this);
+    }
+
+    [HttpPatch("{companyId:long}")]
+    [ProducesResponseType(typeof(CompanyDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Update(long companyId, [FromBody] UpdateCompanyRequestDto request, CancellationToken cancellationToken)
+    {
+        var result = await _companyService.UpdateCompanyAsync(companyId, request, cancellationToken);
+        return result.ToActionResult(this);
+    }
+
     [HttpGet("match")]
     [ProducesResponseType(typeof(CompanyMatchResponseDto), StatusCodes.Status200OK)]
     public async Task<IActionResult> Match([FromQuery] string email, CancellationToken cancellationToken)

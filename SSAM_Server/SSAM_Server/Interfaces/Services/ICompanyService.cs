@@ -6,6 +6,8 @@ namespace SSAM_Server.Interfaces.Services;
 
 public interface ICompanyService
 {
+    Task<ServiceResult<CompanyDto>> GetCompanyAsync(long companyId, CancellationToken cancellationToken = default);
+    Task<ServiceResult<CompanyDto>> UpdateCompanyAsync(long companyId, UpdateCompanyRequestDto request, CancellationToken cancellationToken = default);
     Task<ServiceResult<CompanyMatchResponseDto>> MatchDomainAsync(string email, CancellationToken cancellationToken = default);
     Task<ServiceResult<CompanyDto>> CreateCompanyAsync(CreateCompanyRequestDto request, CancellationToken cancellationToken = default);
     Task<ServiceResult<CompanyJoinResponseDto>> JoinCompanyAsync(long companyId, CancellationToken cancellationToken = default);

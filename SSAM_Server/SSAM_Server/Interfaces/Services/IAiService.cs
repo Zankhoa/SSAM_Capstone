@@ -3,6 +3,8 @@ using SSAM_Server.DTOs.Testing;
 
 namespace SSAM_Server.Interfaces.Services;
 
+public record TestCaseDesignInput(int DesignIndex, int RequirementIndex, string Name, byte[] ImageBytes, string MimeType);
+
 public interface IAiService
 {
     Task<string> GenerateTextAsync(string prompt, CancellationToken cancellationToken = default);
@@ -13,5 +15,9 @@ public interface IAiService
         CancellationToken cancellationToken = default);
     Task<List<AiGeneratedTestCaseDraftDto>> GenerateTestCaseDraftsAsync(
         IReadOnlyList<TestCaseGenerationContextDto> requirements,
+        CancellationToken cancellationToken = default);
+    Task<List<AiGeneratedTestCaseDraftDto>> GenerateTestCaseDraftsAsync(
+        IReadOnlyList<TestCaseGenerationContextDto> requirements,
+        IReadOnlyList<TestCaseDesignInput> designs,
         CancellationToken cancellationToken = default);
 }

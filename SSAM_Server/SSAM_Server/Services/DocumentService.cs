@@ -17,19 +17,25 @@ public class DocumentService : IDocumentService
     private readonly IPermissionService _permissions;
     private readonly TimeProvider _clock;
     private readonly IAiService _aiService;
+    private readonly IProjectAccessGuard _accessGuard;
+    private readonly IRequirementSyncService _requirementSync;
 
     public DocumentService(
         AppDbContext db,
         ICurrentUser currentUser,
         IPermissionService permissions,
         TimeProvider clock,
-        IAiService aiService)
+        IAiService aiService,
+        IProjectAccessGuard accessGuard,
+        IRequirementSyncService requirementSync)
     {
         _db = db;
         _currentUser = currentUser;
         _permissions = permissions;
         _clock = clock;
         _aiService = aiService;
+        _accessGuard = accessGuard;
+        _requirementSync = requirementSync;
     }
 
     public async Task<ServiceResult<ItemsDto<DocumentNodeDto>>> GetProjectDocumentsAsync(
@@ -37,7 +43,7 @@ public class DocumentService : IDocumentService
         string? search,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<DocumentNodeDto>>();
 
         var nodes = await _db.DocumentNodes
@@ -114,7 +120,7 @@ public class DocumentService : IDocumentService
         CreateDocumentNodeRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<object>();
 
         var errors = new Dictionary<string, string[]>();
@@ -291,7 +297,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentNodeDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentNodeDto>();
 
         var userId = _currentUser.UserId;
@@ -392,7 +398,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentDelete, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentDelete, ct);
         if (!auth.IsSuccess) return auth;
 
         var allNodes = await _db.DocumentNodes
@@ -446,7 +452,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentDetailDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentDetailDto>();
 
         if (node.Kind != DocumentNodeKinds.Page)
@@ -482,9 +488,7 @@ public class DocumentService : IDocumentService
             Edit = permSet.Contains(PermissionKeys.DocumentUpdate) &&
                    currentVer.Status is DocumentVersionStatuses.Draft or DocumentVersionStatuses.ChangesRequested,
             Approve = permSet.Contains(PermissionKeys.DocumentApprove) &&
-                      currentVer.Status == DocumentVersionStatuses.InReview &&
-                      currentVer.SubmittedById != _currentUser.UserId &&
-                      (requiredApproverIds.Count == 0 || requiredApproverIds.Contains(_currentUser.UserId)),
+                      currentVer.Status == DocumentVersionStatuses.InReview,
             Revise = permSet.Contains(PermissionKeys.DocumentCreate) &&
                      headStatus == DocumentVersionStatuses.Approved,
             Delete = permSet.Contains(PermissionKeys.DocumentDelete) &&
@@ -514,7 +518,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<SaveContentResultDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<SaveContentResultDto>();
 
         var version = await _db.DocumentVersions
@@ -647,7 +651,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentNodeDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentNodeDto>();
 
         if (node.Kind != DocumentNodeKinds.Page)
@@ -700,7 +704,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentDetailDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentDetailDto>();
 
         var version = await _db.DocumentVersions
@@ -806,7 +810,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentDetailDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentApprove, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentApprove, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentDetailDto>();
 
         var version = await _db.DocumentVersions
@@ -900,128 +904,7 @@ public class DocumentService : IDocumentService
             _db.DocumentNodes.Update(node);
 
             // Cross-module propagation for changed/removed requirements
-            var newReqByUid = newReqs.ToDictionary(r => r.ReqUid, StringComparer.OrdinalIgnoreCase);
-
-            var issueLinks = await _db.IssueRequirementLinks
-                .Include(l => l.Issue)
-                .Where(l => l.DocumentId == documentId)
-                .ToListAsync(innerCt);
-
-            foreach (var link in issueLinks)
-            {
-                var isStale = !newReqByUid.TryGetValue(link.ReqUid, out var newReq) ||
-                              !string.Equals(link.ReqHash, newReq.ContentHash, StringComparison.OrdinalIgnoreCase);
-
-                if (isStale)
-                {
-                    link.ChangedVersionLabel = version.Label;
-                    if (!link.Issue.IsDeleted)
-                    {
-                        link.Issue.ReqChanged = true;
-                        link.Issue.UpdatedAt = now;
-                        _db.IssueActivities.Add(new IssueActivity
-                        {
-                            IssueId = link.IssueId,
-                            Action = IssueActivityActions.ReqChanged,
-                            ActorId = userId,
-                            Note = $"{link.ReqUid} cập nhật ở {node.Code ?? node.Title} v{version.Label}",
-                            CreatedAt = now
-                        });
-                    }
-                }
-            }
-
-            var tcLinks = await _db.TestCaseRequirementLinks
-                .Include(l => l.TestCase)
-                    .ThenInclude(tc => tc.Plan)
-                .Where(l => l.DocumentId == documentId)
-                .ToListAsync(innerCt);
-
-            var docKeyPrefix = !string.IsNullOrWhiteSpace(node.Code) ? node.Code : $"DOC-{node.Id}";
-            var affectedCases = new List<(TestCase Case, string ReqKey)>();
-            foreach (var link in tcLinks)
-            {
-                var isStale = !newReqByUid.TryGetValue(link.ReqUid, out var newReq) ||
-                              !string.Equals(link.ReqHash, newReq.ContentHash, StringComparison.OrdinalIgnoreCase);
-
-                if (isStale)
-                {
-                    link.ChangedVersionLabel = version.Label;
-                    if (link.TestCase.Status == TestCaseStatuses.Active &&
-                        link.TestCase.Plan.Status == TestPlanStatuses.Open)
-                    {
-                        link.TestCase.UpdatedAt = now;
-                        affectedCases.Add((link.TestCase, $"{docKeyPrefix}:{link.ReqUid}"));
-                    }
-                }
-            }
-
-            if (affectedCases.Count > 0)
-            {
-                var affectedCaseIds = affectedCases.Select(x => x.Case.Id).Distinct().ToList();
-                var testedPairs = await _db.TestResults
-                    .AsNoTracking()
-                    .Include(r => r.Environment)
-                    .Where(r => affectedCaseIds.Contains(r.TestCaseId) &&
-                                r.Result != TestResultValues.Untest &&
-                                !r.Environment.IsDeleted)
-                    .Select(r => new { r.TestCaseId, r.EnvId })
-                    .Distinct()
-                    .ToListAsync(innerCt);
-
-                var envsByCase = testedPairs
-                    .GroupBy(p => p.TestCaseId)
-                    .ToDictionary(g => g.Key, g => g.Select(x => x.EnvId).ToList());
-
-                var existingFlags = await _db.TestRetestFlags
-                    .Where(f => affectedCaseIds.Contains(f.TestCaseId))
-                    .ToListAsync(innerCt);
-                var flagMap = existingFlags.ToDictionary(f => (f.TestCaseId, f.EnvId));
-
-                foreach (var (tc, reqKey) in affectedCases)
-                {
-                    if (!envsByCase.TryGetValue(tc.Id, out var envIds) || envIds.Count == 0)
-                        continue;
-
-                    foreach (var envId in envIds)
-                    {
-                        if (flagMap.TryGetValue((tc.Id, envId), out var existingFlag))
-                        {
-                            existingFlag.Reason = TestRetestReasons.ReqChanged;
-                            existingFlag.ReqKey = reqKey;
-                            existingFlag.BugIssueId = null;
-                            existingFlag.Build = null;
-                            existingFlag.At = now;
-                        }
-                        else
-                        {
-                            var newFlag = new TestRetestFlag
-                            {
-                                TestCaseId = tc.Id,
-                                EnvId = envId,
-                                Reason = TestRetestReasons.ReqChanged,
-                                ReqKey = reqKey,
-                                BugIssueId = null,
-                                Build = null,
-                                At = now
-                            };
-                            _db.TestRetestFlags.Add(newFlag);
-                            flagMap[(tc.Id, envId)] = newFlag;
-                        }
-                    }
-
-                    _db.TestActivities.Add(new TestActivity
-                    {
-                        PlanId = tc.PlanId,
-                        Type = TestActivityTypes.Req,
-                        At = now,
-                        ActorId = null,
-                        ModuleId = tc.ModuleId,
-                        TestCaseId = tc.Id,
-                        Text = $"{reqKey} đổi ở bản {version.Label} → cần test lại"
-                    });
-                }
-            }
+            await _requirementSync.PropagateBaselineChangesAsync(node, version, newReqs, userId, now, innerCt);
 
             string? activityNote = version.ReviewNote;
             if (string.IsNullOrWhiteSpace(activityNote) && prevBaselineId.HasValue)
@@ -1056,7 +939,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentDetailDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentApprove, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentApprove, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentDetailDto>();
 
         var note = request.Note?.Trim() ?? string.Empty;
@@ -1114,7 +997,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentDetailDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentDetailDto>();
 
         if (node.Kind != DocumentNodeKinds.Page || node.CurrentVersion == null)
@@ -1131,6 +1014,9 @@ public class DocumentService : IDocumentService
         var nextLabel = ComputeNextVersionLabel(currentVer.Label, request?.Bump);
         var userId = _currentUser.UserId;
         var now = _clock.GetUtcNow().UtcDateTime;
+        var summaryText = !string.IsNullOrWhiteSpace(request?.ChangeSummary)
+            ? request.ChangeSummary.Trim()
+            : (!string.IsNullOrWhiteSpace(request?.Summary) ? request.Summary.Trim() : null);
 
         return await _db.ExecuteInTransactionAsync(async innerCt =>
         {
@@ -1140,7 +1026,7 @@ public class DocumentService : IDocumentService
                 Label = nextLabel,
                 Status = DocumentVersionStatuses.Draft,
                 Subtitle = currentVer.Subtitle,
-                ReviewNote = string.IsNullOrWhiteSpace(request?.ChangeSummary) ? null : request.ChangeSummary.Trim(),
+                ReviewNote = summaryText,
                 Content = currentVer.Content,
                 ContentText = currentVer.ContentText,
                 BaseVersionId = currentVer.Id,
@@ -1211,7 +1097,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentGenerationDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentGenerationDto>();
 
         var gen = await _db.DocumentGenerations
@@ -1245,10 +1131,10 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<ItemsDto<DocSectionDto>>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var docAuth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
+        var docAuth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
         if (!docAuth.IsSuccess)
         {
-            var tcAuth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.TestCaseView, ct);
+            var tcAuth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.TestCaseView, ct);
             if (!tcAuth.IsSuccess) return docAuth.Cast<ItemsDto<DocSectionDto>>();
         }
 
@@ -1277,7 +1163,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<ItemsDto<RequirementItemDto>>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<RequirementItemDto>>();
 
         var targetVersionId = versionId ?? node.CurrentVersionId;
@@ -1307,20 +1193,7 @@ public class DocumentService : IDocumentService
                 baselineHashes[br.ReqUid] = br.ContentHash;
         }
 
-        var staleUids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var issueStale = await _db.IssueRequirementLinks
-            .AsNoTracking()
-            .Where(l => l.DocumentId == documentId && l.ChangedVersionLabel != null)
-            .Select(l => l.ReqUid)
-            .ToListAsync(ct);
-        foreach (var u in issueStale) staleUids.Add(u);
-
-        var tcStale = await _db.TestCaseRequirementLinks
-            .AsNoTracking()
-            .Where(l => l.DocumentId == documentId && l.ChangedVersionLabel != null)
-            .Select(l => l.ReqUid)
-            .ToListAsync(ct);
-        foreach (var u in tcStale) staleUids.Add(u);
+        var staleUids = await _requirementSync.GetStaleRequirementUidsAsync(documentId, ct);
 
         var priorities = ExtractPrioritiesFromContent(version.Content);
 
@@ -1354,7 +1227,7 @@ public class DocumentService : IDocumentService
         if (req == null)
             return ServiceResult<RequirementItemDto>.NotFound("REQUIREMENT_NOT_FOUND", "Requirement not found.");
 
-        var auth = await EnsureProjectPermissionAsync(req.Document.ProjectId, PermissionKeys.DocumentUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(req.Document.ProjectId, PermissionKeys.DocumentUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<RequirementItemDto>();
 
         var prio = (request?.Priority ?? "MEDIUM").Trim().ToUpperInvariant();
@@ -1420,7 +1293,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentUpdate, ct);
         if (!auth.IsSuccess) return auth;
 
         var targetVersionId = node.BaselineVersionId ?? node.CurrentVersionId;
@@ -1437,48 +1310,7 @@ public class DocumentService : IDocumentService
         var userId = _currentUser.UserId;
         var now = _clock.GetUtcNow().UtcDateTime;
 
-        var issueLinks = await _db.IssueRequirementLinks
-            .Include(l => l.Issue)
-                .ThenInclude(i => i.RequirementLinks)
-            .Where(l => l.DocumentId == documentId && l.ReqUid == normalizedUid)
-            .ToListAsync(ct);
-
-        foreach (var link in issueLinks)
-        {
-            link.ReqHash = req.ContentHash;
-            link.ChangedVersionLabel = null;
-            link.Issue.ReqChanged = link.Issue.RequirementLinks.Any(rl => rl.ChangedVersionLabel != null);
-            link.Issue.UpdatedAt = now;
-        }
-
-        var tcLinks = await _db.TestCaseRequirementLinks
-            .Include(l => l.TestCase)
-                .ThenInclude(tc => tc.RequirementLinks)
-            .Where(l => l.DocumentId == documentId && l.ReqUid == normalizedUid)
-            .ToListAsync(ct);
-
-        var clearedCaseIds = new List<long>();
-        foreach (var link in tcLinks)
-        {
-            link.ReqHash = req.ContentHash;
-            link.ChangedVersionLabel = null;
-            link.TestCase.UpdatedAt = now;
-            if (!link.TestCase.RequirementLinks.Any(rl => rl.ChangedVersionLabel != null))
-            {
-                clearedCaseIds.Add(link.TestCaseId);
-            }
-        }
-
-        if (clearedCaseIds.Count > 0)
-        {
-            var reqFlags = await _db.TestRetestFlags
-                .Where(f => clearedCaseIds.Contains(f.TestCaseId) && f.Reason == TestRetestReasons.ReqChanged)
-                .ToListAsync(ct);
-            if (reqFlags.Count > 0)
-            {
-                _db.TestRetestFlags.RemoveRange(reqFlags);
-            }
-        }
+        await _requirementSync.ConfirmRequirementFreshAsync(documentId, normalizedUid, req.ContentHash, now, ct);
 
         _db.DocumentActivities.Add(new DocumentActivity
         {
@@ -1506,7 +1338,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentDiffDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentDiffDto>();
 
         var fromVer = await _db.DocumentVersions
@@ -1632,7 +1464,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<ItemsDto<DocumentCommentDto>>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<DocumentCommentDto>>();
 
         var query = _db.DocumentComments
@@ -1685,7 +1517,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<DocumentCommentDto>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentComment, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentComment, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentCommentDto>();
 
         var body = request.Body?.Trim() ?? string.Empty;
@@ -1781,7 +1613,7 @@ public class DocumentService : IDocumentService
         if (comment == null)
             return ServiceResult<DocumentCommentDto>.NotFound("COMMENT_NOT_FOUND", "Comment not found.");
 
-        var auth = await EnsureProjectPermissionAsync(comment.Document.ProjectId, PermissionKeys.DocumentComment, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(comment.Document.ProjectId, PermissionKeys.DocumentComment, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentCommentDto>();
 
         var rootId = comment.ParentId ?? comment.Id;
@@ -1826,7 +1658,7 @@ public class DocumentService : IDocumentService
         if (node == null)
             return ServiceResult<ItemsDto<DocumentActivityDto>>.NotFound("DOCUMENT_NOT_FOUND", "Document not found.");
 
-        var auth = await EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(node.ProjectId, PermissionKeys.DocumentView, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<DocumentActivityDto>>();
 
         var activities = await _db.DocumentActivities
@@ -1858,7 +1690,7 @@ public class DocumentService : IDocumentService
         NormalizeNotesRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<NormalizedFieldsDto>();
 
         var raw = request.RawNotes?.Trim() ?? string.Empty;
@@ -1879,10 +1711,10 @@ public class DocumentService : IDocumentService
         ExtractRequirementsRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<ItemsDto<ExtractedRequirementDto>>();
 
-        var aiAuth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.AiUse, ct);
+        var aiAuth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.AiUse, ct);
         if (!aiAuth.IsSuccess) return aiAuth.Cast<ItemsDto<ExtractedRequirementDto>>();
 
         var aiEnabled = await _db.Projects
@@ -1920,7 +1752,7 @@ public class DocumentService : IDocumentService
         GenerateDocumentRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentCreate, ct);
         if (!auth.IsSuccess) return auth.Cast<DocumentDetailDto>();
 
         var errors = new Dictionary<string, string[]>();
@@ -1933,18 +1765,12 @@ public class DocumentService : IDocumentService
             errors["docType"] = new[] { "docType must be valid (BRD, SRS, ADR, UI_SPEC, TEST_PLAN, OTHER)." };
         if (request.Items == null || request.Items.Count == 0)
             errors["items"] = new[] { "At least 1 requirement item is required." };
-        else if (request.Items.Any(item =>
-                     item is null ||
-                     item.ReviewStatus is not (ExtractedRequirementDto.ReviewAccepted or ExtractedRequirementDto.ReviewRejected)))
-            errors["items"] = new[] { "Review every generated requirement as ACCEPTED or REJECTED before creating the document." };
 
         var acceptedItems = request.Items?
-            .Where(item => item is not null && item.ReviewStatus == ExtractedRequirementDto.ReviewAccepted)
+            .Where(item => item is not null &&
+                           !string.Equals(item.ReviewStatus, ExtractedRequirementDto.ReviewRejected, StringComparison.OrdinalIgnoreCase))
             .ToList() ?? new List<ExtractedRequirementDto>();
-        if (request.Items is { Count: > 0 } &&
-            acceptedItems.Count == 0 &&
-            !request.Items.Any(item => item is null ||
-                item.ReviewStatus is not (ExtractedRequirementDto.ReviewAccepted or ExtractedRequirementDto.ReviewRejected)))
+        if (request.Items is { Count: > 0 } && acceptedItems.Count == 0)
             errors["items"] = new[] { "Accept at least one requirement before creating the document." };
 
         if (errors.Count > 0)
@@ -2085,7 +1911,7 @@ public class DocumentService : IDocumentService
         GenerateDiagramRequest request,
         CancellationToken ct = default)
     {
-        var auth = await EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentUpdate, ct);
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.DocumentUpdate, ct);
         if (!auth.IsSuccess) return auth.Cast<DiagramProposalDto>();
 
         var text = request.Text?.Trim() ?? string.Empty;
@@ -2102,44 +1928,6 @@ public class DocumentService : IDocumentService
     }
 
     // --- Helpers ---
-
-    private async Task<ServiceResult> EnsureProjectPermissionAsync(long projectId, string permission, CancellationToken ct)
-    {
-        if (!_currentUser.IsAuthenticated || _currentUser.UserIdOrNull is null)
-            return ServiceResult.Unauthorized();
-
-        var projectExists = await _db.Projects.AsNoTracking().AnyAsync(p => p.Id == projectId, ct);
-        if (!projectExists)
-            return ServiceResult.NotFound("PROJECT_NOT_FOUND", "Project not found.");
-
-        var hasPerm = await _permissions.HasProjectPermissionAsync(_currentUser.UserId, projectId, permission, ct);
-        if (!hasPerm)
-            return ServiceResult.PermissionDenied(permission);
-
-        return ServiceResult.Success();
-    }
-
-    private async Task<bool> IsCompanyOrWorkspaceAdminAsync(long userId, long projectId, CancellationToken ct)
-    {
-        var project = await _db.Projects
-            .AsNoTracking()
-            .Include(p => p.Workspace)
-            .FirstOrDefaultAsync(p => p.Id == projectId, ct);
-        if (project == null) return false;
-
-        var wsPerms = await _permissions.GetWorkspacePermissionsAsync(userId, project.WorkspaceId, ct);
-        if (wsPerms.Contains(PermissionKeys.WorkspaceSettingsManage, StringComparer.OrdinalIgnoreCase))
-            return true;
-
-        if (project.Workspace.CompanyId.HasValue)
-        {
-            var companyPerms = await _permissions.GetCompanyPermissionsAsync(userId, ct);
-            if (companyPerms.Contains(PermissionKeys.CompanyRolesManage, StringComparer.OrdinalIgnoreCase))
-                return true;
-        }
-
-        return false;
-    }
 
     private static HashSet<long> CollectSubtreeIds(long rootId, List<DocumentNode> allNodes)
     {
@@ -2413,29 +2201,5 @@ public class DocumentService : IDocumentService
             ResolvedAt = c.ResolvedAt.HasValue ? FormatUtc(c.ResolvedAt.Value) : null,
             Replies = replies.Select(rep => MapCommentDto(rep, new List<DocumentComment>())).ToList()
         };
-    }
-
-    private static UserRefDto MapUserRef(User u) => new()
-    {
-        UserId = u.Id,
-        FullName = u.FullName,
-        Email = u.Email,
-        AvatarUrl = u.AvatarUrl
-    };
-
-    private static string FormatUtc(DateTime dt) =>
-        DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
-
-    private static T? SafeDeserialize<T>(string? json)
-    {
-        if (string.IsNullOrWhiteSpace(json)) return default;
-        try
-        {
-            return JsonSerializer.Deserialize<T>(json);
-        }
-        catch
-        {
-            return default;
-        }
     }
 }

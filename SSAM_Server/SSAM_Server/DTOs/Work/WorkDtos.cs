@@ -338,35 +338,27 @@ public class WorkItemDto
     public int Urgency { get; set; } = 0;
 
     [JsonPropertyName("documentId")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? DocumentId { get; set; }
 
     [JsonPropertyName("versionId")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? VersionId { get; set; }
 
     [JsonPropertyName("anchorId")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? AnchorId { get; set; }
 
     [JsonPropertyName("reqUid")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? ReqUid { get; set; }
 
     [JsonPropertyName("issueId")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? IssueId { get; set; }
 
     [JsonPropertyName("issueKey")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? IssueKey { get; set; }
 
     [JsonPropertyName("runId")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? RunId { get; set; }
 
     [JsonPropertyName("cycleId")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? CycleId { get; set; }
 
     [JsonPropertyName("roleKind")]
@@ -375,43 +367,33 @@ public class WorkItemDto
     public void SetRoleKind(string roleKind) => _roleKind = roleKind;
 
     [JsonPropertyName("code")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Code { get; set; }
 
     [JsonPropertyName("versionLabel")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? VersionLabel { get; set; }
 
     [JsonPropertyName("compareToVersionId")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public long? CompareToVersionId { get; set; }
 
     [JsonPropertyName("note")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Note { get; set; }
 
     [JsonPropertyName("count")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? Count { get; set; }
 
     [JsonPropertyName("comment")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WorkItemCommentDto? Comment { get; set; }
 
     [JsonPropertyName("requirement")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WorkItemRequirementDto? Requirement { get; set; }
 
     [JsonPropertyName("issue")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WorkItemIssueDto? Issue { get; set; }
 
     [JsonPropertyName("testRun")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public WorkItemTestRunDto? TestRun { get; set; }
 
     [JsonPropertyName("activity")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Activity { get; set; }
 }
 

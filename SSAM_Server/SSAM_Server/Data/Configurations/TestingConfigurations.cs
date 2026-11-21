@@ -736,7 +736,7 @@ public class TestActivityConfiguration : IEntityTypeConfiguration<TestActivity>
     {
         builder.ToTable("TestActivities", t =>
         {
-            t.HasCheckConstraint("CK_TestActivities_Type", "[type] IN (N'RESULT', N'DEPLOY', N'ASSIGN', N'REQ', N'HANDOVER', N'CASE', N'BUG')");
+            t.HasCheckConstraint("CK_TestActivities_Type", "[type] IN (N'RESULT', N'DEPLOY', N'BUILD', N'ASSIGN', N'REQ', N'HANDOVER', N'CASE', N'TESTCASE', N'BUG', N'SETUP')");
         });
 
         builder.HasKey(x => x.Id).HasName("PK_TestActivities");

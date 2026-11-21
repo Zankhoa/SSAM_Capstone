@@ -89,7 +89,7 @@ public class AuthService : IAuthService
             {
                 AccountId = newAccount.Id,
                 Token = rawToken,
-                ExpiresAt = now.AddDays(1),
+                ExpiresAt = now.AddMinutes(15),
                 CreatedAt = now
             };
             await _authRepository.AddEmailVerificationTokenAsync(emailVerificationToken, ct);
@@ -381,7 +381,7 @@ public class AuthService : IAuthService
             {
                 AccountId = account.Id,
                 Token = token,
-                ExpiresAt = now.AddDays(1),
+                ExpiresAt = now.AddMinutes(15),
                 CreatedAt = now
             }, cancellationToken);
 

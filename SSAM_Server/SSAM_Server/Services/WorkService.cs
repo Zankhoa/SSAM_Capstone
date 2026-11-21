@@ -29,6 +29,7 @@ public class WorkService : IWorkService
 
     public async Task<ServiceResult<MyDocumentWorkDto>> GetMyDocumentWorkAsync(
         long? projectId,
+        long? companyId = null,
         CancellationToken ct = default)
     {
         if (!_currentUser.IsAuthenticated || _currentUser.UserIdOrNull is null)
@@ -36,7 +37,7 @@ public class WorkService : IWorkService
 
         var myId = _currentUser.UserId;
 
-        var accessibleProjects = await GetAccessibleProjectsAsync(myId, projectId, ct);
+        var accessibleProjects = await GetAccessibleProjectsAsync(myId, projectId, companyId, ct);
         if (accessibleProjects.Count == 0)
         {
             return ServiceResult<MyDocumentWorkDto>.Success(new MyDocumentWorkDto());
@@ -346,6 +347,7 @@ public class WorkService : IWorkService
 
     public async Task<ServiceResult<ItemsDto<WorkItemDto>>> GetMyWorkItemsAsync(
         long? projectId,
+        long? companyId = null,
         CancellationToken ct = default)
     {
         if (!_currentUser.IsAuthenticated || _currentUser.UserIdOrNull is null)
@@ -353,11 +355,11 @@ public class WorkService : IWorkService
 
         var myId = _currentUser.UserId;
 
-        var docWorkRes = await GetMyDocumentWorkAsync(projectId, ct);
+        var docWorkRes = await GetMyDocumentWorkAsync(projectId, companyId, ct);
         if (!docWorkRes.IsSuccess) return docWorkRes.Cast<ItemsDto<WorkItemDto>>();
         var docWork = docWorkRes.Data!;
 
-        var accessibleProjects = await GetAccessibleProjectsAsync(myId, projectId, ct);
+        var accessibleProjects = await GetAccessibleProjectsAsync(myId, projectId, companyId, ct);
         var projectMap = accessibleProjects.ToDictionary(p => p.Project.Id);
         var projectIds = projectMap.Keys.ToList();
 
@@ -977,6 +979,7 @@ public class WorkService : IWorkService
     private async Task<List<AccessibleProjectInfo>> GetAccessibleProjectsAsync(
         long userId,
         long? filterProjectId,
+        long? filterCompanyId,
         CancellationToken ct)
     {
         var memberProjectIds = await _db.ProjectMembers
@@ -994,6 +997,11 @@ public class WorkService : IWorkService
             query = _db.Projects
                 .AsNoTracking()
                 .Where(p => p.Id == filterProjectId.Value && p.IsActive);
+        }
+
+        if (filterCompanyId.HasValue)
+        {
+            query = query.Where(p => p.Workspace.CompanyId == filterCompanyId.Value);
         }
 
         var projects = await query.OrderBy(p => p.Id).ToListAsync(ct);
@@ -1019,15 +1027,4 @@ public class WorkService : IWorkService
 
         return result;
     }
-
-    private static UserRefDto MapUserRef(User u) => new()
-    {
-        UserId = u.Id,
-        FullName = u.FullName,
-        Email = u.Email,
-        AvatarUrl = u.AvatarUrl
-    };
-
-    private static string FormatUtc(DateTime dt) =>
-        DateTime.SpecifyKind(dt, DateTimeKind.Utc).ToString("yyyy-MM-ddTHH:mm:ss.fffZ");
 }

@@ -37,13 +37,27 @@ public class TestBugRefDto
     public string StatusCategory { get; set; } = "TODO";
 }
 
+public class SelectOptionDto
+{
+    public string OptionId { get; set; } = string.Empty;
+    public string Label { get; set; } = string.Empty;
+    public int Color { get; set; }
+}
+
 public class CustomColumnDto
 {
-    public string Key { get; set; } = string.Empty;
+    public string ColumnId { get; set; } = string.Empty;
     public string Label { get; set; } = string.Empty;
-    public string Type { get; set; } = "TEXT"; // "TEXT" | "SELECT"
-    public List<string>? Options { get; set; }
-    public int Width { get; set; } = 130;
+    public string Kind { get; set; } = "TEXT"; // "TEXT" | "MULTILINE" | "SELECT" | "NUMBER" | "DATE" | "PERSON"
+    public List<SelectOptionDto>? Options { get; set; }
+    public bool? Multiple { get; set; }
+    public double? Min { get; set; }
+    public double? Max { get; set; }
+    public string? Unit { get; set; }
+    public string? DefaultValue { get; set; }
+    public bool? DefaultToday { get; set; }
+    public int? MaxLength { get; set; }
+    public string? PersonScope { get; set; } // "QA" | "ALL"
 }
 
 public class SheetLayoutDto
@@ -160,10 +174,12 @@ public class ReqRefDto
     public string DocumentCode { get; set; } = string.Empty;
     public string DocumentTitle { get; set; } = string.Empty;
     public string ReqUid { get; set; } = string.Empty;
-    public string ReqKey { get; set; } = string.Empty;
-    public string Title { get; set; } = string.Empty;
+    public string? ReqKey { get; set; }
+    public string? Title { get; set; }
     public string? AnchorId { get; set; }
     public bool Changed { get; set; }
+    public string? Freshness { get; set; }
+    public string? ChangedNote { get; set; }
 }
 
 public class TestResultDto
@@ -205,6 +221,7 @@ public class TestCaseDto
     public string? Category { get; set; }
     public string? Browser { get; set; }
     public Dictionary<string, object?> CustomFields { get; set; } = new();
+    public Dictionary<string, CellStyleDto> CellStyles { get; set; } = new();
     public string Status { get; set; } = "ACTIVE";
     public int Position { get; set; }
     public TestBugRefDto? Bug { get; set; }
@@ -266,6 +283,12 @@ public class TestPlacementDto
     public string Category { get; set; } = string.Empty;
 }
 
+public class SuggestedTestCaseDesignDto
+{
+    public string Name { get; set; } = string.Empty;
+    public string? ThumbnailUrl { get; set; }
+}
+
 public class SuggestedTestCaseDto
 {
     public string TempId { get; set; } = string.Empty;
@@ -273,6 +296,9 @@ public class SuggestedTestCaseDto
     public string? Preconditions { get; set; }
     public string Priority { get; set; } = "MEDIUM";
     public string Category { get; set; } = "Functional";
+    public string Source { get; set; } = "AI";
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public SuggestedTestCaseDesignDto? Design { get; set; }
     public List<TestStepDto> Steps { get; set; } = new();
     public RequirementRefInputDto RequirementRef { get; set; } = new();
     public string? FromCriterion { get; set; }
@@ -293,8 +319,23 @@ public class TestCaseGenerationContextDto
     [JsonPropertyName("description")]
     public string Description { get; set; } = string.Empty;
 
+    [JsonPropertyName("actor")]
+    public string? Actor { get; set; }
+
+    [JsonPropertyName("preconditions")]
+    public string? Preconditions { get; set; }
+
+    [JsonPropertyName("constraints")]
+    public List<string> Constraints { get; set; } = new();
+
     [JsonPropertyName("acceptanceCriteria")]
     public List<string> AcceptanceCriteria { get; set; } = new();
+
+    [JsonPropertyName("existingTestCaseTitles")]
+    public List<string> ExistingTestCaseTitles { get; set; } = new();
+
+    [JsonPropertyName("designNames")]
+    public List<string> DesignNames { get; set; } = new();
 }
 
 public class AiGeneratedTestCaseDraftDto
@@ -305,6 +346,9 @@ public class AiGeneratedTestCaseDraftDto
 
     [JsonPropertyName("acceptanceCriterionIndex")]
     public int? AcceptanceCriterionIndex { get; set; }
+
+    [JsonPropertyName("designIndex")]
+    public int? DesignIndex { get; set; }
 
     [JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
@@ -575,8 +619,36 @@ public class UpdateTestCaseRequest
     }
 
     public Dictionary<string, object?>? CustomFields { get; set; }
+    public Dictionary<string, CellStyleDto?>? CellStyles { get; set; }
     public string? Status { get; set; }
     public int? Position { get; set; }
+}
+
+public class CellStyleDto
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? B { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? I { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? U { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? S { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? Size { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Color { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Fill { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Align { get; set; }
 }
 
 public class BulkUpdateTestCaseItemDto
@@ -643,10 +715,26 @@ public class ListActivitiesQuery
     public long? ModuleId { get; set; }
 }
 
+public class SuggestDesignSourceDto
+{
+    public string Kind { get; set; } = string.Empty;
+    public string? Url { get; set; }
+    public string? Name { get; set; }
+    public string? DataUrl { get; set; }
+}
+
+public class SuggestDesignItemDto
+{
+    public long DocumentId { get; set; }
+    public string ReqUid { get; set; } = string.Empty;
+    public SuggestDesignSourceDto Source { get; set; } = new();
+}
+
 public class SuggestTestCasesRequest
 {
     public long? PlanId { get; set; }
     public List<RequirementRefInputDto> Refs { get; set; } = new();
+    public List<SuggestDesignItemDto>? Designs { get; set; }
 }
 
 public class AiApplyItemDto
@@ -663,4 +751,9 @@ public class AiApplyItemDto
 public class AiApplyTestCasesRequest
 {
     public List<AiApplyItemDto> Items { get; set; } = new();
+}
+
+public class AddFromRepositoryRequest
+{
+    public List<long> TestCaseIds { get; set; } = new();
 }

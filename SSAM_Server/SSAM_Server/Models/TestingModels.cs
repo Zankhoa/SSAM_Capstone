@@ -228,6 +228,7 @@ public class TestCase : IHasUpdatedAt
     public string Category { get; set; } = TestCaseCategories.Functional;
     public string Browser { get; set; } = string.Empty;
     public string CustomFields { get; set; } = "{}";
+    public string CellStyles { get; set; } = "{}";
     public string Status { get; set; } = TestCaseStatuses.Active;
     public int Position { get; set; } = 0;
 
