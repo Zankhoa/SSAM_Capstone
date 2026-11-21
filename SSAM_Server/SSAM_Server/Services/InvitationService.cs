@@ -85,6 +85,11 @@ public class InvitationService : IInvitationService
             return ServiceResult<CreateInvitationResponseDto>.Conflict("ALREADY_MEMBER", "Email này đã là thành viên công ty.");
         }
 
+        if (await _companyRepository.IsEmailInAnyOtherCompanyAsync(companyId, email, cancellationToken))
+        {
+            return ServiceResult<CreateInvitationResponseDto>.Conflict("USER_IN_ANOTHER_COMPANY", "Email này đã thuộc một công ty khác.");
+        }
+
         CompanyRole? resolvedTenantRole = null;
         if (request.RoleId.HasValue)
         {
@@ -276,6 +281,11 @@ public class InvitationService : IInvitationService
                 if (!string.Equals(loggedInUser.Email, trackedInvite.Email, StringComparison.OrdinalIgnoreCase))
                 {
                     return ServiceResult<AcceptInvitationResponseDto>.Conflict("CONFLICT", "Email của tài khoản đang đăng nhập không khớp với email trong lời mời.");
+                }
+
+                if (await _companyRepository.HasAnyActiveCompanyAsync(loggedInUser.Id, trackedInvite.CompanyId, ct))
+                {
+                    return ServiceResult<AcceptInvitationResponseDto>.Conflict("USER_IN_ANOTHER_COMPANY", "Tài khoản này đã thuộc một công ty khác, không thể tham gia thêm công ty mới.");
                 }
 
                 userId = loggedInUser.Id;

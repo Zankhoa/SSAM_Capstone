@@ -22,6 +22,12 @@ public class CompanyRepository : ICompanyRepository
     public Task<Company?> GetActiveByDomainAsync(string domain, CancellationToken ct = default)
         => _db.Companies.AsNoTracking().FirstOrDefaultAsync(c => c.EmailDomain == domain && c.IsActive, ct);
 
+    public Task<bool> AnyActiveCompanyExistsAsync(CancellationToken ct = default)
+        => _db.Companies.AsNoTracking().AnyAsync(c => c.IsActive, ct);
+
+    public Task<Company?> GetFirstActiveCompanyAsync(CancellationToken ct = default)
+        => _db.Companies.AsNoTracking().OrderBy(c => c.Id).FirstOrDefaultAsync(c => c.IsActive, ct);
+
     public Task<bool> CodeExistsAsync(string code, CancellationToken ct = default)
         => _db.Companies.AsNoTracking().AnyAsync(c => c.Code == code, ct);
 
@@ -243,6 +249,27 @@ public class CompanyRepository : ICompanyRepository
         return _db.CompanyMembers
             .AsNoTracking()
             .AnyAsync(cm => cm.CompanyId == companyId && cm.IsActive && cm.User.Email.ToLower() == normalized, ct);
+    }
+
+    public Task<bool> HasAnyActiveCompanyAsync(long userId, long? excludeCompanyId = null, CancellationToken ct = default)
+        => _db.CompanyMembers
+            .AsNoTracking()
+            .AnyAsync(cm =>
+                cm.UserId == userId &&
+                cm.IsActive &&
+                cm.Company.IsActive &&
+                (!excludeCompanyId.HasValue || cm.CompanyId != excludeCompanyId.Value), ct);
+
+    public Task<bool> IsEmailInAnyOtherCompanyAsync(long excludeCompanyId, string email, CancellationToken ct = default)
+    {
+        var normalized = email.Trim().ToLower();
+        return _db.CompanyMembers
+            .AsNoTracking()
+            .AnyAsync(cm =>
+                cm.CompanyId != excludeCompanyId &&
+                cm.IsActive &&
+                cm.Company.IsActive &&
+                cm.User.Email.ToLower() == normalized, ct);
     }
 
     public Task<bool> IsAdminAsync(long companyId, long userId, CancellationToken ct = default)
