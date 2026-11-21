@@ -1,6 +1,7 @@
 namespace SSAM_Server.Models;
 
 public record GenerateDocRequest(
+    long ProjectId,
     string InputText,          // Requirements overview, meeting transcript, or user story
     string DocumentType,       // "SRS", "URD", or "BRD"
     string? RawNote = null     // Additional instructions, constraints, or raw notes
