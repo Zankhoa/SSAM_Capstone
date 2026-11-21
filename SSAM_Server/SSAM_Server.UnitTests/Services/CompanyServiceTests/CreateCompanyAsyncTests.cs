@@ -5,7 +5,7 @@ using SSAM_Server.Common;
 using SSAM_Server.DTOs.Companies;
 using SSAM_Server.Models;
 
-namespace SSAM_Server.UnitTests.Services.CompanyService;
+namespace SSAM_Server.UnitTests.Services.CompanyServiceTests;
 
 public class CreateCompanyAsyncTests : CompanyServiceTestBase
 {

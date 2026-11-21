@@ -2,7 +2,7 @@
 using Moq;
 using SSAM_Server.Models;
 
-namespace SSAM_Server.UnitTests.Services.AuthService;
+namespace SSAM_Server.UnitTests.Services.AuthServiceTests;
 
 public class VerifyEmailAsyncTests : AuthServiceTestBase
 {

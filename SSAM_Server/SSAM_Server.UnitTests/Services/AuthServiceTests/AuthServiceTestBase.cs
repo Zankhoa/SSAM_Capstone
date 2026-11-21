@@ -4,7 +4,7 @@ using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Interfaces.Security;
 
-namespace SSAM_Server.UnitTests.Services.AuthService;
+namespace SSAM_Server.UnitTests.Services.AuthServiceTests;
 
 public abstract class AuthServiceTestBase
 {

@@ -3,7 +3,7 @@ using Moq;
 using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.Interfaces.Security;
 
-namespace SSAM_Server.UnitTests.Services.CompanyService;
+namespace SSAM_Server.UnitTests.Services.CompanyServiceTests;
 
 public abstract class CompanyServiceTestBase
 {
