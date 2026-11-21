@@ -564,8 +564,7 @@ public class TestCaseRequirementLinkConfiguration : IEntityTypeConfiguration<Tes
 
         builder.Property(x => x.ReqHash)
             .HasColumnName("req_hash")
-            .HasMaxLength(32)
-            .HasDefaultValue("")
+            .HasColumnType("char(64)")
             .IsRequired();
 
         builder.Property(x => x.ChangedVersionLabel)

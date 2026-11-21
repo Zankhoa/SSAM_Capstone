@@ -332,6 +332,26 @@ public class AiService : IAiService
         return drafts;
     }
 
+    private static string NormalizeJsonResponse(string responseText)
+    {
+        var trimmed = responseText.Trim();
+        if (!trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            return trimmed;
+        }
+
+        var openingFenceEnd = trimmed.IndexOf('\n');
+        var closingFenceStart = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+        if (openingFenceEnd < 0 ||
+            closingFenceStart <= openingFenceEnd ||
+            !string.IsNullOrWhiteSpace(trimmed[(closingFenceStart + 3)..]))
+        {
+            return trimmed;
+        }
+
+        return trimmed[(openingFenceEnd + 1)..closingFenceStart].Trim();
+    }
+
     private void EnsureDraftResponseComplete(ChatResponse response, string draftType)
     {
         if (response.FinishReason != ChatFinishReason.Length)

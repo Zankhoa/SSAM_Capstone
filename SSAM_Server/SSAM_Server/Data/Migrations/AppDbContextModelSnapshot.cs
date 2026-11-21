@@ -2922,10 +2922,7 @@ namespace SSAM_Server.Data.Migrations
 
                     b.Property<string>("ReqHash")
                         .IsRequired()
-                        .ValueGeneratedOnAdd()
-                        .HasMaxLength(32)
-                        .HasColumnType("nvarchar(32)")
-                        .HasDefaultValue("")
+                        .HasColumnType("char(64)")
                         .HasColumnName("req_hash");
 
                     b.HasKey("TestCaseId", "DocumentId", "ReqUid")
