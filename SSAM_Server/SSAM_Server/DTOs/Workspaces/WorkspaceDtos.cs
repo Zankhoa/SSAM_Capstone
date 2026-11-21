@@ -122,9 +122,6 @@ public class WorkspaceMemberDto : UserRefDto
     [JsonPropertyName("companyRole")]
     public RoleRefDto CompanyRole { get; set; } = null!;
 
-    [JsonPropertyName("department")]
-    public DepartmentRefDto? Department { get; set; }
-
     [JsonPropertyName("joinedAt")]
     public DateTime JoinedAt { get; set; }
 }

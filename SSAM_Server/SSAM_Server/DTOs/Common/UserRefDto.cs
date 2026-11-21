@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using SSAM_Server.DTOs.Companies;
 
 namespace SSAM_Server.DTOs.Common;
 
@@ -15,4 +16,7 @@ public class UserRefDto
 
     [JsonPropertyName("avatarUrl")]
     public string? AvatarUrl { get; set; }
+
+    [JsonPropertyName("department")]
+    public DepartmentRefDto? Department { get; set; }
 }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SSAM_Server.DTOs.Common;
+using SSAM_Server.DTOs.Companies;
 
 namespace SSAM_Server.DTOs.Projects;
 

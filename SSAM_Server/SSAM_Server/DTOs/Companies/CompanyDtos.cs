@@ -114,9 +114,6 @@ public class CompanyUserDto : UserRefDto
     [JsonPropertyName("role")]
     public RoleRefDto Role { get; set; } = null!;
 
-    [JsonPropertyName("department")]
-    public DepartmentRefDto? Department { get; set; }
-
     [JsonPropertyName("status")]
     public string Status { get; set; } = "ACTIVE";
 
