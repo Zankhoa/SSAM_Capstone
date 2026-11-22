@@ -70,7 +70,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Update PROJECT role successfully with all fields (Name, Kind, Description, PermissionKeys)
+    // UTC001: Update a PROJECT role successfully with name, kind, description, and permissions.
     [Fact]
     public async Task UpdateRoleAsync_WithFullValidProjectRoleRequest_ReturnsOkAndUpdatesRole()
     {
@@ -123,7 +123,34 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         RoleRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC02: Partial update (only Name specified; Description not specified -> DescriptionSpecified = false) -> Preserves Description, Kind & Permissions
+    // UTC002: Omitting Name preserves the existing name while explicitly updating Description.
+    [Fact]
+    public async Task UpdateRoleAsync_WhenNameIsOmitted_PreservesNameAndUpdatesDescription()
+    {
+        var existingRole = SetupValidAuthorizationAndRole(
+            userId: 1, companyId: 10, roleId: 50, scope: RoleScopes.Project, kind: RoleKinds.Ba, memberCount: 2);
+        existingRole.Description = "Old Description";
+
+        var request = new UpdateRoleRequestDto
+        {
+            Description = "New Description"
+        };
+
+        Assert.Null(request.Name);
+        Assert.True(request.DescriptionSpecified);
+
+        var result = await RoleService.UpdateRoleAsync(10, 50, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status200OK, result.StatusCode);
+        Assert.Equal("Old Role Name", result.Data!.Name);
+        Assert.Equal("New Description", result.Data.Description);
+        Assert.Equal("Old Role Name", existingRole.Name);
+        Assert.Equal("New Description", existingRole.Description);
+        RoleRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // UTC003: A name-only update preserves unspecified description, kind, and permissions.
     [Fact]
     public async Task UpdateRoleAsync_WithPartialUpdate_PreservesUnspecifiedFields()
     {
@@ -151,7 +178,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         RoleRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC03: Clear Description explicitly (Description = "   ") & pass Kind for non-PROJECT role -> Clears Description to null & forces Kind = OTHER
+    // UTC004: Clearing description on a non-PROJECT role sets it to null and forces Kind to OTHER.
     [Fact]
     public async Task UpdateRoleAsync_WhenDescriptionClearedAndScopeIsTenant_ClearsDescriptionAndForcesKindOther()
     {
@@ -179,7 +206,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC04: User is not authenticated -> Returns Unauthorized
+    // UTC005: An unauthenticated user returns Unauthorized.
     [Fact]
     public async Task UpdateRoleAsync_WhenUserUnauthenticated_ReturnsUnauthorized()
     {
@@ -193,7 +220,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Your session is invalid or has expired.", result.ErrorMessage);
     }
 
-    // UTC05: User lacks RoleManage permission -> Returns Forbidden
+    // UTC006: A user without RoleManage permission returns Forbidden.
     [Fact]
     public async Task UpdateRoleAsync_WhenPermissionDenied_ReturnsForbidden()
     {
@@ -211,7 +238,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("FORBIDDEN", result.ErrorCode);
     }
 
-    // UTC06: Role does not exist -> Returns NotFound
+    // UTC007: A missing role returns NotFound.
     [Fact]
     public async Task UpdateRoleAsync_WhenRoleNotFound_ReturnsNotFound()
     {
@@ -232,7 +259,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Không tìm thấy dữ liệu.", result.ErrorMessage);
     }
 
-    // UTC07: Role is a locked system role (TENANT_ADMIN, WORKSPACE_ADMIN, PROJECT_MANAGER) -> Returns Forbidden (ROLE_LOCKED)
+    // UTC008: A locked system role returns Forbidden with ROLE_LOCKED.
     [Theory]
     [InlineData(CompanyRoleCodes.TenantAdmin)]
     [InlineData(CompanyRoleCodes.WorkspaceAdmin)]
@@ -250,7 +277,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Role hệ thống này được khoá, không chỉnh sửa được.", result.ErrorMessage);
     }
 
-    // UTC08: New Name already exists on another role in the company -> Returns Conflict (ROLE_NAME_TAKEN)
+    // UTC009: A duplicate role name returns Conflict with ROLE_NAME_TAKEN.
     [Fact]
     public async Task UpdateRoleAsync_WhenRoleNameAlreadyExists_ReturnsConflict()
     {
@@ -269,7 +296,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Tên role đã tồn tại trong công ty.", result.ErrorMessage);
     }
 
-    // UTC09: Kind is invalid when Role Scope is PROJECT -> Returns Validation Error
+    // UTC010: An invalid kind for a PROJECT role returns a validation error.
     [Fact]
     public async Task UpdateRoleAsync_WhenProjectKindIsInvalid_ReturnsValidationError()
     {
@@ -284,7 +311,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Chọn nhóm chuyên môn hợp lệ", result.Errors["kind"]);
     }
 
-    // UTC10: PermissionKeys contains non-existent permission -> Returns BadRequest (UNKNOWN_PERMISSION)
+    // UTC011: A non-existent permission key returns BadRequest with UNKNOWN_PERMISSION.
     [Fact]
     public async Task UpdateRoleAsync_WhenPermissionKeyDoesNotExist_ReturnsBadRequest()
     {
@@ -306,7 +333,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Quyền \"non.existent.permission\" không tồn tại.", result.ErrorMessage);
     }
 
-    // UTC11: PermissionKeys contains permission from another scope -> Returns BadRequest (PERMISSION_SCOPE_MISMATCH)
+    // UTC012: A permission from another scope returns BadRequest with PERMISSION_SCOPE_MISMATCH.
     [Fact]
     public async Task UpdateRoleAsync_WhenPermissionScopeMismatchesRoleScope_ReturnsBadRequest()
     {
@@ -331,7 +358,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal($"Quyền \"{PermissionKeys.CompanyUpdate}\" không thuộc phạm vi {RoleScopes.Project}.", result.ErrorMessage);
     }
 
-    // UTC12: Role is deleted concurrently before transaction executes -> Returns NotFound inside transaction
+    // UTC013: A role deleted before the transaction executes returns NotFound inside the transaction.
     [Fact]
     public async Task UpdateRoleAsync_WhenRoleDeletedConcurrentlyBeforeTransaction_ReturnsNotFound()
     {
@@ -354,7 +381,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
     // 3. BOUNDARY CASES (Name: 1, 2, 100, 101 | Description: 1, 500, 501)
     // =========================================================================
 
-    // UTC13: Name boundary length 1 (below minimum 2) -> Returns Validation Error
+    // UTC014: A one-character name returns a validation error.
     [Fact]
     public async Task UpdateRoleAsync_WhenNameLengthIs1_ReturnsValidationError()
     {
@@ -369,10 +396,10 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Tên role từ 2 đến 100 ký tự", result.Errors["name"]);
     }
 
-    // UTC14 + UTC15: Name boundary length 2 (min) and 100 (max) -> Returns Ok
+    // UTC015 + UTC016: Name boundary lengths 2 and 100 return Ok.
     [Theory]
-    [InlineData(2)]     // UTC14: Name 2 characters (lower boundary)
-    [InlineData(100)]   // UTC15: Name 100 characters (upper boundary)
+    [InlineData(2)]     // UTC015: Name contains 2 characters.
+    [InlineData(100)]   // UTC016: Name contains 100 characters.
     public async Task UpdateRoleAsync_WhenNameLengthIsWithinBoundary_ReturnsOk(int length)
     {
         SetupValidAuthorizationAndRole(userId: 1, companyId: 10, roleId: 50);
@@ -387,7 +414,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal(length, result.Data.Name.Length);
     }
 
-    // UTC16: Name boundary length 101 (exceeds maximum 100) -> Returns Validation Error
+    // UTC017: A 101-character name returns a validation error.
     [Fact]
     public async Task UpdateRoleAsync_WhenNameExceeds100Chars_ReturnsValidationError()
     {
@@ -402,10 +429,10 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Tên role từ 2 đến 100 ký tự", result.Errors["name"]);
     }
 
-    // UTC17 + UTC18: Description boundary length 1 and 500 -> Returns Ok
+    // UTC018 + UTC019: Description boundary lengths 1 and 500 return Ok.
     [Theory]
-    [InlineData(1)]     // UTC17: Description 1 character
-    [InlineData(500)]   // UTC18: Description 500 characters (DB upper boundary)
+    [InlineData(1)]     // UTC018: Description contains 1 character.
+    [InlineData(500)]   // UTC019: Description contains 500 characters.
     public async Task UpdateRoleAsync_WhenDescriptionLengthIsWithinBoundary_ReturnsOk(int length)
     {
         SetupValidAuthorizationAndRole(userId: 1, companyId: 10, roleId: 50);
@@ -420,7 +447,7 @@ public class UpdateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal(length, result.Data.Description!.Length);
     }
 
-    // UTC19: Description boundary length 501 -> Throws DbUpdateException
+    // UTC020: A 501-character description propagates the database update exception.
     [Fact]
     public async Task UpdateRoleAsync_WhenDescriptionExceeds500Chars_ThrowsDbUpdateException()
     {

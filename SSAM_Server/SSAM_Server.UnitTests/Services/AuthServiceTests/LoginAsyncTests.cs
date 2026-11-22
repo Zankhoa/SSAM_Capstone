@@ -7,10 +7,10 @@ namespace SSAM_Server.UnitTests.Services.AuthServiceTests;
 
 public class LoginAsyncTests : AuthServiceTestBase
 {
-    // UTC01 + UTC02: Login successful.
+    // UTC001-UTC002: Valid credentials return an authenticated session for active, verified accounts.
     [Theory]
-    [InlineData("user1@ssam.com", "123@123", 1, 1)] // UTC01
-    [InlineData("user2@ssam.com", "234@234", 2, 3)] // UTC02
+    [InlineData("user1@ssam.com", "123@123", 1, 1)] // UTC001: First valid account and user.
+    [InlineData("user2@ssam.com", "234@234", 2, 3)] // UTC002: Second valid account and user.
     public async Task LoginAsync_WithValidCredentials_ReturnsOkWithSession(string email, string password, int accountId, int userId)
     {
         var request = new LoginRequestDto { Email = email, Password = password };
@@ -54,7 +54,7 @@ public class LoginAsyncTests : AuthServiceTestBase
         AuthRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC03: Email does not exist
+    // UTC003: An email that is not associated with an account returns Unauthorized.
     [Fact]
     public async Task LoginAsync_WhenEmailNotFound_ReturnsUnauthorized()
     {
@@ -70,10 +70,37 @@ public class LoginAsyncTests : AuthServiceTestBase
         Assert.Equal("Invalid email or password.", result.ErrorMessage);
     }
 
-    // UTC04 + UTC05: Email exists but password is invalid.
+    // UTC004: An account with an empty stored password returns Unauthorized without password verification.
+    [Fact]
+    public async Task LoginAsync_WhenStoredPasswordIsEmpty_ReturnsUnauthorizedWithoutVerifyingPassword()
+    {
+        var request = new LoginRequestDto { Email = "user1@ssam.com", Password = "123@123" };
+        var account = new Account
+        {
+            Id = 1,
+            Email = request.Email,
+            Password = string.Empty,
+            IsActive = true,
+            EmailVerified = true
+        };
+
+        AuthRepositoryMock
+            .Setup(r => r.GetAccountByEmailAsync(request.Email, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(account);
+
+        var result = await AuthService.LoginAsync(request, null, null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status401Unauthorized, result.StatusCode);
+        Assert.Equal("Invalid email or password.", result.ErrorMessage);
+        PasswordHasherMock.Verify(
+            p => p.VerifyPassword(It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    // UTC005-UTC006: An existing account with an invalid password returns Unauthorized.
     [Theory]
-    [InlineData("")]            // UTC04: Empty password
-    [InlineData("234@234")]     // UTC05: Incorrect password
+    [InlineData("")]            // UTC005: Empty login password.
+    [InlineData("234@234")]     // UTC006: Incorrect login password.
     public async Task LoginAsync_WhenInvalidPassword_ReturnsUnauthorized(string password)
     {
         var request = new LoginRequestDto { Email = "user1@ssam.com", Password = password };
@@ -101,7 +128,7 @@ public class LoginAsyncTests : AuthServiceTestBase
         Assert.Equal("Invalid email or password.", result.ErrorMessage);
     }
 
-    // UTC06: Email is not verified
+    // UTC007: Valid credentials for an unverified email return Forbidden with EMAIL_NOT_VERIFIED.
     [Fact]
     public async Task LoginAsync_WhenEmailNotVerified_ReturnsForbidden()
     {
@@ -132,7 +159,7 @@ public class LoginAsyncTests : AuthServiceTestBase
         Assert.Equal("Your email address has not been verified.", result.ErrorMessage);
     }
 
-    // UTC07: Account is not active
+    // UTC008: Valid credentials for an inactive account return Forbidden with ACCOUNT_DISABLED.
     [Fact]
     public async Task LoginAsync_WhenAccountNotActive_ReturnsForbidden()
     {
@@ -163,7 +190,7 @@ public class LoginAsyncTests : AuthServiceTestBase
         Assert.Equal("Your account has been disabled.", result.ErrorMessage);
     }
 
-    // UTC08: Account doesn't have user information
+    // UTC009: A valid account without user information returns NotFound.
     [Fact]
     public async Task LoginAsync_WhenUserNotFound_ReturnsNotFound()
     {

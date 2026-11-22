@@ -44,7 +44,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Update company successfully with full valid fields (trims inputs & lowercases EmailDomain)
+    // UTC001: Update the company successfully with valid fields, trimming inputs and lowercasing EmailDomain.
     [Fact]
     public async Task UpdateCompanyAsync_WithFullValidRequest_ReturnsOkAndUpdatesCompany()
     {
@@ -78,7 +78,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         CompanyRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC02: Update company successfully when optional EmailDomain is null or whitespace -> Sets EmailDomain to null
+    // UTC002: Null or whitespace EmailDomain is normalized to null and the update succeeds.
     [Theory]
     [InlineData(null)]
     [InlineData("   ")]
@@ -107,7 +107,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC03: User is not authenticated (UserIdOrNull is null) -> Returns Unauthorized
+    // UTC003: An unauthenticated user returns Unauthorized.
     [Fact]
     public async Task UpdateCompanyAsync_WhenUserUnauthenticated_ReturnsUnauthorized()
     {
@@ -126,7 +126,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal("Your session is invalid or has expired.", result.ErrorMessage);
     }
 
-    // UTC04: User lacks CompanyUpdate permission -> Returns Forbidden
+    // UTC004: A user without CompanyUpdate permission returns Forbidden.
     [Fact]
     public async Task UpdateCompanyAsync_WhenPermissionDenied_ReturnsForbidden()
     {
@@ -149,7 +149,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal("FORBIDDEN", result.ErrorCode);
     }
 
-    // UTC05: Company Name is empty or whitespace -> Returns Validation Error
+    // UTC005: An empty or whitespace company name returns a validation error.
     [Fact]
     public async Task UpdateCompanyAsync_WhenNameIsWhitespace_ReturnsValidationError()
     {
@@ -173,7 +173,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Tên công ty là bắt buộc.", result.Errors["name"]);
     }
 
-    // UTC06: TaxCode is empty or whitespace -> Returns Validation Error
+    // UTC006: An empty or whitespace tax code returns a validation error.
     [Fact]
     public async Task UpdateCompanyAsync_WhenTaxCodeIsWhitespace_ReturnsValidationError()
     {
@@ -197,7 +197,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Mã số thuế là bắt buộc.", result.Errors["taxCode"]);
     }
 
-    // UTC07: Address is empty or whitespace -> Returns Validation Error
+    // UTC007: An empty or whitespace address returns a validation error.
     [Fact]
     public async Task UpdateCompanyAsync_WhenAddressIsWhitespace_ReturnsValidationError()
     {
@@ -221,10 +221,10 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Địa chỉ công ty là bắt buộc.", result.Errors["address"]);
     }
 
-    // UTC08 + UTC09: EmailDomain has invalid format -> Returns Validation Error
+    // UTC008 + UTC009: An invalid EmailDomain format returns a validation error.
     [Theory]
-    [InlineData("ssam")]          // UTC08: Missing TLD dot
-    [InlineData("@ssam.vn")]      // UTC09: Contains '@' character
+    [InlineData("ssam")]          // UTC008: Missing the top-level-domain dot.
+    [InlineData("@ssam.vn")]      // UTC009: Contains an '@' character.
     public async Task UpdateCompanyAsync_WhenEmailDomainFormatIsInvalid_ReturnsValidationError(string invalidDomain)
     {
         CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
@@ -248,7 +248,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Tên miền email không đúng định dạng.", result.Errors["emailDomain"]);
     }
 
-    // UTC10: All 4 fields are invalid simultaneously -> Returns all 4 validation errors
+    // UTC010: Multiple invalid fields return all four validation errors.
     [Fact]
     public async Task UpdateCompanyAsync_WhenAllFieldsAreInvalid_ReturnsAllValidationErrors()
     {
@@ -276,10 +276,10 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("emailDomain", result.Errors.Keys);
     }
 
-    // UTC11 + UTC12: Company does not exist or is inactive -> Returns NotFound
+    // UTC011 + UTC012: A missing or inactive company returns NotFound.
     [Theory]
-    [InlineData(false)] // UTC11: Company not found (null)
-    [InlineData(true)]  // UTC12: Company exists but IsActive = false
+    [InlineData(false)] // UTC011: Company is not found.
+    [InlineData(true)]  // UTC012: Company exists but is inactive.
     public async Task UpdateCompanyAsync_WhenCompanyNotFoundOrInactive_ReturnsNotFound(bool companyExistsAsInactive)
     {
         CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
@@ -313,10 +313,10 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
     // 3. BOUNDARY CASES
     // =========================================================================
 
-    // UTC13 + UTC14: Name boundary length 1 and 200 -> Returns Ok
+    // UTC013 + UTC014: Name boundary lengths 1 and 200 return Ok.
     [Theory]
-    [InlineData(1)]     // UTC13: Name 1 character
-    [InlineData(200)]   // UTC14: Name 200 characters (service upper boundary)
+    [InlineData(1)]     // UTC013: Name contains 1 character.
+    [InlineData(200)]   // UTC014: Name contains 200 characters at the service upper boundary.
     public async Task UpdateCompanyAsync_WhenNameLengthIsWithinBoundary_ReturnsOk(int length)
     {
         SetupValidAuthorizationAndCompany(userId: 1, companyId: 10);
@@ -336,7 +336,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal(length, result.Data.Name.Length);
     }
 
-    // UTC15: Name boundary length 201 -> Returns Validation Error
+    // UTC015: A 201-character name returns a validation error.
     [Fact]
     public async Task UpdateCompanyAsync_WhenNameExceeds200Chars_ReturnsValidationError()
     {
@@ -360,10 +360,10 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Tên công ty không được vượt quá 200 ký tự.", result.Errors["name"]);
     }
 
-    // UTC16 + UTC17: TaxCode boundary length 1 and 100 -> Returns Ok
+    // UTC016 + UTC017: Tax-code boundary lengths 1 and 100 return Ok.
     [Theory]
-    [InlineData(1)]     // UTC16: TaxCode 1 character
-    [InlineData(100)]   // UTC17: TaxCode 100 characters (DB upper boundary)
+    [InlineData(1)]     // UTC016: Tax code contains 1 character.
+    [InlineData(100)]   // UTC017: Tax code contains 100 characters at the database upper boundary.
     public async Task UpdateCompanyAsync_WhenTaxCodeLengthIsWithinBoundary_ReturnsOk(int length)
     {
         SetupValidAuthorizationAndCompany(userId: 1, companyId: 10);
@@ -383,7 +383,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal(length, result.Data.TaxCode!.Length);
     }
 
-    // UTC18: TaxCode boundary length 101 -> Throws DbUpdateException
+    // UTC018: A 101-character tax code propagates the database update exception.
     [Fact]
     public async Task UpdateCompanyAsync_WhenTaxCodeExceeds100Chars_ThrowsDbUpdateException()
     {
@@ -403,10 +403,10 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
             CompanyService.UpdateCompanyAsync(10, request, TestContext.Current.CancellationToken));
     }
 
-    // UTC19 + UTC20: EmailDomain boundary length 3 ("a.b") and 255 -> Returns Ok
+    // UTC019 + UTC020: Email-domain boundary lengths 3 and 255 return Ok.
     [Theory]
-    [InlineData(3)]     // UTC19: Minimum valid domain length ("a.b")
-    [InlineData(255)]   // UTC20: Maximum DB domain length (255 characters)
+    [InlineData(3)]     // UTC019: Minimum valid domain length ("a.b").
+    [InlineData(255)]   // UTC020: Maximum database domain length.
     public async Task UpdateCompanyAsync_WhenEmailDomainLengthIsWithinBoundary_ReturnsOk(int length)
     {
         SetupValidAuthorizationAndCompany(userId: 1, companyId: 10);
@@ -430,7 +430,7 @@ public class UpdateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal(length, result.Data.EmailDomain!.Length);
     }
 
-    // UTC21: EmailDomain boundary length 256 -> Throws DbUpdateException
+    // UTC021: A 256-character email domain propagates the database update exception.
     [Fact]
     public async Task UpdateCompanyAsync_WhenEmailDomainExceeds255Chars_ThrowsDbUpdateException()
     {
