@@ -363,4 +363,28 @@ public class MakeBuildersTests
         Assert.Equal(2, ((JsonArray)list["content"]!).Count);
         Assert.Equal(1, enumerations);
     }
+
+    // UTC36: MakeCodeBlock with language and code -> codeBlock with language attr and one text child
+    [Fact]
+    public void MakeCodeBlock_WithLanguageAndCode_ReturnsCodeBlock()
+    {
+        var block = DocumentContentHelper.MakeCodeBlock("mermaid", "graph TD; A-->B");
+
+        Assert.Equal("codeBlock", block["type"]!.GetValue<string>());
+        Assert.Equal("mermaid", block["attrs"]!["language"]!.GetValue<string>());
+        var child = Assert.Single((JsonArray)block["content"]!);
+        Assert.Equal("text", child!["type"]!.GetValue<string>());
+        Assert.Equal("graph TD; A-->B", Text(child));
+    }
+
+    // UTC37: MakeCodeBlock with empty code -> Still one text child with empty text
+    [Fact]
+    public void MakeCodeBlock_WithEmptyCode_ReturnsEmptyTextChild()
+    {
+        var block = DocumentContentHelper.MakeCodeBlock("sql", "");
+
+        Assert.Equal("sql", block["attrs"]!["language"]!.GetValue<string>());
+        var child = Assert.Single((JsonArray)block["content"]!);
+        Assert.Equal("", Text(child));
+    }
 }

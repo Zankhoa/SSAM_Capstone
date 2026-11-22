@@ -752,4 +752,71 @@ public class CreateTestCaseAsyncTests : TestingCasesTestBase
         Assert.Equal("[]", saved.Steps);
         Assert.Equal("{}", saved.CustomFields);
     }
+
+    // UTC40: CustomFields contains figmaUrl -> figma watch service links the new test case to that URL
+    [Fact]
+    public async Task CreateTestCaseAsync_WithFigmaUrlCustomField_LinksTestCaseToFigma()
+    {
+        var tree = SetupValidPlanAndSection();
+        var request = new CreateTestCaseRequest { SectionId = tree.Section.Id, CustomFields = new Dictionary<string, object?> { ["figmaUrl"] = "https://www.figma.com/design/abc123/File" } };
+
+        var result = await TestingService.CreateTestCaseAsync(tree.Plan.Id, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var saved = await Db.TestCases.SingleAsync(TestContext.Current.CancellationToken);
+        FigmaWatchMock.Verify(f => f.LinkTestCaseAsync(saved.Id, "https://www.figma.com/design/abc123/File", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // UTC41: CustomFields contains designUrl (fallback key) -> figma watch service links the new test case
+    [Fact]
+    public async Task CreateTestCaseAsync_WithDesignUrlCustomField_LinksTestCaseToFigma()
+    {
+        var tree = SetupValidPlanAndSection();
+        var request = new CreateTestCaseRequest { SectionId = tree.Section.Id, CustomFields = new Dictionary<string, object?> { ["designUrl"] = "https://www.figma.com/design/abc123/File" } };
+
+        var result = await TestingService.CreateTestCaseAsync(tree.Plan.Id, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var saved = await Db.TestCases.SingleAsync(TestContext.Current.CancellationToken);
+        FigmaWatchMock.Verify(f => f.LinkTestCaseAsync(saved.Id, "https://www.figma.com/design/abc123/File", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // UTC42: figmaUrl is whitespace -> figma watch service is not called
+    [Fact]
+    public async Task CreateTestCaseAsync_WithBlankFigmaUrl_DoesNotLinkFigma()
+    {
+        var tree = SetupValidPlanAndSection();
+        var request = new CreateTestCaseRequest { SectionId = tree.Section.Id, CustomFields = new Dictionary<string, object?> { ["figmaUrl"] = "   " } };
+
+        var result = await TestingService.CreateTestCaseAsync(tree.Plan.Id, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        FigmaWatchMock.Verify(f => f.LinkTestCaseAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // UTC43: figmaUrl is null -> figma watch service is not called
+    [Fact]
+    public async Task CreateTestCaseAsync_WithNullFigmaUrl_DoesNotLinkFigma()
+    {
+        var tree = SetupValidPlanAndSection();
+        var request = new CreateTestCaseRequest { SectionId = tree.Section.Id, CustomFields = new Dictionary<string, object?> { ["figmaUrl"] = null } };
+
+        var result = await TestingService.CreateTestCaseAsync(tree.Plan.Id, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        FigmaWatchMock.Verify(f => f.LinkTestCaseAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // UTC44: CustomFields without figma keys -> figma watch service is not called
+    [Fact]
+    public async Task CreateTestCaseAsync_WithoutFigmaCustomField_DoesNotLinkFigma()
+    {
+        var tree = SetupValidPlanAndSection();
+        var request = new CreateTestCaseRequest { SectionId = tree.Section.Id, CustomFields = new Dictionary<string, object?> { ["env"] = "qa" } };
+
+        var result = await TestingService.CreateTestCaseAsync(tree.Plan.Id, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        FigmaWatchMock.Verify(f => f.LinkTestCaseAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }

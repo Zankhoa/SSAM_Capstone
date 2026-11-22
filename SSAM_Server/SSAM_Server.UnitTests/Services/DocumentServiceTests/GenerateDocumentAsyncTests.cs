@@ -612,4 +612,199 @@ public class GenerateDocumentAsyncTests : DocumentServiceTestBase
         Assert.Equal("REQ-025", reqs[24].ReqUid);
         Assert.Equal(Enumerable.Range(0, 25), reqs.Select(r => r.SortOrder));
     }
+
+    // =========================================================================
+    // 4. DOC-TYPE SPECIFIC TEMPLATES & SRS AUTO DIAGRAM
+    // =========================================================================
+
+    private static ExtractedRequirementDto ItemWithCriteria(string title, params string[] criteria)
+    {
+        var item = Item(title);
+        item.AcceptanceCriteria = criteria.ToList();
+        return item;
+    }
+
+    // UTC31: SRS docType -> SRS template (overall requirements, functional requirements sections) is generated
+    [Fact]
+    public async Task GenerateDocumentAsync_WithSrsDocType_UsesSrsTemplate()
+    {
+        SetupAuthorizedUser();
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, ValidRequest(Item("Login")), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var version = await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("I. Overall Requirements", version.Content);
+        Assert.Contains("III. Functional Requirements", version.Content);
+        Assert.Contains("IV. Non-Functional Requirements", version.Content);
+        Assert.Contains("REQ-001", version.ContentText);
+        Assert.Equal(1, result.Data!.Node.ReqCount);
+    }
+
+    // UTC32: BRD docType -> BRD template (business problem, success criteria) is generated
+    [Fact]
+    public async Task GenerateDocumentAsync_WithBrdDocType_UsesBrdTemplate()
+    {
+        SetupAuthorizedUser();
+        var request = ValidRequest(ItemWithCriteria("Login", "User can sign in"));
+        request.DocType = "BRD";
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var version = await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("1. Business Problem", version.Content);
+        Assert.Contains("9. Success Criteria", version.Content);
+        Assert.DoesNotContain("I. Overall Requirements", version.Content);
+        Assert.Contains("Login: User can sign in", version.ContentText);
+        Assert.Equal(1, result.Data!.Node.ReqCount);
+    }
+
+    // UTC33: URD docType -> URD template (introduction, acceptance criteria per requirement, priority list) is generated
+    [Fact]
+    public async Task GenerateDocumentAsync_WithUrdDocType_UsesUrdTemplate()
+    {
+        SetupAuthorizedUser();
+        var request = ValidRequest(ItemWithCriteria("Login", "User can sign in"));
+        request.DocType = "URD";
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var version = await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("1. Introduction", version.Content);
+        Assert.Contains("7. Requirement Priority", version.Content);
+        Assert.Contains("8. Acceptance Criteria", version.Content);
+        Assert.DoesNotContain("I. Overall Requirements", version.Content);
+        Assert.Contains("User can sign in", version.ContentText);
+        Assert.Equal(1, result.Data!.Node.ReqCount);
+    }
+
+    // UTC34: OTHER docType -> falls back to the generic template (no SRS/BRD/URD sections)
+    [Fact]
+    public async Task GenerateDocumentAsync_WithOtherDocType_UsesGenericTemplate()
+    {
+        SetupAuthorizedUser();
+        var request = ValidRequest(Item("Login"));
+        request.DocType = "OTHER";
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var version = await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.DoesNotContain("I. Overall Requirements", version.Content);
+        Assert.DoesNotContain("1. Business Problem", version.Content);
+        Assert.DoesNotContain("1. Introduction", version.Content);
+        Assert.Contains("REQ-001", version.ContentText);
+    }
+
+    // UTC35: SRS item without diagram but with >= 2 acceptance criteria -> flowchart auto-generated and stored
+    [Fact]
+    public async Task GenerateDocumentAsync_WithSrsItemWithoutDiagram_AutoGeneratesFlowchart()
+    {
+        SetupAuthorizedUser();
+        var item = ItemWithCriteria("Login", "Open the login page", "Submit valid credentials", "Redirect to dashboard");
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, ValidRequest(item), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.True((await Db.RequirementItems.SingleAsync(TestContext.Current.CancellationToken)).HasDiagram);
+        var generation = await Db.DocumentGenerations.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("flowchart TD", generation.Items);
+        var version = await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("\"language\":\"mermaid\"", version.Content);
+        Assert.DoesNotContain("mermaidBlock", version.Content);
+    }
+
+    // UTC36: SRS item whose diagram has blank mermaid text -> replaced by an auto-generated diagram
+    [Fact]
+    public async Task GenerateDocumentAsync_WithSrsItemBlankDiagram_ReplacesWithGeneratedDiagram()
+    {
+        SetupAuthorizedUser();
+        var item = ItemWithCriteria("Login", "Open the login page", "Submit valid credentials");
+        item.Diagram = new DiagramProposalDto { Mermaid = "   ", Kind = "flowchart" };
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, ValidRequest(item), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.True((await Db.RequirementItems.SingleAsync(TestContext.Current.CancellationToken)).HasDiagram);
+        Assert.Contains("flowchart TD", (await Db.DocumentGenerations.SingleAsync(TestContext.Current.CancellationToken)).Items);
+    }
+
+    // UTC37: SRS item with an existing diagram -> the provided diagram is kept (not regenerated)
+    [Fact]
+    public async Task GenerateDocumentAsync_WithSrsItemExistingDiagram_KeepsProvidedDiagram()
+    {
+        SetupAuthorizedUser();
+        var item = ItemWithCriteria("Login", "Open the login page", "Submit valid credentials");
+        item.Diagram = new DiagramProposalDto { Mermaid = "graph LR; Custom to Diagram", Kind = "flowchart" };
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, ValidRequest(item), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var generation = await Db.DocumentGenerations.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("graph LR; Custom to Diagram", generation.Items);
+        Assert.DoesNotContain("flowchart TD", generation.Items);
+    }
+
+    // UTC38: SRS item with a single acceptance criterion (fewer than 2 steps) -> no diagram generated
+    [Fact]
+    public async Task GenerateDocumentAsync_WithSrsItemSingleCriterion_DoesNotGenerateDiagram()
+    {
+        SetupAuthorizedUser();
+        var item = ItemWithCriteria("Login", "Open the login page");
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, ValidRequest(item), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.False((await Db.RequirementItems.SingleAsync(TestContext.Current.CancellationToken)).HasDiagram);
+    }
+
+    // UTC39: SRS item with no acceptance criteria (null) -> no diagram generated
+    [Fact]
+    public async Task GenerateDocumentAsync_WithSrsItemNullCriteria_DoesNotGenerateDiagram()
+    {
+        SetupAuthorizedUser();
+        var item = Item("Login");
+        item.AcceptanceCriteria = null!;
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, ValidRequest(item), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.False((await Db.RequirementItems.SingleAsync(TestContext.Current.CancellationToken)).HasDiagram);
+    }
+
+    // UTC40: BRD item without diagram -> diagram is NOT auto-generated (only SRS does that)
+    [Fact]
+    public async Task GenerateDocumentAsync_WithBrdItemWithoutDiagram_DoesNotAutoGenerateDiagram()
+    {
+        SetupAuthorizedUser();
+        var request = ValidRequest(ItemWithCriteria("Login", "Open the login page", "Submit valid credentials"));
+        request.DocType = "BRD";
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.False((await Db.RequirementItems.SingleAsync(TestContext.Current.CancellationToken)).HasDiagram);
+        Assert.DoesNotContain("flowchart TD", (await Db.DocumentGenerations.SingleAsync(TestContext.Current.CancellationToken)).Items);
+    }
+
+    // UTC41: BRD item with provided diagram -> stored as a mermaid codeBlock (no legacy mermaidBlock)
+    [Fact]
+    public async Task GenerateDocumentAsync_WithBrdItemDiagram_StoresMermaidCodeBlock()
+    {
+        SetupAuthorizedUser();
+        var item = Item("Flow");
+        item.Diagram = new DiagramProposalDto { Mermaid = "graph LR; Start to End", Kind = "flowchart" };
+        var request = ValidRequest(item);
+        request.DocType = "BRD";
+
+        var result = await DocumentService.GenerateDocumentAsync(ProjectId, request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.True((await Db.RequirementItems.SingleAsync(TestContext.Current.CancellationToken)).HasDiagram);
+        var version = await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken);
+        Assert.Contains("\"language\":\"mermaid\"", version.Content);
+        Assert.DoesNotContain("mermaidBlock", version.Content);
+    }
 }

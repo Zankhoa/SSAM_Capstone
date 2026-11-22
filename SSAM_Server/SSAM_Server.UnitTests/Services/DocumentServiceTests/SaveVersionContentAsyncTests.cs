@@ -478,4 +478,111 @@ public class SaveVersionContentAsyncTests : DocumentServiceTestBase
         Assert.Equal("VERSION_CONFLICT", result.ErrorCode);
         Assert.Equal(1, (await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken)).RowVersion);
     }
+
+    // =========================================================================
+    // 4. FIGMA WATCH REGISTRATION & MERMAID EDITOR NORMALIZATION
+    // =========================================================================
+
+    private static JsonElement ParseDoc(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+    // UTC28: Successful save -> normalized content is forwarded once to IFigmaWatchService.RegisterFilesFromContentAsync
+    [Fact]
+    public async Task SaveVersionContentAsync_WithValidContent_RegistersFigmaFilesFromNormalizedContent()
+    {
+        SetupDraftVersion();
+
+        var result = await DocumentService.SaveVersionContentAsync(DocumentId, VersionId, Request(), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        FigmaWatchMock.Verify(
+            f => f.RegisterFilesFromContentAsync(It.Is<string?>(c => c != null && c.Contains("REQ-001")), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    // UTC29: mermaidBlock with attrs.code -> returned version content exposes it as a mermaid codeBlock
+    [Fact]
+    public async Task SaveVersionContentAsync_WithMermaidBlockCode_ReturnsMermaidCodeBlock()
+    {
+        SetupDraftVersion();
+        var content = ParseDoc("{\"type\":\"doc\",\"content\":[{\"type\":\"mermaidBlock\",\"attrs\":{\"code\":\"graph TD; A-->B\"}}]}");
+
+        var result = await DocumentService.SaveVersionContentAsync(DocumentId, VersionId, Request(content), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var blocks = result.Data!.Version.Content.GetProperty("content").EnumerateArray().ToList();
+        Assert.DoesNotContain(blocks, b => b.GetProperty("type").GetString() == "mermaidBlock");
+        var code = Assert.Single(blocks, b => b.GetProperty("type").GetString() == "codeBlock");
+        Assert.Equal("mermaid", code.GetProperty("attrs").GetProperty("language").GetString());
+        Assert.Equal("graph TD; A-->B", code.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString());
+    }
+
+    // UTC30: mermaidBlock using the legacy attrs.mermaid property -> converted to a mermaid codeBlock
+    [Fact]
+    public async Task SaveVersionContentAsync_WithMermaidBlockLegacyAttr_ReturnsMermaidCodeBlock()
+    {
+        SetupDraftVersion();
+        var content = ParseDoc("{\"type\":\"doc\",\"content\":[{\"type\":\"mermaidBlock\",\"attrs\":{\"mermaid\":\"graph LR; X-->Y\"}}]}");
+
+        var result = await DocumentService.SaveVersionContentAsync(DocumentId, VersionId, Request(content), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var blocks = result.Data!.Version.Content.GetProperty("content").EnumerateArray().ToList();
+        var code = Assert.Single(blocks, b => b.GetProperty("type").GetString() == "codeBlock");
+        Assert.Equal("graph LR; X-->Y", code.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString());
+    }
+
+    // UTC31: Non-mermaid blocks (paragraph) are left untouched by the editor normalization
+    [Fact]
+    public async Task SaveVersionContentAsync_WithParagraphBlock_KeepsParagraphUnchanged()
+    {
+        SetupDraftVersion();
+        var content = ParseDoc("{\"type\":\"doc\",\"content\":[{\"type\":\"paragraph\",\"content\":[{\"type\":\"text\",\"text\":\"Hello\"}]}]}");
+
+        var result = await DocumentService.SaveVersionContentAsync(DocumentId, VersionId, Request(content), TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var blocks = result.Data!.Version.Content.GetProperty("content").EnumerateArray().ToList();
+        var paragraph = Assert.Single(blocks);
+        Assert.Equal("paragraph", paragraph.GetProperty("type").GetString());
+        Assert.Equal("Hello", paragraph.GetProperty("content").EnumerateArray().First().GetProperty("text").GetString());
+    }
+
+    // UTC32: Locked version -> rejected before any Figma file registration
+    [Fact]
+    public async Task SaveVersionContentAsync_WithLockedVersion_DoesNotRegisterFigmaFiles()
+    {
+        SetupDraftVersion(DocumentVersionStatuses.Approved);
+
+        var result = await DocumentService.SaveVersionContentAsync(DocumentId, VersionId, Request(), TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        FigmaWatchMock.Verify(f => f.RegisterFilesFromContentAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // UTC33: Stale RowVersion -> 409 conflict and no Figma file registration
+    [Fact]
+    public async Task SaveVersionContentAsync_WithStaleRowVersion_DoesNotRegisterFigmaFiles()
+    {
+        SetupDraftVersion(rowVersion: 3);
+
+        var result = await DocumentService.SaveVersionContentAsync(DocumentId, VersionId, Request(rowVersion: 1), TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("VERSION_CONFLICT", result.ErrorCode);
+        FigmaWatchMock.Verify(f => f.RegisterFilesFromContentAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // UTC34: Too long subtitle -> validation error and no Figma file registration
+    [Fact]
+    public async Task SaveVersionContentAsync_WithTooLongSubtitle_DoesNotRegisterFigmaFiles()
+    {
+        SetupDraftVersion();
+        var request = Request();
+        request.Subtitle = new string('a', 301);
+
+        var result = await DocumentService.SaveVersionContentAsync(DocumentId, VersionId, request, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        FigmaWatchMock.Verify(f => f.RegisterFilesFromContentAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
 }
