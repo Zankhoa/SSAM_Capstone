@@ -2617,6 +2617,93 @@ namespace SSAM_Server.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.ProjectScreen", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<long>("CreatedById")
+                        .HasColumnType("bigint")
+                        .HasColumnName("created_by_id");
+
+                    b.Property<long?>("DocumentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("document_id");
+
+                    b.Property<string>("FigmaUrl")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("figma_url");
+
+                    b.Property<string>("ImageContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("image_content_type");
+
+                    b.Property<string>("ImageFileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("image_file_name");
+
+                    b.Property<string>("ImageStoredName")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("image_stored_name");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("notes");
+
+                    b.Property<long>("ProjectId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.HasKey("Id")
+                        .HasName("PK_ProjectScreens");
+
+                    b.HasIndex("CreatedById");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("ProjectId", "CreatedAt")
+                        .HasDatabaseName("IX_ProjectScreens_Project_Time");
+
+                    b.ToTable("ProjectScreens", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_ProjectScreens_Kind", "[kind] IN ('SCREEN','LAYOUT')");
+                        });
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.ProjectSequence", b =>
                 {
                     b.Property<long>("ProjectId")
@@ -4802,6 +4889,35 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Actor");
 
                     b.Navigation("Phase");
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.ProjectScreen", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.User", "CreatedBy")
+                        .WithMany()
+                        .HasForeignKey("CreatedById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_ProjectScreens_CreatedBy");
+
+                    b.HasOne("SSAM_Server.Models.DocumentNode", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_ProjectScreens_Documents");
+
+                    b.HasOne("SSAM_Server.Models.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_ProjectScreens_Projects");
+
+                    b.Navigation("CreatedBy");
+
+                    b.Navigation("Document");
 
                     b.Navigation("Project");
                 });

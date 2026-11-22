@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace SSAM_Server.Data.Migrations
 {
     /// <inheritdoc />
-    public partial class AddWorkspacesAndRequests : Migration
+    public partial class AddWorkspacesAndMembershipRequests : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
