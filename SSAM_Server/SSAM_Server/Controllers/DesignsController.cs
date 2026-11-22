@@ -12,10 +12,12 @@ namespace SSAM_Server.Controllers;
 public class DesignsController : ControllerBase
 {
     private readonly IFigmaService _figmaService;
+    private readonly IFigmaWatchService _figmaWatchService;
 
-    public DesignsController(IFigmaService figmaService)
+    public DesignsController(IFigmaService figmaService, IFigmaWatchService figmaWatchService)
     {
         _figmaService = figmaService;
+        _figmaWatchService = figmaWatchService;
     }
 
     [HttpPost("resolve")]
@@ -24,5 +26,22 @@ public class DesignsController : ControllerBase
     {
         var result = await _figmaService.ResolveAsync(request, ct);
         return result.ToActionResult(this);
+    }
+
+    [AllowAnonymous]
+    [HttpPost("webhook")]
+    [ProducesResponseType(typeof(FigmaCheckUpdatesResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Webhook([FromBody] FigmaWebhookPayload payload, CancellationToken ct)
+    {
+        var result = await _figmaWatchService.HandleWebhookAsync(payload, ct);
+        return result.ToActionResult(this);
+    }
+
+    [HttpPost("check-updates")]
+    [ProducesResponseType(typeof(FigmaCheckUpdatesResponse), StatusCodes.Status200OK)]
+    public async Task<IActionResult> CheckUpdates(CancellationToken ct)
+    {
+        var result = await _figmaWatchService.CheckAllWatchedFilesAsync(ct);
+        return Ok(result);
     }
 }

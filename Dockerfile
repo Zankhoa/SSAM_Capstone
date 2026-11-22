@@ -30,5 +30,6 @@ ENTRYPOINT ["dotnet", "ef", "database", "update", "--project", "SSAM_Server.cspr
 FROM base AS final
 WORKDIR /app
 COPY --from=build /app/publish .
+RUN mkdir -p /app/uploads && chown -R app:app /app/uploads
 USER app
 ENTRYPOINT ["dotnet", "SSAM_Server.dll"]

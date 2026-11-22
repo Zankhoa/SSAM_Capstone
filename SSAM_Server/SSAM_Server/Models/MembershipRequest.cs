@@ -22,6 +22,9 @@ public class MembershipRequest
     public long? WorkspaceRoleId { get; set; }
     public CompanyRole? WorkspaceRole { get; set; }
 
+    public long? DepartmentId { get; set; }
+    public Department? Department { get; set; }
+
     public string? Token { get; set; }
     public string Status { get; set; } = "pending"; // pending | approved | rejected | accepted | expired
     public DateTime? ExpiresAt { get; set; }

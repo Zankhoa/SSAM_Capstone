@@ -98,13 +98,18 @@ public class WorkspaceRepository : IWorkspaceRepository
         var members = await query.OrderBy(wm => wm.JoinedAt).ToListAsync(ct);
         var userIds = members.Select(m => m.UserId).ToList();
 
-        var companyRoles = await _db.CompanyMembers
+        var companyMembers = await _db.CompanyMembers
             .AsNoTracking()
             .Include(cm => cm.Role)
+            .Include(cm => cm.Department)
             .Where(cm => cm.CompanyId == companyId && userIds.Contains(cm.UserId))
-            .ToDictionaryAsync(cm => cm.UserId, cm => cm.Role, ct);
+            .ToDictionaryAsync(cm => cm.UserId, cm => cm, ct);
 
-        return members.Select(wm => MapMemberDto(wm, companyRoles.GetValueOrDefault(wm.UserId))).ToList();
+        return members.Select(wm =>
+        {
+            var cm = companyMembers.GetValueOrDefault(wm.UserId);
+            return MapMemberDto(wm, cm?.Role, cm?.Department);
+        }).ToList();
     }
 
     public async Task<WorkspaceMemberDto?> GetMemberDtoAsync(long workspaceId, long companyId, long userId, CancellationToken ct = default)
@@ -121,9 +126,10 @@ public class WorkspaceRepository : IWorkspaceRepository
         var cm = await _db.CompanyMembers
             .AsNoTracking()
             .Include(x => x.Role)
+            .Include(x => x.Department)
             .FirstOrDefaultAsync(x => x.CompanyId == companyId && x.UserId == userId, ct);
 
-        return MapMemberDto(wm, cm?.Role);
+        return MapMemberDto(wm, cm?.Role, cm?.Department);
     }
 
     public async Task<List<UserRefDto>> ListMemberCandidatesAsync(
@@ -229,6 +235,18 @@ public class WorkspaceRepository : IWorkspaceRepository
                 .AsNoTracking()
                 .CountAsync(wm => wm.WorkspaceId == ws.Id && wm.IsActive, ct);
 
+        var departments = await _db.WorkspaceDepartments
+            .AsNoTracking()
+            .Where(wd => wd.WorkspaceId == ws.Id)
+            .OrderBy(wd => wd.Department.Name)
+            .Select(wd => new SSAM_Server.DTOs.Companies.DepartmentRefDto
+            {
+                DepartmentId = wd.DepartmentId,
+                Name = wd.Department.Name,
+                Code = wd.Department.Code
+            })
+            .ToListAsync(ct);
+
         return new WorkspaceDto
         {
             WorkspaceId = ws.Id,
@@ -245,11 +263,12 @@ public class WorkspaceRepository : IWorkspaceRepository
             CreatedBy = creator,
             CreatedAt = ws.CreatedAt,
             UpdatedAt = ws.UpdatedAt,
-            ArchivedAt = ws.ArchivedAt
+            ArchivedAt = ws.ArchivedAt,
+            Departments = departments
         };
     }
 
-    private static WorkspaceMemberDto MapMemberDto(WorkspaceMember wm, CompanyRole? companyRole)
+    private static WorkspaceMemberDto MapMemberDto(WorkspaceMember wm, CompanyRole? companyRole, Department? department = null)
     {
         return new WorkspaceMemberDto
         {
@@ -277,6 +296,14 @@ public class WorkspaceRepository : IWorkspaceRepository
                     Kind = companyRole.Kind
                 }
                 : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Tenant, Kind = RoleKinds.Other },
+            Department = department != null
+                ? new SSAM_Server.DTOs.Companies.DepartmentRefDto
+                {
+                    DepartmentId = department.Id,
+                    Name = department.Name,
+                    Code = department.Code
+                }
+                : null,
             JoinedAt = wm.JoinedAt
         };
     }

@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using SSAM_Server.Common;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Kanban;
@@ -26,4 +27,7 @@ public interface IKanbanService
     Task<ServiceResult<SprintDto>> UpdateSprintAsync(long sprintId, UpdateSprintRequest request, CancellationToken ct = default);
     Task<ServiceResult<SprintDto>> StartSprintAsync(long sprintId, StartSprintRequest? request, CancellationToken ct = default);
     Task<ServiceResult<SprintDto>> CompleteSprintAsync(long sprintId, CompleteSprintRequest? request, CancellationToken ct = default);
+    Task<ServiceResult<IssueAttachmentDto>> UploadIssueAttachmentAsync(long issueId, IFormFile file, CancellationToken ct = default);
+    Task<ServiceResult<(Stream Stream, string ContentType, string FileName)>> DownloadIssueAttachmentAsync(long issueId, long attachmentId, CancellationToken ct = default);
+    Task<ServiceResult> DeleteIssueAttachmentAsync(long issueId, long attachmentId, CancellationToken ct = default);
 }

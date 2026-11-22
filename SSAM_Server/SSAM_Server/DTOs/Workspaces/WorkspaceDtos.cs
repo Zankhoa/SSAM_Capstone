@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using SSAM_Server.DTOs.Common;
+using SSAM_Server.DTOs.Companies;
 
 namespace SSAM_Server.DTOs.Workspaces;
 
@@ -50,6 +51,9 @@ public class WorkspaceDto
 
     [JsonPropertyName("archivedAt")]
     public DateTime? ArchivedAt { get; set; }
+
+    [JsonPropertyName("departments")]
+    public List<DepartmentRefDto> Departments { get; set; } = new();
 }
 
 public class CreateWorkspaceRequestDto
@@ -65,6 +69,9 @@ public class CreateWorkspaceRequestDto
 
     [JsonPropertyName("companyId")]
     public long? CompanyId { get; set; }
+
+    [JsonPropertyName("departmentIds")]
+    public List<long>? DepartmentIds { get; set; }
 }
 
 public class UpdateWorkspaceRequestDto
@@ -90,6 +97,9 @@ public class UpdateWorkspaceRequestDto
 
     [JsonIgnore]
     public bool DescriptionSpecified { get; private set; }
+
+    [JsonPropertyName("departmentIds")]
+    public List<long>? DepartmentIds { get; set; }
 }
 
 public class WorkspaceCodeAvailabilityDto

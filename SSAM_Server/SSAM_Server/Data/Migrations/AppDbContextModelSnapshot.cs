@@ -210,6 +210,10 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("company_id");
 
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
@@ -231,6 +235,8 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnName("user_id");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("DepartmentId");
 
                     b.HasIndex("RoleId");
 
@@ -332,6 +338,69 @@ namespace SSAM_Server.Data.Migrations
 
                             t.HasCheckConstraint("CK_CompanyRoles_Scope", "[scope] IN ('TENANT', 'WORKSPACE', 'PROJECT')");
                         });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.Department", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("Code")
+                        .HasMaxLength(50)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(50)")
+                        .HasColumnName("code");
+
+                    b.Property<long>("CompanyId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("company_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)")
+                        .HasColumnName("description");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("name");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.HasKey("Id")
+                        .HasName("PK_Departments");
+
+                    b.HasIndex("CompanyId", "Code")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_Departments_Company_Code")
+                        .HasFilter("[code] IS NOT NULL");
+
+                    b.HasIndex("CompanyId", "Name")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_Departments_Company_Name");
+
+                    b.ToTable("Departments", (string)null);
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.DocumentActivity", b =>
@@ -891,6 +960,68 @@ namespace SSAM_Server.Data.Migrations
                     b.ToTable("ExternalLogins", (string)null);
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.FigmaFileWatch", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<string>("FileKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("file_key");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)")
+                        .HasColumnName("file_name");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("is_active");
+
+                    b.Property<DateTime?>("LastChangedAt")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("last_changed_at");
+
+                    b.Property<DateTime?>("LastCheckedAt")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("last_checked_at");
+
+                    b.Property<DateTime?>("LastModified")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("last_modified");
+
+                    b.Property<string>("LastVersion")
+                        .HasMaxLength(80)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("last_version");
+
+                    b.HasKey("Id")
+                        .HasName("PK_FigmaFileWatches");
+
+                    b.HasIndex("FileKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_FigmaFileWatches_FileKey");
+
+                    b.ToTable("FigmaFileWatches", (string)null);
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.Issue", b =>
                 {
                     b.Property<long>("Id")
@@ -909,6 +1040,10 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("datetime2")
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -1022,6 +1157,8 @@ namespace SSAM_Server.Data.Migrations
 
                     b.HasIndex("AssigneeId");
 
+                    b.HasIndex("DepartmentId");
+
                     b.HasIndex("ParentId")
                         .HasDatabaseName("IX_Issues_Parent");
 
@@ -1098,6 +1235,62 @@ namespace SSAM_Server.Data.Migrations
                         {
                             t.HasCheckConstraint("CK_IssueActivities_Action", "[action] IN ('CREATED','UPDATED','TRANSITIONED','ASSIGNED','SPRINT_CHANGED','REQ_LINKED','REQ_ACKED','REQ_CHANGED','COMMENTED','DELETED')");
                         });
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.IssueAttachment", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)")
+                        .HasColumnName("content_type");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("GETUTCDATE()");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("file_name");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint")
+                        .HasColumnName("file_size");
+
+                    b.Property<long>("IssueId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("issue_id");
+
+                    b.Property<string>("StoredFileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("stored_file_name");
+
+                    b.Property<long>("UploadedById")
+                        .HasColumnType("bigint")
+                        .HasColumnName("uploaded_by_id");
+
+                    b.HasKey("Id")
+                        .HasName("PK_IssueAttachments");
+
+                    b.HasIndex("UploadedById");
+
+                    b.HasIndex("IssueId", "CreatedAt")
+                        .HasDatabaseName("IX_IssueAttachments_Issue_Time");
+
+                    b.ToTable("IssueAttachments", (string)null);
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.IssueComment", b =>
@@ -1233,6 +1426,10 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("SYSUTCDATETIME()");
 
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -1286,6 +1483,8 @@ namespace SSAM_Server.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId");
+
+                    b.HasIndex("DepartmentId");
 
                     b.HasIndex("RoleId");
 
@@ -2894,6 +3093,45 @@ namespace SSAM_Server.Data.Migrations
                         });
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.TestCaseFigmaLink", b =>
+                {
+                    b.Property<long>("TestCaseId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("test_case_id");
+
+                    b.Property<string>("FileKey")
+                        .HasMaxLength(100)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(100)")
+                        .HasColumnName("file_key");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<string>("NodeId")
+                        .HasMaxLength(80)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(80)")
+                        .HasColumnName("node_id");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("url");
+
+                    b.HasKey("TestCaseId", "FileKey")
+                        .HasName("PK_TestCaseFigmaLinks");
+
+                    b.HasIndex("FileKey")
+                        .HasDatabaseName("IX_TestCaseFigmaLinks_FileKey");
+
+                    b.ToTable("TestCaseFigmaLinks", (string)null);
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.TestCaseRequirementLink", b =>
                 {
                     b.Property<long>("TestCaseId")
@@ -3592,6 +3830,30 @@ namespace SSAM_Server.Data.Migrations
                     b.ToTable("Workspaces", (string)null);
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.WorkspaceDepartment", b =>
+                {
+                    b.Property<long>("WorkspaceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("workspace_id");
+
+                    b.Property<long>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.HasKey("WorkspaceId", "DepartmentId")
+                        .HasName("PK_WorkspaceDepartments");
+
+                    b.HasIndex("DepartmentId");
+
+                    b.ToTable("WorkspaceDepartments", (string)null);
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.WorkspaceMember", b =>
                 {
                     b.Property<long>("Id")
@@ -3670,6 +3932,12 @@ namespace SSAM_Server.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("FK_CompanyMembers_Companies");
 
+                    b.HasOne("SSAM_Server.Models.Department", "Department")
+                        .WithMany("Members")
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_CompanyMembers_Departments");
+
                     b.HasOne("SSAM_Server.Models.CompanyRole", "Role")
                         .WithMany("Members")
                         .HasForeignKey("RoleId")
@@ -3686,6 +3954,8 @@ namespace SSAM_Server.Data.Migrations
 
                     b.Navigation("Company");
 
+                    b.Navigation("Department");
+
                     b.Navigation("Role");
 
                     b.Navigation("User");
@@ -3699,6 +3969,18 @@ namespace SSAM_Server.Data.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired()
                         .HasConstraintName("FK_CompanyRoles_Companies");
+
+                    b.Navigation("Company");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.Department", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_Departments_Companies");
 
                     b.Navigation("Company");
                 });
@@ -3971,6 +4253,12 @@ namespace SSAM_Server.Data.Migrations
                         .OnDelete(DeleteBehavior.NoAction)
                         .HasConstraintName("FK_Issues_Assignee");
 
+                    b.HasOne("SSAM_Server.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_Issues_Department");
+
                     b.HasOne("SSAM_Server.Models.Issue", "Parent")
                         .WithMany("Subtasks")
                         .HasForeignKey("ParentId")
@@ -4006,6 +4294,8 @@ namespace SSAM_Server.Data.Migrations
 
                     b.Navigation("Assignee");
 
+                    b.Navigation("Department");
+
                     b.Navigation("Parent");
 
                     b.Navigation("Project");
@@ -4035,6 +4325,27 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Actor");
 
                     b.Navigation("Issue");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.IssueAttachment", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.Issue", "Issue")
+                        .WithMany()
+                        .HasForeignKey("IssueId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_IssueAttachments_Issue");
+
+                    b.HasOne("SSAM_Server.Models.User", "UploadedBy")
+                        .WithMany()
+                        .HasForeignKey("UploadedById")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_IssueAttachments_UploadedBy");
+
+                    b.Navigation("Issue");
+
+                    b.Navigation("UploadedBy");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.IssueComment", b =>
@@ -4126,6 +4437,12 @@ namespace SSAM_Server.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("FK_MembershipRequests_Companies");
 
+                    b.HasOne("SSAM_Server.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_MembershipRequests_Departments");
+
                     b.HasOne("SSAM_Server.Models.CompanyRole", "Role")
                         .WithMany()
                         .HasForeignKey("RoleId")
@@ -4151,6 +4468,8 @@ namespace SSAM_Server.Data.Migrations
                         .HasConstraintName("FK_MembershipRequests_WorkspaceRole");
 
                     b.Navigation("Company");
+
+                    b.Navigation("Department");
 
                     b.Navigation("Role");
 
@@ -4520,6 +4839,18 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Section");
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.TestCaseFigmaLink", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.TestCase", "TestCase")
+                        .WithMany("FigmaLinks")
+                        .HasForeignKey("TestCaseId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_TestCaseFigmaLinks_Case");
+
+                    b.Navigation("TestCase");
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.TestCaseRequirementLink", b =>
                 {
                     b.HasOne("SSAM_Server.Models.DocumentNode", "Document")
@@ -4802,6 +5133,27 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Creator");
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.WorkspaceDepartment", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkspaceDepartments_Departments");
+
+                    b.HasOne("SSAM_Server.Models.Workspace", "Workspace")
+                        .WithMany("WorkspaceDepartments")
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_WorkspaceDepartments_Workspaces");
+
+                    b.Navigation("Department");
+
+                    b.Navigation("Workspace");
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.WorkspaceMember", b =>
                 {
                     b.HasOne("SSAM_Server.Models.CompanyRole", "Role")
@@ -4856,6 +5208,11 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Members");
 
                     b.Navigation("RolePermissions");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.Department", b =>
+                {
+                    b.Navigation("Members");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.DocumentComment", b =>
@@ -4931,6 +5288,8 @@ namespace SSAM_Server.Data.Migrations
 
             modelBuilder.Entity("SSAM_Server.Models.TestCase", b =>
                 {
+                    b.Navigation("FigmaLinks");
+
                     b.Navigation("RequirementLinks");
 
                     b.Navigation("Results");
@@ -4991,6 +5350,8 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Members");
 
                     b.Navigation("Projects");
+
+                    b.Navigation("WorkspaceDepartments");
                 });
 #pragma warning restore 612, 618
         }

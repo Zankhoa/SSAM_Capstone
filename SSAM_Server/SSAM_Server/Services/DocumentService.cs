@@ -19,6 +19,7 @@ public class DocumentService : IDocumentService
     private readonly IAiService _aiService;
     private readonly IProjectAccessGuard _accessGuard;
     private readonly IRequirementSyncService _requirementSync;
+    private readonly IFigmaWatchService _figmaWatchService;
 
     public DocumentService(
         AppDbContext db,
@@ -27,7 +28,8 @@ public class DocumentService : IDocumentService
         TimeProvider clock,
         IAiService aiService,
         IProjectAccessGuard accessGuard,
-        IRequirementSyncService requirementSync)
+        IRequirementSyncService requirementSync,
+        IFigmaWatchService figmaWatchService)
     {
         _db = db;
         _currentUser = currentUser;
@@ -36,6 +38,7 @@ public class DocumentService : IDocumentService
         _aiService = aiService;
         _accessGuard = accessGuard;
         _requirementSync = requirementSync;
+        _figmaWatchService = figmaWatchService;
     }
 
     public async Task<ServiceResult<ItemsDto<DocumentNodeDto>>> GetProjectDocumentsAsync(
@@ -562,6 +565,7 @@ public class DocumentService : IDocumentService
         }
 
         var (normalizedJson, plainText, extractedReqs) = DocumentContentHelper.ProcessContent(request.Content);
+        await _figmaWatchService.RegisterFilesFromContentAsync(normalizedJson, ct);
 
         var userId = _currentUser.UserId;
         var now = _clock.GetUtcNow().UtcDateTime;
