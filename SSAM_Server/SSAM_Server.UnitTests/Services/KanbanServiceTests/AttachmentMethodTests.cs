@@ -6,6 +6,10 @@ namespace SSAM_Server.UnitTests.Services.KanbanServiceTests;
 
 public class AttachmentMethodTests : KanbanServiceTestBase
 {
+    // =========================================================================
+    // 1. NORMAL CASES
+    // =========================================================================
+
     // UTC001: Uploading a valid file stores metadata and creates a physical file.
     [Fact]
     public async Task UploadIssueAttachmentAsync_WithValidFile_ReturnsAttachment()
@@ -28,21 +32,7 @@ public class AttachmentMethodTests : KanbanServiceTestBase
         Assert.True(File.Exists(Path.Combine(UploadRoot, "issues", issue.Id.ToString(), attachment.StoredFileName)));
     }
 
-    // UTC002: An empty file is rejected.
-    [Fact]
-    public async Task UploadIssueAttachmentAsync_WhenFileIsEmpty_ReturnsBadRequest()
-    {
-        SeedWorkflow();
-        var issue = SeedIssue();
-        var file = new FormFile(new MemoryStream(), 0, 0, "file", "empty.txt");
-
-        var result = await KanbanService.UploadIssueAttachmentAsync(issue.Id, file, TestContext.Current.CancellationToken);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal("INVALID_FILE", result.ErrorCode);
-    }
-
-    // UTC003: Deleting an existing attachment removes metadata and the physical file.
+    // UTC002: Deleting an existing attachment removes metadata and the physical file.
     [Fact]
     public async Task DeleteIssueAttachmentAsync_WithExistingAttachment_ReturnsNoContent()
     {
@@ -72,6 +62,24 @@ public class AttachmentMethodTests : KanbanServiceTestBase
         Assert.Equal(StatusCodes.Status204NoContent, result.StatusCode);
         Assert.Empty(Db.IssueAttachments);
         Assert.False(File.Exists(path));
+    }
+
+    // =========================================================================
+    // 2. ABNORMAL CASES
+    // =========================================================================
+
+    // UTC003: An empty file is rejected.
+    [Fact]
+    public async Task UploadIssueAttachmentAsync_WhenFileIsEmpty_ReturnsBadRequest()
+    {
+        SeedWorkflow();
+        var issue = SeedIssue();
+        var file = new FormFile(new MemoryStream(), 0, 0, "file", "empty.txt");
+
+        var result = await KanbanService.UploadIssueAttachmentAsync(issue.Id, file, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal("INVALID_FILE", result.ErrorCode);
     }
 
     // UTC004: Deleting a missing attachment returns not found.

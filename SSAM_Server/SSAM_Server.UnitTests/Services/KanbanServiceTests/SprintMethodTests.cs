@@ -7,6 +7,10 @@ namespace SSAM_Server.UnitTests.Services.KanbanServiceTests;
 
 public class SprintMethodTests : KanbanServiceTestBase
 {
+    // =========================================================================
+    // 1. NORMAL CASES
+    // =========================================================================
+
     // UTC001: Creating a valid sprint starts in PLANNED state.
     [Fact]
     public async Task CreateSprintAsync_WithValidRequest_ReturnsCreatedPlannedSprint()
@@ -25,19 +29,7 @@ public class SprintMethodTests : KanbanServiceTestBase
         Assert.Equal(SprintStatuses.Planned, sprint.Status);
     }
 
-    // UTC002: An invalid sprint date range is rejected.
-    [Fact]
-    public async Task CreateSprintAsync_WhenEndDatePrecedesStartDate_ReturnsValidationError()
-    {
-        SeedProject();
-
-        var result = await KanbanService.CreateSprintAsync(100, new CreateSprintRequest { Name = "Sprint", StartDate = "2026-12-14", EndDate = "2026-12-01" }, TestContext.Current.CancellationToken);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
-    }
-
-    // UTC003: Updating a planned sprint persists the changed fields.
+    // UTC002: Updating a planned sprint persists the changed fields.
     [Fact]
     public async Task UpdateSprintAsync_WithValidRequest_ReturnsUpdatedSprint()
     {
@@ -50,7 +42,7 @@ public class SprintMethodTests : KanbanServiceTestBase
         Assert.Equal("Updated Sprint", (await Db.Sprints.FindAsync(sprint.Id))!.Name);
     }
 
-    // UTC004: Starting a planned sprint changes it to ACTIVE and supplies default dates.
+    // UTC003: Starting a planned sprint changes it to ACTIVE and supplies default dates.
     [Fact]
     public async Task StartSprintAsync_WithPlannedSprint_ReturnsActiveSprint()
     {
@@ -63,6 +55,35 @@ public class SprintMethodTests : KanbanServiceTestBase
         var saved = await Db.Sprints.FindAsync(sprint.Id);
         Assert.Equal(SprintStatuses.Active, saved!.Status);
         Assert.Equal(DateOnly.FromDateTime(Clock.GetUtcNow().UtcDateTime), saved.StartDate);
+    }
+
+    // UTC004: Completing an active sprint changes it to COMPLETED.
+    [Fact]
+    public async Task CompleteSprintAsync_WithActiveSprint_ReturnsCompletedSprint()
+    {
+        SeedProject();
+        var sprint = SeedSprint(400, SprintStatuses.Active);
+
+        var result = await KanbanService.CompleteSprintAsync(sprint.Id, null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(SprintStatuses.Completed, (await Db.Sprints.FindAsync(sprint.Id))!.Status);
+    }
+
+    // =========================================================================
+    // 2. ABNORMAL CASES
+    // =========================================================================
+
+    // UTC004: An invalid sprint date range is rejected.
+    [Fact]
+    public async Task CreateSprintAsync_WhenEndDatePrecedesStartDate_ReturnsValidationError()
+    {
+        SeedProject();
+
+        var result = await KanbanService.CreateSprintAsync(100, new CreateSprintRequest { Name = "Sprint", StartDate = "2026-12-14", EndDate = "2026-12-01" }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
     }
 
     // UTC005: A second active sprint is rejected.
@@ -79,19 +100,6 @@ public class SprintMethodTests : KanbanServiceTestBase
         Assert.Equal("ACTIVE_SPRINT_EXISTS", result.ErrorCode);
     }
 
-    // UTC006: Completing an active sprint changes it to COMPLETED.
-    [Fact]
-    public async Task CompleteSprintAsync_WithActiveSprint_ReturnsCompletedSprint()
-    {
-        SeedProject();
-        var sprint = SeedSprint(400, SprintStatuses.Active);
-
-        var result = await KanbanService.CompleteSprintAsync(sprint.Id, null, TestContext.Current.CancellationToken);
-
-        Assert.True(result.IsSuccess);
-        Assert.Equal(SprintStatuses.Completed, (await Db.Sprints.FindAsync(sprint.Id))!.Status);
-    }
-
     // UTC007: Completing a planned sprint is rejected.
     [Fact]
     public async Task CompleteSprintAsync_WhenSprintIsNotActive_ReturnsConflict()
@@ -104,4 +112,5 @@ public class SprintMethodTests : KanbanServiceTestBase
         Assert.False(result.IsSuccess);
         Assert.Equal("INVALID_SPRINT_STATE", result.ErrorCode);
     }
+
 }

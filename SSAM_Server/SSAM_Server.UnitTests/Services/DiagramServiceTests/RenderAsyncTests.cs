@@ -36,7 +36,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Render valid PlantUML code successfully -> 200 with SVG, POSTs code to {ServerUrl}/svg
+    // UTC001: Render valid PlantUML code successfully -> 200 with SVG, POSTs code to {ServerUrl}/svg
     [Fact]
     public async Task RenderAsync_WithValidPlantUmlCode_ReturnsOkWithSvg()
     {
@@ -60,7 +60,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         PermissionServiceMock.Verify(p => p.HasAnyProjectPermissionAsync(1, PermissionKeys.DocumentView, It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC02: Kind is matched case-insensitively and trimmed (" PlantUML ") -> 200
+    // UTC002: Kind is matched case-insensitively and trimmed (" PlantUML ") -> 200
     [Fact]
     public async Task RenderAsync_WithKindDifferentCaseAndWhitespace_ReturnsOk()
     {
@@ -74,7 +74,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(1, Handler.CallCount);
     }
 
-    // UTC03: Trailing slashes of ServerUrl are trimmed before appending /svg
+    // UTC003: Trailing slashes of ServerUrl are trimmed before appending /svg
     [Fact]
     public async Task RenderAsync_WithServerUrlTrailingSlash_PostsToNormalizedEndpoint()
     {
@@ -87,7 +87,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("http://plantuml.local:8080/svg", Handler.LastUri!.ToString());
     }
 
-    // UTC04: Second render of identical code is served from cache -> HTTP called only once
+    // UTC004: Second render of identical code is served from cache -> HTTP called only once
     [Fact]
     public async Task RenderAsync_WhenSameCodeRenderedTwice_SecondCallServedFromCache()
     {
@@ -106,7 +106,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         HttpClientFactoryMock.Verify(f => f.CreateClient(It.IsAny<string>()), Times.Once);
     }
 
-    // UTC05: Successful render stores the sanitized SVG in cache under plantuml:svg:<sha256>
+    // UTC005: Successful render stores the sanitized SVG in cache under plantuml:svg:<sha256>
     [Fact]
     public async Task RenderAsync_OnSuccess_StoresSvgInCacheWithHashKey()
     {
@@ -119,7 +119,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("<svg>cached</svg>", cached);
     }
 
-    // UTC06: Pre-seeded cache entry is returned without any HTTP call or HttpClient creation
+    // UTC006: Pre-seeded cache entry is returned without any HTTP call or HttpClient creation
     [Fact]
     public async Task RenderAsync_WhenCacheContainsEntry_ReturnsCachedSvgWithoutHttpCall()
     {
@@ -135,7 +135,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         HttpClientFactoryMock.Verify(f => f.CreateClient(It.IsAny<string>()), Times.Never);
     }
 
-    // UTC07: Different code produces a different cache entry -> two HTTP calls
+    // UTC007: Different code produces a different cache entry -> two HTTP calls
     [Fact]
     public async Task RenderAsync_WithDifferentCode_DoesNotReuseCache()
     {
@@ -152,7 +152,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.True(Cache.TryGetValue<string>(CacheKeyOf("@startuml\nA -> C\n@enduml"), out _));
     }
 
-    // UTC08: Empty-string cache entry is treated as a miss -> HTTP call is made
+    // UTC008: Empty-string cache entry is treated as a miss -> HTTP call is made
     [Fact]
     public async Task RenderAsync_WhenCachedValueIsEmpty_FallsThroughToHttp()
     {
@@ -167,7 +167,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(1, Handler.CallCount);
     }
 
-    // UTC09: <script> blocks are stripped from the returned SVG (output sanitization)
+    // UTC009: <script> blocks are stripped from the returned SVG (output sanitization)
     [Fact]
     public async Task RenderAsync_WhenSvgContainsScriptTag_StripsScript()
     {
@@ -180,7 +180,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("<svg><rect/></svg>", result.Data!.Svg);
     }
 
-    // UTC10: Multi-line, upper-case <SCRIPT ...> blocks are stripped as well
+    // UTC010: Multi-line, upper-case <SCRIPT ...> blocks are stripped as well
     [Fact]
     public async Task RenderAsync_WhenSvgContainsMultilineUppercaseScript_StripsScript()
     {
@@ -192,7 +192,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("<svg><circle/></svg>", result.Data!.Svg);
     }
 
-    // UTC11: Inline event handler attributes (double, single, unquoted) are removed
+    // UTC011: Inline event handler attributes (double, single, unquoted) are removed
     [Fact]
     public async Task RenderAsync_WhenSvgContainsEventAttributes_RemovesThem()
     {
@@ -207,7 +207,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.StartsWith("<svg><rect", result.Data.Svg);
     }
 
-    // UTC12: javascript: URIs are removed from the returned SVG
+    // UTC012: javascript: URIs are removed from the returned SVG
     [Fact]
     public async Task RenderAsync_WhenSvgContainsJavascriptUri_RemovesScheme()
     {
@@ -221,7 +221,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("<svg><a href=\" alert(1)\"><text>x</text></a></svg>", result.Data.Svg);
     }
 
-    // UTC13: A clean SVG passes through the sanitizer unchanged
+    // UTC013: A clean SVG passes through the sanitizer unchanged
     [Fact]
     public async Task RenderAsync_WhenSvgIsClean_ReturnsSvgUnchanged()
     {
@@ -234,7 +234,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(svg, result.Data!.Svg);
     }
 
-    // UTC14: Timeout is taken from options (5s)
+    // UTC014: Timeout is taken from options (5s)
     [Fact]
     public async Task RenderAsync_WithTimeoutSecondsInRange_AppliesConfiguredTimeout()
     {
@@ -251,7 +251,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC15: Unauthenticated user -> 401 UNAUTHORIZED, nothing else is touched
+    // UTC015: Unauthenticated user -> 401 UNAUTHORIZED, nothing else is touched
     [Fact]
     public async Task RenderAsync_WhenUserIsNotAuthenticated_ReturnsUnauthorized()
     {
@@ -268,7 +268,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(0, Handler.CallCount);
     }
 
-    // UTC16: User lacks document.view on every project -> 403 FORBIDDEN with required permission
+    // UTC016: User lacks document.view on every project -> 403 FORBIDDEN with required permission
     [Fact]
     public async Task RenderAsync_WhenUserLacksDocumentView_ReturnsForbidden()
     {
@@ -287,7 +287,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         HttpClientFactoryMock.Verify(f => f.CreateClient(It.IsAny<string>()), Times.Never);
     }
 
-    // UTC17: Unsupported kind ("mermaid") -> 400 VALIDATION_ERROR on "kind"
+    // UTC017: Unsupported kind ("mermaid") -> 400 VALIDATION_ERROR on "kind"
     [Fact]
     public async Task RenderAsync_WithUnsupportedKind_ReturnsValidationError()
     {
@@ -304,7 +304,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(0, Handler.CallCount);
     }
 
-    // UTC18: Empty kind -> 400 validation on "kind"
+    // UTC018: Empty kind -> 400 validation on "kind"
     [Fact]
     public async Task RenderAsync_WithEmptyKind_ReturnsValidationError()
     {
@@ -316,7 +316,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.True(result.Errors!.ContainsKey("kind"));
     }
 
-    // UTC19: Null kind -> 400 validation on "kind"
+    // UTC019: Null kind -> 400 validation on "kind"
     [Fact]
     public async Task RenderAsync_WithNullKind_ReturnsValidationError()
     {
@@ -330,7 +330,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.True(result.Errors!.ContainsKey("kind"));
     }
 
-    // UTC20: Empty code -> 400 validation on "code"
+    // UTC020: Empty code -> 400 validation on "code"
     [Fact]
     public async Task RenderAsync_WithEmptyCode_ReturnsValidationError()
     {
@@ -345,7 +345,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(0, Handler.CallCount);
     }
 
-    // UTC21: Whitespace-only code -> 400 validation on "code"
+    // UTC021: Whitespace-only code -> 400 validation on "code"
     [Fact]
     public async Task RenderAsync_WithWhitespaceCode_ReturnsValidationError()
     {
@@ -357,7 +357,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.True(result.Errors!.ContainsKey("code"));
     }
 
-    // UTC22: Null code -> 400 validation on "code"
+    // UTC022: Null code -> 400 validation on "code"
     [Fact]
     public async Task RenderAsync_WithNullCode_ReturnsValidationError()
     {
@@ -370,7 +370,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.True(result.Errors!.ContainsKey("code"));
     }
 
-    // UTC23: Code longer than MaxCodeLength -> 400 validation mentioning the limit
+    // UTC023: Code longer than MaxCodeLength -> 400 validation mentioning the limit
     [Fact]
     public async Task RenderAsync_WithCodeExceedingMaxLength_ReturnsValidationError()
     {
@@ -386,16 +386,16 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(0, Handler.CallCount);
     }
 
-    // UTC24: Forbidden directives (!include, !includeurl, !includesub, !import, !theme..from, %getenv, %load_json, case-insensitive) -> 400 FORBIDDEN_DIRECTIVE
+    // UTC024–UTC031: Each forbidden directive variant returns 400 FORBIDDEN_DIRECTIVE.
     [Theory]
-    [InlineData("@startuml\n!include http://evil/x.puml\n@enduml")]            // UTC24a: !include
-    [InlineData("@startuml\n!includeurl http://evil/x.puml\n@enduml")]          // UTC24b: !includeurl
-    [InlineData("@startuml\n!includesub file.puml!SUB\n@enduml")]               // UTC24c: !includesub
-    [InlineData("@startuml\n!import lib.zip\n@enduml")]                         // UTC24d: !import
-    [InlineData("@startuml\n!theme sketchy from http://evil\n@enduml")]         // UTC24e: !theme ... from
-    [InlineData("@startuml\nAlice -> Bob : %getenv(\"HOME\")\n@enduml")]        // UTC24f: %getenv(
-    [InlineData("@startuml\n%load_json(\"x.json\")\n@enduml")]                  // UTC24g: %load_json(
-    [InlineData("@startuml\n!INCLUDE x.puml\n@enduml")]                         // UTC24h: upper-case directive
+    [InlineData("@startuml\n!include http://evil/x.puml\n@enduml")]            // UTC024: !include
+    [InlineData("@startuml\n!includeurl http://evil/x.puml\n@enduml")]          // UTC025: !includeurl
+    [InlineData("@startuml\n!includesub file.puml!SUB\n@enduml")]               // UTC026: !includesub
+    [InlineData("@startuml\n!import lib.zip\n@enduml")]                         // UTC027: !import
+    [InlineData("@startuml\n!theme sketchy from http://evil\n@enduml")]         // UTC028: !theme ... from
+    [InlineData("@startuml\nAlice -> Bob : %getenv(\"HOME\")\n@enduml")]        // UTC029: %getenv(
+    [InlineData("@startuml\n%load_json(\"x.json\")\n@enduml")]                  // UTC030: %load_json(
+    [InlineData("@startuml\n!INCLUDE x.puml\n@enduml")]                         // UTC031: upper-case directive
     public async Task RenderAsync_WithForbiddenDirective_ReturnsBadRequest(string code)
     {
         SetupAuthorizedUser();
@@ -409,7 +409,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.False(Cache.TryGetValue<string>(CacheKeyOf(code), out _));
     }
 
-    // UTC25: ServerUrl not configured (null) -> 501 PLANTUML_NOT_CONFIGURED
+    // UTC032: ServerUrl not configured (null) -> 501 PLANTUML_NOT_CONFIGURED
     [Fact]
     public async Task RenderAsync_WhenServerUrlIsNull_ReturnsNotImplemented()
     {
@@ -425,7 +425,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         HttpClientFactoryMock.Verify(f => f.CreateClient(It.IsAny<string>()), Times.Never);
     }
 
-    // UTC26: ServerUrl whitespace -> 501 PLANTUML_NOT_CONFIGURED
+    // UTC033: ServerUrl whitespace -> 501 PLANTUML_NOT_CONFIGURED
     [Fact]
     public async Task RenderAsync_WhenServerUrlIsWhitespace_ReturnsNotImplemented()
     {
@@ -438,7 +438,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("PLANTUML_NOT_CONFIGURED", result.ErrorCode);
     }
 
-    // UTC27: Not-configured check precedes cache lookup -> cached entry is not served
+    // UTC034: Not-configured check precedes cache lookup -> cached entry is not served
     [Fact]
     public async Task RenderAsync_WhenNotConfiguredAndCacheHasEntry_StillReturnsNotImplemented()
     {
@@ -451,7 +451,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(StatusCodes.Status501NotImplemented, result.StatusCode);
     }
 
-    // UTC28: PlantUML server returns 400 with X-PlantUML-Diagram-Error header -> 400 validation using header text
+    // UTC035: PlantUML server returns 400 with X-PlantUML-Diagram-Error header -> 400 validation using header text
     [Fact]
     public async Task RenderAsync_WhenServerReturnsBadRequestWithErrorHeader_ReturnsValidationErrorWithDetail()
     {
@@ -474,7 +474,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.False(Cache.TryGetValue<string>(CacheKeyOf(ValidCode), out _));
     }
 
-    // UTC29: PlantUML server returns 400 without header -> default syntax message
+    // UTC036: PlantUML server returns 400 without header -> default syntax message
     [Fact]
     public async Task RenderAsync_WhenServerReturnsBadRequestWithoutHeader_ReturnsDefaultSyntaxMessage()
     {
@@ -489,7 +489,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(new[] { "Cú pháp PlantUML không hợp lệ." }, result.Errors!["code"]);
     }
 
-    // UTC30: Server returns 500 -> 502 PLANTUML_ERROR, not cached
+    // UTC037: Server returns 500 -> 502 PLANTUML_ERROR, not cached
     [Fact]
     public async Task RenderAsync_WhenServerReturnsInternalError_ReturnsBadGateway()
     {
@@ -504,7 +504,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.False(Cache.TryGetValue<string>(CacheKeyOf(ValidCode), out _));
     }
 
-    // UTC31: Server returns 404 (non-400 error) -> 502 PLANTUML_ERROR
+    // UTC038: Server returns 404 (non-400 error) -> 502 PLANTUML_ERROR
     [Fact]
     public async Task RenderAsync_WhenServerReturnsNotFound_ReturnsBadGateway()
     {
@@ -517,7 +517,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("PLANTUML_ERROR", result.ErrorCode);
     }
 
-    // UTC32: HttpRequestException (server down) -> 502 PLANTUML_UNAVAILABLE
+    // UTC039: HttpRequestException (server down) -> 502 PLANTUML_UNAVAILABLE
     [Fact]
     public async Task RenderAsync_WhenHttpRequestExceptionThrown_ReturnsBadGatewayUnavailable()
     {
@@ -532,7 +532,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.False(Cache.TryGetValue<string>(CacheKeyOf(ValidCode), out _));
     }
 
-    // UTC33: Timeout (TaskCanceledException) -> 502 PLANTUML_UNAVAILABLE
+    // UTC040: Timeout (TaskCanceledException) -> 502 PLANTUML_UNAVAILABLE
     [Fact]
     public async Task RenderAsync_WhenRequestTimesOut_ReturnsBadGatewayUnavailable()
     {
@@ -545,7 +545,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("PLANTUML_UNAVAILABLE", result.ErrorCode);
     }
 
-    // UTC34: Unexpected exception type is not swallowed -> propagates to caller
+    // UTC041: Unexpected exception type is not swallowed -> propagates to caller
     [Fact]
     public async Task RenderAsync_WhenUnexpectedExceptionThrown_Propagates()
     {
@@ -556,7 +556,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
             () => DiagramService.RenderAsync(Req(), TestContext.Current.CancellationToken));
     }
 
-    // UTC35: Content-Length header larger than MaxSvgBytes -> 413 SVG_TOO_LARGE, not cached
+    // UTC042: Content-Length header larger than MaxSvgBytes -> 413 SVG_TOO_LARGE, not cached
     [Fact]
     public async Task RenderAsync_WhenContentLengthExceedsMaxSvgBytes_ReturnsPayloadTooLarge()
     {
@@ -572,7 +572,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.False(Cache.TryGetValue<string>(CacheKeyOf(ValidCode), out _));
     }
 
-    // UTC36: Unknown Content-Length but body larger than MaxSvgBytes -> 413 SVG_TOO_LARGE
+    // UTC043: Unknown Content-Length but body larger than MaxSvgBytes -> 413 SVG_TOO_LARGE
     [Fact]
     public async Task RenderAsync_WhenStreamedBodyExceedsMaxSvgBytes_ReturnsPayloadTooLarge()
     {
@@ -593,7 +593,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
     // 3. BOUNDARY CASES
     // =========================================================================
 
-    // UTC37: Code length == MaxCodeLength -> accepted
+    // UTC044: Code length == MaxCodeLength -> accepted
     [Fact]
     public async Task RenderAsync_WithCodeLengthEqualToMax_ReturnsOk()
     {
@@ -606,7 +606,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(1, Handler.CallCount);
     }
 
-    // UTC38: Code length == MaxCodeLength + 1 -> rejected
+    // UTC045: Code length == MaxCodeLength + 1 -> rejected
     [Fact]
     public async Task RenderAsync_WithCodeLengthOneOverMax_ReturnsValidationError()
     {
@@ -620,7 +620,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(0, Handler.CallCount);
     }
 
-    // UTC39: Code of a single character (min non-blank) -> accepted
+    // UTC046: Code of a single character (min non-blank) -> accepted
     [Fact]
     public async Task RenderAsync_WithSingleCharacterCode_ReturnsOk()
     {
@@ -632,7 +632,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal("a", Handler.LastBody);
     }
 
-    // UTC40: SVG size == MaxSvgBytes -> accepted
+    // UTC047: SVG size == MaxSvgBytes -> accepted
     [Fact]
     public async Task RenderAsync_WithSvgSizeEqualToMax_ReturnsOk()
     {
@@ -646,7 +646,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(new string('x', 10), result.Data!.Svg);
     }
 
-    // UTC41: SVG size == MaxSvgBytes + 1 -> 413
+    // UTC048: SVG size == MaxSvgBytes + 1 -> 413
     [Fact]
     public async Task RenderAsync_WithSvgSizeOneOverMax_ReturnsPayloadTooLarge()
     {
@@ -659,7 +659,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(StatusCodes.Status413PayloadTooLarge, result.StatusCode);
     }
 
-    // UTC42: TimeoutSeconds below minimum (0) is clamped to 1 second
+    // UTC049: TimeoutSeconds below minimum (0) is clamped to 1 second
     [Fact]
     public async Task RenderAsync_WithTimeoutBelowMinimum_ClampsToOneSecond()
     {
@@ -671,7 +671,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(TimeSpan.FromSeconds(1), LastClient!.Timeout);
     }
 
-    // UTC43: Negative TimeoutSeconds is clamped to 1 second
+    // UTC050: Negative TimeoutSeconds is clamped to 1 second
     [Fact]
     public async Task RenderAsync_WithNegativeTimeout_ClampsToOneSecond()
     {
@@ -683,7 +683,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(TimeSpan.FromSeconds(1), LastClient!.Timeout);
     }
 
-    // UTC44: TimeoutSeconds == 30 (max) is kept
+    // UTC051: TimeoutSeconds == 30 (max) is kept
     [Fact]
     public async Task RenderAsync_WithTimeoutAtMaximum_KeepsThirtySeconds()
     {
@@ -695,7 +695,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(TimeSpan.FromSeconds(30), LastClient!.Timeout);
     }
 
-    // UTC45: TimeoutSeconds above maximum (31) is clamped to 30 seconds
+    // UTC052: TimeoutSeconds above maximum (31) is clamped to 30 seconds
     [Fact]
     public async Task RenderAsync_WithTimeoutAboveMaximum_ClampsToThirtySeconds()
     {
@@ -707,7 +707,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(TimeSpan.FromSeconds(30), LastClient!.Timeout);
     }
 
-    // UTC46: Directive-like plain text ("include and import" without "!") is allowed
+    // UTC053: Directive-like plain text ("include and import" without "!") is allowed
     [Fact]
     public async Task RenderAsync_WithDirectiveLikeButAllowedText_ReturnsOk()
     {
@@ -719,7 +719,7 @@ public class RenderAsyncTests : DiagramServiceTestBase
         Assert.Equal(1, Handler.CallCount);
     }
 
-    // UTC47: !theme without "from" is allowed
+    // UTC054: !theme without "from" is allowed
     [Fact]
     public async Task RenderAsync_WithThemeDirectiveWithoutFrom_ReturnsOk()
     {

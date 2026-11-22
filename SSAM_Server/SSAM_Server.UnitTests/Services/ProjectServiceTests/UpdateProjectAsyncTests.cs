@@ -133,7 +133,11 @@ public class UpdateProjectAsyncTests : ProjectServiceTestBase
         ProjectRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // UTC008: A name shorter than two characters returns validation errors.
+    // =========================================================================
+    // 3. BOUNDARY CASES
+    // =========================================================================
+
+    // UTC008: A name at the lower boundary below two characters returns a validation error.
     [Fact]
     public async Task UpdateProjectAsync_WhenNameIsTooShort_ReturnsValidationError()
     {
@@ -146,7 +150,7 @@ public class UpdateProjectAsyncTests : ProjectServiceTestBase
         Assert.Contains("name", result.Errors!.Keys);
     }
 
-    // UTC009: A description longer than 500 characters returns validation errors.
+    // UTC009: A description at the upper boundary above 500 characters returns a validation error.
     [Fact]
     public async Task UpdateProjectAsync_WhenDescriptionIsTooLong_ReturnsValidationError()
     {
