@@ -16,6 +16,7 @@ public abstract class TestingServiceTestBase : IDisposable
     protected readonly Mock<IKanbanService> KanbanServiceMock = new();
     protected readonly Mock<IAiService> AiServiceMock = new();
     protected readonly Mock<IFigmaService> FigmaServiceMock = new();
+    protected readonly Mock<IFigmaWatchService> FigmaWatchMock = new();
     protected readonly SSAM_Server.Services.TestingService TestingService;
 
     protected TestingServiceTestBase()
@@ -28,7 +29,8 @@ public abstract class TestingServiceTestBase : IDisposable
             KanbanServiceMock.Object,
             Clock,
             AiServiceMock.Object,
-            FigmaServiceMock.Object);
+            FigmaServiceMock.Object,
+            FigmaWatchMock.Object);
     }
 
     public void Dispose() => Db.Dispose();

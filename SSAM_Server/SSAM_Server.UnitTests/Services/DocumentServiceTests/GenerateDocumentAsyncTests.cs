@@ -297,7 +297,7 @@ public class GenerateDocumentAsyncTests : DocumentServiceTestBase
         Assert.Equal(string.Empty, generation.RawNotes);
         using var fields = JsonDocument.Parse(generation.Fields);
         Assert.Equal(string.Empty, fields.RootElement.GetProperty("scope").GetString());
-        Assert.Contains("Tài liệu định nghĩa phạm vi", (await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken)).ContentText);
+        Assert.Contains("I. Overall Requirements", (await Db.DocumentVersions.SingleAsync(TestContext.Current.CancellationToken)).ContentText);
     }
 
     // UTC11: Null entries inside Items are ignored

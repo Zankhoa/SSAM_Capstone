@@ -16,6 +16,7 @@ public abstract class DocumentServiceTestBase : IDisposable
     protected readonly Mock<IAiService> AiServiceMock = new();
     protected readonly Mock<IProjectAccessGuard> AccessGuardMock = new();
     protected readonly Mock<IRequirementSyncService> RequirementSyncMock = new();
+    protected readonly Mock<IFigmaWatchService> FigmaWatchMock = new();
     protected readonly SSAM_Server.Services.DocumentService DocumentService;
 
     protected DocumentServiceTestBase()
@@ -28,7 +29,8 @@ public abstract class DocumentServiceTestBase : IDisposable
             Clock,
             AiServiceMock.Object,
             AccessGuardMock.Object,
-            RequirementSyncMock.Object);
+            RequirementSyncMock.Object,
+            FigmaWatchMock.Object);
     }
 
     public void Dispose() => Db.Dispose();
