@@ -74,17 +74,17 @@ public class UpsertProjectScreenForm
 
 public class GenerateLayoutRequestDto
 {
-    [JsonPropertyName("documentId")]
     public long DocumentId { get; set; }
 
-    [JsonPropertyName("reqUids")]
     public List<string>? ReqUids { get; set; }
 
-    [JsonPropertyName("title")]
+    public string? ReqUidsJson { get; set; }
+
     public string? Title { get; set; }
 
-    [JsonPropertyName("notes")]
     public string? Notes { get; set; }
+
+    public IFormFile? ReferenceImage { get; set; }
 }
 
 public class GenerateLayoutResponseDto

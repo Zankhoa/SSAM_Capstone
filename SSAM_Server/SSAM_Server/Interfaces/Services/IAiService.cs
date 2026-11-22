@@ -8,6 +8,7 @@ public record TestCaseDesignInput(int DesignIndex, int RequirementIndex, string 
 public interface IAiService
 {
     Task<string> GenerateTextAsync(string prompt, CancellationToken cancellationToken = default);
+    Task<string> GenerateTextWithImageAsync(string prompt, byte[]? imageBytes, string? mimeType, CancellationToken cancellationToken = default);
     IAsyncEnumerable<string> StreamTextAsync(string prompt, CancellationToken cancellationToken = default);
     Task<List<ExtractedRequirementDto>> GenerateRequirementDraftsAsync(
         NormalizedFieldsDto fields,

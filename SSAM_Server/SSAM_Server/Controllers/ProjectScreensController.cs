@@ -345,7 +345,8 @@ public class ProjectScreensController : ControllerBase
     }
 
     [HttpPost("generate-layout")]
-    public async Task<IActionResult> GenerateLayout(long projectId, [FromBody] GenerateLayoutRequestDto request, CancellationToken ct)
+    [RequestSizeLimit(21 * 1024 * 1024)]
+    public async Task<IActionResult> GenerateLayout(long projectId, [FromForm] GenerateLayoutRequestDto request, CancellationToken ct)
     {
         var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.ProjectView, ct);
         if (!auth.IsSuccess) return auth.ToActionResult(this);
@@ -366,6 +367,7 @@ public class ProjectScreensController : ControllerBase
             : new List<RequirementItem>();
 
         var selectedUids = (request.ReqUids ?? new List<string>())
+            .Concat(ParseReqUids(request.ReqUidsJson))
             .Where(u => !string.IsNullOrWhiteSpace(u))
             .Select(u => u.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -380,13 +382,28 @@ public class ProjectScreensController : ControllerBase
             : $"{doc.Title} · Layout";
         if (layoutTitle.Length > 200) layoutTitle = layoutTitle[..200];
 
-        var prompt = LayoutSvgGenerator.BuildPrompt(layoutTitle, doc, targetReqs);
+        byte[]? refImageBytes = null;
+        string? refImageMime = null;
+        if (request.ReferenceImage != null && request.ReferenceImage.Length > 0)
+        {
+            if (request.ReferenceImage.Length > 20L * 1024 * 1024)
+                return BadRequest(new ErrorResponseDto("IMAGE_TOO_LARGE", "Ảnh tham khảo tối đa 20 MB.", null, HttpContext.TraceIdentifier));
+            using var ms = new MemoryStream();
+            await request.ReferenceImage.CopyToAsync(ms, ct);
+            refImageBytes = ms.ToArray();
+            refImageMime = string.IsNullOrWhiteSpace(request.ReferenceImage.ContentType) ? "image/png" : request.ReferenceImage.ContentType;
+        }
+
+        var hasRefImage = refImageBytes != null && refImageBytes.Length > 0;
+        var prompt = LayoutSvgGenerator.BuildPrompt(layoutTitle, doc, targetReqs, request.Notes, hasRefImage);
 
         LayoutSvgGenerator.UiBlueprint? blueprint = null;
         var usedAi = false;
         try
         {
-            var raw = await _aiService.GenerateTextAsync(prompt, ct);
+            var raw = hasRefImage
+                ? await _aiService.GenerateTextWithImageAsync(prompt, refImageBytes, refImageMime, ct)
+                : await _aiService.GenerateTextAsync(prompt, ct);
             blueprint = LayoutSvgGenerator.TryParseBlueprint(raw);
             if (blueprint != null) usedAi = true;
             else _logger.LogWarning("AI returned unparseable layout JSON for document {DocumentId}. Raw length: {Len}", doc.Id, raw?.Length ?? 0);
@@ -396,7 +413,7 @@ public class ProjectScreensController : ControllerBase
             _logger.LogWarning(ex, "AI layout generation failed for document {DocumentId}, using structured fallback.", doc.Id);
         }
 
-        blueprint ??= LayoutSvgGenerator.BuildFallbackBlueprint(layoutTitle, doc, targetReqs);
+        blueprint ??= LayoutSvgGenerator.BuildFallbackBlueprint(layoutTitle, doc, targetReqs, request.Notes);
         var svg = LayoutSvgGenerator.RenderSvg(blueprint);
 
         var safeSlug = string.Concat(layoutTitle.Select(ch => char.IsLetterOrDigit(ch) ? ch : '_')).Trim('_');

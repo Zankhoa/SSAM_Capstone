@@ -44,6 +44,28 @@ public class AiService : IAiService
         return response.Text ?? string.Empty;
     }
 
+    public async Task<string> GenerateTextWithImageAsync(
+        string prompt,
+        byte[]? imageBytes,
+        string? mimeType,
+        CancellationToken cancellationToken = default)
+    {
+        if (imageBytes == null || imageBytes.Length == 0)
+            return await GenerateTextAsync(prompt, cancellationToken);
+
+        _logger.LogInformation("AI multimodal service called with model: {Model}", _options.DefaultModel);
+        var messages = new List<ChatMessage>
+        {
+            new(ChatRole.User, new AIContent[]
+            {
+                new TextContent(prompt),
+                new DataContent(imageBytes, string.IsNullOrWhiteSpace(mimeType) ? "image/png" : mimeType)
+            })
+        };
+        var response = await _chatClient.GetResponseAsync(messages, cancellationToken: cancellationToken);
+        return response.Text ?? string.Empty;
+    }
+
     public async IAsyncEnumerable<string> StreamTextAsync(
         string prompt,
         [EnumeratorCancellation] CancellationToken cancellationToken = default)
