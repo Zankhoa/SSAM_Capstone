@@ -16,6 +16,7 @@ public class ProjectScreen : IHasUpdatedAt
 
     public long? DocumentId { get; set; }
     public DocumentNode? Document { get; set; }
+    public string? ReqUidsJson { get; set; }
 
     public string? Notes { get; set; }
 

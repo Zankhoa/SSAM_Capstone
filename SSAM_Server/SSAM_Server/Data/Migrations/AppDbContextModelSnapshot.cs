@@ -2734,6 +2734,11 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("bigint")
                         .HasColumnName("project_id");
 
+                    b.Property<string>("ReqUidsJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)")
+                        .HasColumnName("req_uids_json");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
