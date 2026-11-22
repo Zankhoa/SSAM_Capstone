@@ -87,7 +87,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Add multiple new members (one with explicit RoleId, one with null RoleId -> uses default WORKSPACE_MEMBER role)
+    // UTC001: Add multiple new members (one with explicit RoleId, one with null RoleId -> uses default WORKSPACE_MEMBER role)
     [Fact]
     public async Task AddMembersAsync_WithExplicitAndDefaultRoles_ReturnsCreatedAndAddsMembers()
     {
@@ -146,7 +146,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         WorkspaceRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC02: Re-add a previously removed member (GetMemberRecordAsync returns inactive record) -> Reactivates existing record
+    // UTC002: Re-add a previously removed member (GetMemberRecordAsync returns inactive record) -> Reactivates existing record
     [Fact]
     public async Task AddMembersAsync_WhenPreviousInactiveMemberExists_ReactivatesExistingRecord()
     {
@@ -194,7 +194,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC03: User is not authenticated -> Returns Unauthorized
+    // UTC003: User is not authenticated -> Returns Unauthorized
     [Fact]
     public async Task AddMembersAsync_WhenUserUnauthenticated_ReturnsUnauthorized()
     {
@@ -211,7 +211,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Your session is invalid or has expired.", result.ErrorMessage);
     }
 
-    // UTC04: User lacks WorkspaceMemberManage permission -> Returns Forbidden
+    // UTC004: User lacks WorkspaceMemberManage permission -> Returns Forbidden
     [Fact]
     public async Task AddMembersAsync_WhenPermissionDenied_ReturnsForbidden()
     {
@@ -232,7 +232,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("FORBIDDEN", result.ErrorCode);
     }
 
-    // UTC05: Workspace is a personal workspace (CompanyId == null) -> Returns BadRequest (PERSONAL_WORKSPACE)
+    // UTC005: Workspace is a personal workspace (CompanyId == null) -> Returns BadRequest (PERSONAL_WORKSPACE)
     [Fact]
     public async Task AddMembersAsync_WhenPersonalWorkspace_ReturnsBadRequest()
     {
@@ -250,7 +250,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Workspace cá nhân không có thành viên khác.", result.ErrorMessage);
     }
 
-    // UTC06: Workspace is archived (IsActive == false) -> Returns Conflict (WORKSPACE_ARCHIVED)
+    // UTC006: Workspace is archived (IsActive == false) -> Returns Conflict (WORKSPACE_ARCHIVED)
     [Fact]
     public async Task AddMembersAsync_WhenWorkspaceIsArchived_ReturnsConflict()
     {
@@ -268,7 +268,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Workspace đã được lưu trữ, dữ liệu chỉ đọc.", result.ErrorMessage);
     }
 
-    // UTC07: Members list is null or empty -> Returns Validation Error
+    // UTC007: Members list is null or empty -> Returns Validation Error
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -288,7 +288,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Contains("Chọn ít nhất 1 thành viên", result.Errors["members"]);
     }
 
-    // UTC08: Target user is not a member of the company -> Returns Forbidden (NOT_COMPANY_MEMBER)
+    // UTC008: Target user is not a member of the company -> Returns Forbidden (NOT_COMPANY_MEMBER)
     [Fact]
     public async Task AddMembersAsync_WhenTargetUserNotInCompany_ReturnsForbidden()
     {
@@ -310,7 +310,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Người dùng không thuộc công ty.", result.ErrorMessage);
     }
 
-    // UTC09: Target user is already an active member of the workspace -> Returns Conflict (ALREADY_MEMBER)
+    // UTC009: Target user is already an active member of the workspace -> Returns Conflict (ALREADY_MEMBER)
     [Fact]
     public async Task AddMembersAsync_WhenTargetUserAlreadyMember_ReturnsConflict()
     {
@@ -332,7 +332,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Người dùng đã là thành viên.", result.ErrorMessage);
     }
 
-    // UTC10: Specified RoleId does not exist in company -> Returns NotFound
+    // UTC010: Specified RoleId does not exist in company -> Returns NotFound
     [Fact]
     public async Task AddMembersAsync_WhenSpecifiedRoleNotFound_ReturnsNotFound()
     {
@@ -353,7 +353,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Không tìm thấy dữ liệu.", result.ErrorMessage);
     }
 
-    // UTC11: Specified RoleId belongs to another scope (e.g. PROJECT) -> Returns BadRequest (ROLE_SCOPE_MISMATCH)
+    // UTC011: Specified RoleId belongs to another scope (e.g. PROJECT) -> Returns BadRequest (ROLE_SCOPE_MISMATCH)
     [Fact]
     public async Task AddMembersAsync_WhenRoleScopeIsNotWorkspace_ReturnsBadRequest()
     {
@@ -382,7 +382,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
         Assert.Equal($"Role này thuộc phạm vi {RoleScopes.Project}, không gán ở đây được.", result.ErrorMessage);
     }
 
-    // UTC12: Specified RoleId is inactive (IsActive == false) -> Returns BadRequest (ROLE_INACTIVE)
+    // UTC012: Specified RoleId is inactive (IsActive == false) -> Returns BadRequest (ROLE_INACTIVE)
     [Fact]
     public async Task AddMembersAsync_WhenRoleIsInactive_ReturnsBadRequest()
     {
@@ -415,7 +415,7 @@ public class AddMembersAsyncTests : WorkspaceServiceTestBase
     // 3. BOUNDARY CASES (Members count: 1)
     // =========================================================================
 
-    // UTC13: Boundary - Exactly 1 member in Members list (minimum valid count) -> Returns Created
+    // UTC013: Boundary - Exactly 1 member in Members list (minimum valid count) -> Returns Created
     [Fact]
     public async Task AddMembersAsync_WithSingleMemberBoundary_ReturnsCreated()
     {

@@ -58,7 +58,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Create PROJECT role successfully with full fields, explicit Code, Kind, Description & Permissions
+    // UTC001: Create a PROJECT role successfully with explicit code, kind, description, and permissions.
     [Fact]
     public async Task CreateRoleAsync_WithFullValidProjectRoleRequest_ReturnsCreated()
     {
@@ -106,7 +106,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         RoleRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
-    // UTC02: Create TENANT role without Code & Permissions -> Auto-generates unique Code with suffix "_2", ignores Kind
+    // UTC002: Create a TENANT role without code or permissions; generate a unique code and ignore Kind.
     [Fact]
     public async Task CreateRoleAsync_WithoutCodeAndPermissions_AutoGeneratesCodeWithSuffixAndReturnsCreated()
     {
@@ -141,7 +141,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         RoleRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC03: Create role without Code when Name contains only non-alphanumeric chars -> Falls back to baseCode "ROLE"
+    // UTC003: Fall back to the default ROLE code when the name produces no alphanumeric code.
     [Fact]
     public async Task CreateRoleAsync_WhenNameHasNoAlphanumericCharsAndCodeIsNull_FallsBackToDefaultRoleCode()
     {
@@ -166,7 +166,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC04: User is not authenticated -> Returns Unauthorized
+    // UTC004: An unauthenticated user returns Unauthorized.
     [Fact]
     public async Task CreateRoleAsync_WhenUserUnauthenticated_ReturnsUnauthorized()
     {
@@ -180,7 +180,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Your session is invalid or has expired.", result.ErrorMessage);
     }
 
-    // UTC05: User lacks RoleManage permission -> Returns Forbidden
+    // UTC005: A user without RoleManage permission returns Forbidden.
     [Fact]
     public async Task CreateRoleAsync_WhenPermissionDenied_ReturnsForbidden()
     {
@@ -198,10 +198,10 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("FORBIDDEN", result.ErrorCode);
     }
 
-    // UTC06 + UTC07: Scope is empty or invalid -> Returns Validation Error
+    // UTC006 + UTC007: An empty or invalid scope returns a validation error.
     [Theory]
-    [InlineData("")]          // UTC06: Empty scope
-    [InlineData("GLOBAL")]    // UTC07: Unsupported scope
+    [InlineData("")]          // UTC006: Empty scope.
+    [InlineData("GLOBAL")]    // UTC007: Unsupported scope.
     public async Task CreateRoleAsync_WhenScopeIsInvalid_ReturnsValidationError(string invalidScope)
     {
         CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
@@ -223,7 +223,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Chọn phạm vi áp dụng", result.Errors["scope"]);
     }
 
-    // UTC08: Kind is invalid when Scope is PROJECT -> Returns Validation Error
+    // UTC008: An invalid project-role kind returns a validation error.
     [Fact]
     public async Task CreateRoleAsync_WhenProjectKindIsInvalid_ReturnsValidationError()
     {
@@ -247,10 +247,10 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Chọn nhóm chuyên môn hợp lệ", result.Errors["kind"]);
     }
 
-    // UTC09 + UTC10: Code format is invalid -> Returns Validation Error
+    // UTC009 + UTC010: An invalid role-code format returns a validation error.
     [Theory]
-    [InlineData("custom_role")]   // UTC09: Lowercase letters not allowed
-    [InlineData("1CUSTOM_ROLE")]  // UTC10: Cannot start with a digit
+    [InlineData("custom_role")]   // UTC009: Lowercase letters are not allowed.
+    [InlineData("1CUSTOM_ROLE")]  // UTC010: The code cannot start with a digit.
     public async Task CreateRoleAsync_WhenCodeFormatIsInvalid_ReturnsValidationError(string invalidCode)
     {
         CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
@@ -273,7 +273,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Mã viết HOA, bắt đầu bằng chữ, chỉ gồm A-Z 0-9 _", result.Errors["code"]);
     }
 
-    // UTC11: Multiple fields are invalid simultaneously -> Returns all validation errors
+    // UTC011: Multiple invalid fields return all validation errors.
     [Fact]
     public async Task CreateRoleAsync_WhenMultipleFieldsAreInvalid_ReturnsAllValidationErrors()
     {
@@ -299,7 +299,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("code", result.Errors.Keys);
     }
 
-    // UTC12: Role Name already exists in company -> Returns Conflict
+    // UTC012: A duplicate role name returns Conflict.
     [Fact]
     public async Task CreateRoleAsync_WhenRoleNameAlreadyExists_ReturnsConflict()
     {
@@ -325,7 +325,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Tên role đã tồn tại trong công ty.", result.ErrorMessage);
     }
 
-    // UTC13: Explicit Role Code already exists in company -> Returns Conflict
+    // UTC013: A duplicate explicit role code returns Conflict.
     [Fact]
     public async Task CreateRoleAsync_WhenExplicitRoleCodeAlreadyExists_ReturnsConflict()
     {
@@ -355,7 +355,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Mã role đã tồn tại trong công ty.", result.ErrorMessage);
     }
 
-    // UTC14: PermissionKeys contains non-existent permission -> Returns BadRequest (UNKNOWN_PERMISSION)
+    // UTC014: A non-existent permission key returns BadRequest with UNKNOWN_PERMISSION.
     [Fact]
     public async Task CreateRoleAsync_WhenPermissionKeyDoesNotExist_ReturnsBadRequest()
     {
@@ -389,7 +389,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal("Quyền \"unknown.permission\" không tồn tại.", result.ErrorMessage);
     }
 
-    // UTC15: PermissionKeys contains permission from another scope -> Returns BadRequest (PERMISSION_SCOPE_MISMATCH)
+    // UTC015: A permission from another scope returns BadRequest with PERMISSION_SCOPE_MISMATCH.
     [Fact]
     public async Task CreateRoleAsync_WhenPermissionScopeMismatchesRoleScope_ReturnsBadRequest()
     {
@@ -430,7 +430,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
     // 3. BOUNDARY CASES (Name: 1, 2, 100, 101 | Code: 1, 2, 50, 51 | Description: 1, 500, 501)
     // =========================================================================
 
-    // UTC16: Name boundary length 1 (below minimum 2) -> Returns Validation Error
+    // UTC016: A one-character name returns a validation error.
     [Fact]
     public async Task CreateRoleAsync_WhenNameLengthIs1_ReturnsValidationError()
     {
@@ -453,10 +453,10 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Tên role từ 2 đến 100 ký tự", result.Errors["name"]);
     }
 
-    // UTC17 + UTC18: Name boundary length 2 (min) and 100 (max) -> Returns Created
+    // UTC017 + UTC018: Name boundary lengths 2 and 100 return Created.
     [Theory]
-    [InlineData(2)]     // UTC17: Name 2 characters (lower boundary)
-    [InlineData(100)]   // UTC18: Name 100 characters (upper boundary)
+    [InlineData(2)]     // UTC017: Name contains 2 characters.
+    [InlineData(100)]   // UTC018: Name contains 100 characters.
     public async Task CreateRoleAsync_WhenNameLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validName = new string('A', length);
@@ -477,7 +477,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal(length, result.Data.Name.Length);
     }
 
-    // UTC19: Name boundary length 101 (exceeds maximum 100) -> Returns Validation Error
+    // UTC019: A 101-character name returns a validation error.
     [Fact]
     public async Task CreateRoleAsync_WhenNameExceeds100Chars_ReturnsValidationError()
     {
@@ -500,7 +500,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Tên role từ 2 đến 100 ký tự", result.Errors["name"]);
     }
 
-    // UTC20: Code boundary length 1 (below minimum 2 in RoleCodeRegex) -> Returns Validation Error
+    // UTC020: A one-character code returns a validation error.
     [Fact]
     public async Task CreateRoleAsync_WhenCodeLengthIs1_ReturnsValidationError()
     {
@@ -524,10 +524,10 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Mã viết HOA, bắt đầu bằng chữ, chỉ gồm A-Z 0-9 _", result.Errors["code"]);
     }
 
-    // UTC21 + UTC22: Code boundary length 2 (min) and 50 (max) -> Returns Created
+    // UTC021 + UTC022: Code boundary lengths 2 and 50 return Created.
     [Theory]
-    [InlineData(2)]     // UTC21: Code 2 characters (lower boundary)
-    [InlineData(50)]    // UTC22: Code 50 characters (upper boundary)
+    [InlineData(2)]     // UTC021: Code contains 2 characters.
+    [InlineData(50)]    // UTC022: Code contains 50 characters.
     public async Task CreateRoleAsync_WhenCodeLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validCode = new string('A', length);
@@ -545,10 +545,10 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.True(result.IsSuccess);
         Assert.Equal(StatusCodes.Status201Created, result.StatusCode);
         Assert.Equal(validCode, result.Data!.Code);
-        Assert.Equal(length, result.Data.Code.Length);
+        Assert.Equal(length, result.Data!.Code!.Length);
     }
 
-    // UTC23: Code boundary length 51 (exceeds maximum 50 in RoleCodeRegex) -> Returns Validation Error
+    // UTC023: A 51-character code returns a validation error.
     [Fact]
     public async Task CreateRoleAsync_WhenCodeExceeds50Chars_ReturnsValidationError()
     {
@@ -572,10 +572,10 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Contains("Mã viết HOA, bắt đầu bằng chữ, chỉ gồm A-Z 0-9 _", result.Errors["code"]);
     }
 
-    // UTC24 + UTC25: Description boundary length 1 and 500 -> Returns Created
+    // UTC024 + UTC025: Description boundary lengths 1 and 500 return Created.
     [Theory]
-    [InlineData(1)]     // UTC24: Description 1 character
-    [InlineData(500)]   // UTC25: Description 500 characters (DB upper boundary)
+    [InlineData(1)]     // UTC024: Description contains 1 character.
+    [InlineData(500)]   // UTC025: Description contains 500 characters.
     public async Task CreateRoleAsync_WhenDescriptionLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validDescription = new string('D', length);
@@ -597,7 +597,7 @@ public class CreateRoleAsyncTests : RoleServiceTestBase
         Assert.Equal(length, result.Data.Description!.Length);
     }
 
-    // UTC26: Description boundary length 501 -> Throws DbUpdateException
+    // UTC026: A 501-character description propagates the database update exception.
     [Fact]
     public async Task CreateRoleAsync_WhenDescriptionExceeds500Chars_ThrowsDbUpdateException()
     {

@@ -15,7 +15,7 @@ public class SlugHelperRegexTests
     [InlineData("team-01")]     // UTC03: Normal - with digits
     public void WorkspaceCodeRegex_WithValidSlug_ReturnsTrue(string code)
     {
-        Assert.True(SlugHelper.WorkspaceCodeRegex().IsMatch(code));
+        Assert.Matches(SlugHelper.WorkspaceCodeRegex(), code);
     }
 
     // UTC04 -> UTC07: Invalid workspace codes (empty, leading/trailing/consecutive hyphens, uppercase)
@@ -27,7 +27,7 @@ public class SlugHelperRegexTests
     [InlineData("SSAM")]
     public void WorkspaceCodeRegex_WithInvalidSlug_ReturnsFalse(string code)
     {
-        Assert.False(SlugHelper.WorkspaceCodeRegex().IsMatch(code));
+        Assert.DoesNotMatch(SlugHelper.WorkspaceCodeRegex(), code);
     }
 
     // =========================================================================
@@ -41,7 +41,7 @@ public class SlugHelperRegexTests
     [InlineData("A1234567890123456789012345678901234567890123456789")]       // UTC03: Boundary - 50 chars (max)
     public void RoleCodeRegex_WithValidCode_ReturnsTrue(string code)
     {
-        Assert.True(SlugHelper.RoleCodeRegex().IsMatch(code));
+        Assert.Matches(SlugHelper.RoleCodeRegex(), code);
     }
 
     // UTC04 -> UTC07: Invalid role codes (1 char, 51 chars, starts with digit/underscore, lowercase)
@@ -53,7 +53,7 @@ public class SlugHelperRegexTests
     [InlineData("admin")]
     public void RoleCodeRegex_WithInvalidCode_ReturnsFalse(string code)
     {
-        Assert.False(SlugHelper.RoleCodeRegex().IsMatch(code));
+        Assert.DoesNotMatch(SlugHelper.RoleCodeRegex(), code);
     }
 
     // =========================================================================
@@ -67,7 +67,7 @@ public class SlugHelperRegexTests
     [InlineData("PROJ123456")]  // UTC03: Boundary - 10 chars (max)
     public void ProjectKeyRegex_WithValidKey_ReturnsTrue(string key)
     {
-        Assert.True(SlugHelper.ProjectKeyRegex().IsMatch(key));
+        Assert.Matches(SlugHelper.ProjectKeyRegex(), key);
     }
 
     // UTC04 -> UTC07: Invalid project keys (1 char, 11 chars, starts with digit, contains underscore/lowercase)
@@ -79,6 +79,6 @@ public class SlugHelperRegexTests
     [InlineData("ssam")]
     public void ProjectKeyRegex_WithInvalidKey_ReturnsFalse(string key)
     {
-        Assert.False(SlugHelper.ProjectKeyRegex().IsMatch(key));
+        Assert.DoesNotMatch(SlugHelper.ProjectKeyRegex(), key);
     }
 }

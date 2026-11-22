@@ -35,7 +35,7 @@ public class RegisterAsyncTests : AuthServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Register successful with valid FullName, Email and Password
+    // UTC001: Registration succeeds and sends an email-verification message when all credentials are valid.
     [Fact]
     public async Task RegisterAsync_WithValidCredentials_ReturnsCreated()
     {
@@ -63,11 +63,35 @@ public class RegisterAsyncTests : AuthServiceTestBase
         EmailServiceMock.Verify(e => e.SendVerificationEmailAsync("user1@ssam.com", "Phạm Công Minh", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    // UTC002: Registration trims surrounding whitespace before checking, storing, and emailing the user data.
+    [Fact]
+    public async Task RegisterAsync_TrimsFullNameAndEmailBeforePersistingAndSendingEmail()
+    {
+        var request = new RegisterRequestDto
+        {
+            FullName = "  Phạm Công Minh  ",
+            Email = "  user1@ssam.com  ",
+            Password = "Password@123"
+        };
+        SetupSuccessfulRegistration(generatedAccountId: 1);
+
+        var result = await AuthService.RegisterAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal("user1@ssam.com", result.Data!.Email);
+        AuthRepositoryMock.Verify(r => r.EmailExistsAsync("user1@ssam.com", It.IsAny<CancellationToken>()), Times.Once);
+        AuthRepositoryMock.Verify(r => r.AddUserAsync(
+            It.Is<User>(u => u.Email == "user1@ssam.com" && u.FullName == "Phạm Công Minh"),
+            It.IsAny<CancellationToken>()), Times.Once);
+        EmailServiceMock.Verify(e => e.SendVerificationEmailAsync(
+            "user1@ssam.com", "Phạm Công Minh", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     // =========================================================================
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC02: FullName contains only whitespace
+    // UTC003: FullName contains only whitespace.
     [Fact]
     public async Task RegisterAsync_WhenFullNameIsWhitespace_ReturnsValidationError()
     {
@@ -86,10 +110,10 @@ public class RegisterAsyncTests : AuthServiceTestBase
         Assert.Contains("Field fullname is required.", result.Errors["fullName"]);
     }
 
-    // UTC03 + UTC04: Invalid Email (Whitespace only / Missing '@')
+    // UTC004 + UTC005: Invalid email (whitespace only / missing '@').
     [Theory]
-    [InlineData("   ")]             // UTC03: Email contains only whitespace
-    [InlineData("user1ssam.com")]   // UTC04: Email missing '@' character
+    [InlineData("   ")]             // UTC004: Email contains only whitespace.
+    [InlineData("user1ssam.com")]   // UTC005: Email missing '@' character.
     public async Task RegisterAsync_WhenEmailIsInvalid_ReturnsValidationError(string invalidEmail)
     {
         var request = new RegisterRequestDto
@@ -107,7 +131,7 @@ public class RegisterAsyncTests : AuthServiceTestBase
         Assert.Contains("Email format is invalid.", result.Errors["email"]);
     }
 
-    // UTC05: Email already exists in database
+    // UTC006: Email already exists in the database.
     [Fact]
     public async Task RegisterAsync_WhenEmailAlreadyExists_ReturnsConflict()
     {
@@ -130,14 +154,14 @@ public class RegisterAsyncTests : AuthServiceTestBase
         Assert.Equal("Email already exists.", result.ErrorMessage);
     }
 
-    // UTC06 -> UTC12: Invalid Password rules
+    // Invalid password rules are covered by the ordered cases below.
     [Theory]
-    [InlineData("        ", "Password must contain at least 8 characters.")]                    // UTC06: Password contains only whitespace
-    [InlineData("Pa@1", "Password must contain at least 8 characters.")]                        // UTC07: Password less than 8 characters (4 chars)
-    [InlineData("Password@abc", "Password must contain at least one digit.")]                   // UTC08: Password >= 8 chars missing digit
-    [InlineData("password@123", "Password must contain both uppercase and lowercase letters.")] // UTC09: Password >= 8 chars missing uppercase
-    [InlineData("PASSWORD@123", "Password must contain both uppercase and lowercase letters.")] // UTC10: Password >= 8 chars missing lowercase
-    [InlineData("Password1234", "Password must contain at least one special character.")]       // UTC11: Password >= 8 chars missing special char
+    [InlineData("        ", "Password must contain at least 8 characters.")]                    // UTC007: Password contains only whitespace.
+    [InlineData("Pa@1", "Password must contain at least 8 characters.")]                        // UTC008: Password is shorter than 8 characters.
+    [InlineData("Password@abc", "Password must contain at least one digit.")]                   // UTC009: Password has no digit.
+    [InlineData("password@123", "Password must contain both uppercase and lowercase letters.")] // UTC010: Password has no uppercase letter.
+    [InlineData("PASSWORD@123", "Password must contain both uppercase and lowercase letters.")] // UTC011: Password has no lowercase letter.
+    [InlineData("Password1234", "Password must contain at least one special character.")]       // UTC012: Password has no special character.
     public async Task RegisterAsync_WhenPasswordIsInvalid_ReturnsValidationError(string invalidPassword, string expectedError)
     {
         var request = new RegisterRequestDto
@@ -155,7 +179,7 @@ public class RegisterAsyncTests : AuthServiceTestBase
         Assert.Contains(expectedError, result.Errors["password"]);
     }
 
-    // UTC12: Password >= 8 chars with lowercase only -> Returns all 3 password rule errors
+    // UTC013: A lowercase-only password returns all three password-rule errors.
     [Fact]
     public async Task RegisterAsync_WhenPasswordHasLowercaseOnly_ReturnsAllThreePasswordValidationErrors()
     {
@@ -177,7 +201,7 @@ public class RegisterAsyncTests : AuthServiceTestBase
         Assert.Contains("Password must contain at least one special character.", result.Errors["password"]);
     }
 
-    // UTC13: All 3 fields contain only whitespace
+    // UTC014: All three registration fields contain only whitespace.
     [Fact]
     public async Task RegisterAsync_WhenAllFieldsAreWhitespace_ReturnsAllValidationErrors()
     {
@@ -202,10 +226,10 @@ public class RegisterAsyncTests : AuthServiceTestBase
     // 3. BOUNDARY CASES (FullName & Email length: 1, 255, 256)
     // =========================================================================
 
-    // UTC14 + UTC15: FullName boundary length 1 and 255 (trimmed) -> Success
+    // UTC014 + UTC015: FullName boundary lengths 1 and 255 return success.
     [Theory]
-    [InlineData(1)]     // UTC14: FullName 1 character
-    [InlineData(255)]   // UTC15: FullName 255 characters
+    [InlineData(1)]     // UTC014: FullName contains 1 character.
+    [InlineData(255)]   // UTC015: FullName contains 255 characters.
     public async Task RegisterAsync_WhenFullNameLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validFullName = new string('A', length);
@@ -226,7 +250,7 @@ public class RegisterAsyncTests : AuthServiceTestBase
             It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC16: FullName boundary length 256 -> Throws DB Exception
+    // UTC016: A 256-character full name propagates the database update exception.
     [Fact]
     public async Task RegisterAsync_WhenFullNameExceeds255Chars_ThrowsDbUpdateException()
     {
@@ -252,10 +276,10 @@ public class RegisterAsyncTests : AuthServiceTestBase
             Times.Never);
     }
 
-    // UTC17 + UTC18: Email boundary length 1 ("@") and 255 (with "@") -> Success
+    // UTC017 + UTC018: Email boundary lengths 1 and 255 return success.
     [Theory]
-    [InlineData(1)]     // UTC17: Email 1 character ("@")
-    [InlineData(255)]   // UTC18: Email 255 characters containing "@"
+    [InlineData(1)]     // UTC017: Email contains one character ("@").
+    [InlineData(255)]   // UTC018: Email contains 255 characters including "@".
     public async Task RegisterAsync_WhenEmailLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validEmail = length == 1
@@ -278,7 +302,7 @@ public class RegisterAsyncTests : AuthServiceTestBase
         Assert.Equal(length, result.Data.Email.Length);
     }
 
-    // UTC19: Email boundary length 256 (with "@") -> Throws DB Exception
+    // UTC019: A 256-character email propagates the database update exception.
     [Fact]
     public async Task RegisterAsync_WhenEmailExceeds255Chars_ThrowsDbUpdateException()
     {
@@ -303,7 +327,7 @@ public class RegisterAsyncTests : AuthServiceTestBase
             Times.Never);
     }
 
-    // UTC20: Password boundary length 8 (valid rules) -> Success
+    // UTC020: An eight-character password satisfying all rules returns success.
     [Fact]
     public async Task RegisterAsync_WhenPasswordLengthIs8AndValid_ReturnsCreated()
     {
@@ -323,7 +347,7 @@ public class RegisterAsyncTests : AuthServiceTestBase
         Assert.Equal(1, result.Data.AccountId);
     }
 
-    // UTC21: Password boundary length 7 (valid rules but too short) -> Validation Error
+    // UTC021: A seven-character password returns a validation error.
     [Fact]
     public async Task RegisterAsync_WhenPasswordLengthIs7_ReturnsValidationError()
     {

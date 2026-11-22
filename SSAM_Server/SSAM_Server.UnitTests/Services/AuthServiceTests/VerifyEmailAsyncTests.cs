@@ -10,7 +10,7 @@ public class VerifyEmailAsyncTests : AuthServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Verify email successful with valid, unexpired and unused token
+    // UTC001: Verify email succeeds with a valid, unexpired, and unused token.
     [Fact]
     public async Task VerifyEmailAsync_WithValidToken_UpdatesAccountAndReturnsOk()
     {
@@ -60,9 +60,9 @@ public class VerifyEmailAsyncTests : AuthServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC02: Token does not exist  -> Returns BadRequest (TOKEN_INVALID)
+    // UTC002: A missing token returns BadRequest with TOKEN_INVALID.
     [Theory]
-    [InlineData("non_existent_token")]  // UTC02: Non-existent token
+    [InlineData("non_existent_token")]  // UTC002: Non-existent token.
     public async Task VerifyEmailAsync_WhenTokenNotFound_ReturnsBadRequest(string invalidToken)
     {
         AuthRepositoryMock
@@ -79,7 +79,7 @@ public class VerifyEmailAsyncTests : AuthServiceTestBase
         AuthRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // UTC03: Token has expired (ExpiresAt < now) -> Returns BadRequest (TOKEN_EXPIRED)
+    // UTC003: An expired token returns BadRequest with TOKEN_EXPIRED.
     [Fact]
     public async Task VerifyEmailAsync_WhenTokenExpired_ReturnsBadRequest()
     {
@@ -108,7 +108,7 @@ public class VerifyEmailAsyncTests : AuthServiceTestBase
         AuthRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // UTC04: Token has already been used (UsedAt != null) -> Returns BadRequest (TOKEN_INVALID)
+    // UTC004: An already-used token returns BadRequest with TOKEN_INVALID.
     [Fact]
     public async Task VerifyEmailAsync_WhenTokenAlreadyUsed_ReturnsBadRequest()
     {
@@ -137,7 +137,7 @@ public class VerifyEmailAsyncTests : AuthServiceTestBase
         AuthRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // UTC05: Token is valid but associated Account is not found -> Marks token used and returns Ok
+    // UTC005: A valid token with no associated account is marked used and returns Ok.
     [Fact]
     public async Task VerifyEmailAsync_WhenAccountNotFound_MarksTokenUsedAndReturnsOk()
     {
@@ -175,7 +175,7 @@ public class VerifyEmailAsyncTests : AuthServiceTestBase
     // 3. BOUNDARY CASES (Expiration timestamp: ExpiresAt <= now)
     // =========================================================================
 
-    // UTC06: Token expires at the exact current timestamp (ExpiresAt == now) -> Returns BadRequest (TOKEN_EXPIRED)
+    // UTC006: A token expiring at the current timestamp returns BadRequest with TOKEN_EXPIRED.
     [Fact]
     public async Task VerifyEmailAsync_WhenTokenExpiresExactlyNow_ReturnsBadRequest()
     {
@@ -202,7 +202,7 @@ public class VerifyEmailAsyncTests : AuthServiceTestBase
         Assert.Equal("The verification token has expired.", result.ErrorMessage);
     }
 
-    // UTC07: Token has 1 second remaining before expiration (ExpiresAt == now + 1s) -> Returns Ok
+    // UTC007: A token with one second remaining before expiration returns Ok.
     [Fact]
     public async Task VerifyEmailAsync_WhenTokenHasOneSecondRemaining_ReturnsOk()
     {

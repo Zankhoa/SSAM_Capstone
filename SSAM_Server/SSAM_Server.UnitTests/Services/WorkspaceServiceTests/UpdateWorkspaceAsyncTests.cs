@@ -1,4 +1,5 @@
 ﻿using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
 using Moq;
 using SSAM_Server.Common;
 using SSAM_Server.DTOs.Common;
@@ -66,7 +67,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Update workspace successfully with all fields (Name, Code, Description)
+    // UTC001: Updating all workspace fields succeeds and persists the new values.
     [Fact]
     public async Task UpdateWorkspaceAsync_WithFullValidRequest_ReturnsOkAndUpdatesWorkspace()
     {
@@ -95,7 +96,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         WorkspaceRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC02: Partial update (only Name specified; Description not specified -> DescriptionSpecified = false) -> Preserves Code & Description
+    // UTC002: A partial update preserves fields that were not specified.
     [Fact]
     public async Task UpdateWorkspaceAsync_WithPartialUpdate_PreservesUnspecifiedFields()
     {
@@ -123,7 +124,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         WorkspaceRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    // UTC03: Pass unchanged Code & explicitly clear Description (Description = "   ") -> Skips CodeExistsAsync & clears Description to null
+    // UTC003: An unchanged code skips the uniqueness check while blank description clears the value.
     [Fact]
     public async Task UpdateWorkspaceAsync_WithUnchangedCodeAndBlankDescription_SkipsCodeCheckAndClearsDescription()
     {
@@ -152,7 +153,68 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC04: User is not authenticated -> Returns Unauthorized
+    // UTC004: An invalid department ID returns a validation error without saving the workspace.
+    [Fact]
+    public async Task UpdateWorkspaceAsync_WhenDepartmentIsInvalid_ReturnsDepartmentValidationError()
+    {
+        SetupValidAuthorizationAndWorkspace(userId: 1, companyId: 10, workspaceId: 100);
+        Db.Departments.Add(new Department { Id = 11, CompanyId = 10, Name = "Engineering", IsActive = true });
+        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await WorkspaceService.UpdateWorkspaceAsync(
+            100,
+            new UpdateWorkspaceRequestDto { DepartmentIds = [999] },
+            TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.Contains("departmentIds", result.Errors!.Keys);
+        Assert.Contains("Danh sách phòng ban không hợp lệ", result.Errors["departmentIds"]);
+        WorkspaceRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // UTC005: Updating departments removes old links, adds new links, and adds members from the new department.
+    [Fact]
+    public async Task UpdateWorkspaceAsync_WithDepartmentsSynchronizesLinksAndAddsDepartmentMembers()
+    {
+        var (workspace, expectedDto) = SetupValidAuthorizationAndWorkspace(
+            userId: 1, companyId: 10, workspaceId: 100);
+        Db.Departments.AddRange(
+            new Department { Id = 11, CompanyId = 10, Name = "Old", IsActive = true },
+            new Department { Id = 12, CompanyId = 10, Name = "New", IsActive = true });
+        var oldLink = new WorkspaceDepartment { WorkspaceId = 100, DepartmentId = 11 };
+        Db.WorkspaceDepartments.Add(oldLink);
+        Db.CompanyMembers.Add(new CompanyMember
+        {
+            Id = 1, CompanyId = 10, UserId = 20, RoleId = 2, DepartmentId = 12, IsActive = true
+        });
+        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        CompanyRepositoryMock
+            .Setup(c => c.ResolveRoleIdAsync(10, CompanyRoleCodes.WorkspaceMember, RoleScopes.Workspace,
+                CompanyRoleCodes.WorkspaceMember, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(6);
+        WorkspaceRepositoryMock
+            .Setup(r => r.GetMemberRecordAsync(100, 20, It.IsAny<CancellationToken>()))
+            .ReturnsAsync((WorkspaceMember?)null);
+
+        var result = await WorkspaceService.UpdateWorkspaceAsync(
+            100,
+            new UpdateWorkspaceRequestDto { DepartmentIds = [12] },
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Same(expectedDto, result.Data);
+        Assert.Equal(EntityState.Deleted, Db.Entry(oldLink).State);
+        Assert.Contains(Db.ChangeTracker.Entries<WorkspaceDepartment>(), e =>
+            e.State == EntityState.Added && e.Entity.WorkspaceId == 100 && e.Entity.DepartmentId == 12);
+        WorkspaceRepositoryMock.Verify(r => r.AddMemberAsync(
+            It.Is<WorkspaceMember>(m => m.WorkspaceId == 100 && m.UserId == 20 && m.RoleId == 6 && m.IsActive),
+            It.IsAny<CancellationToken>()), Times.Once);
+        WorkspaceRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // UTC006: User is not authenticated -> Returns Unauthorized
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenUserUnauthenticated_ReturnsUnauthorized()
     {
@@ -166,7 +228,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Your session is invalid or has expired.", result.ErrorMessage);
     }
 
-    // UTC05: User lacks WorkspaceUpdate permission -> Returns Forbidden
+    // UTC007: User lacks WorkspaceUpdate permission -> Returns Forbidden
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenPermissionDenied_ReturnsForbidden()
     {
@@ -184,7 +246,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("FORBIDDEN", result.ErrorCode);
     }
 
-    // UTC06: Workspace is archived (IsActive = false) -> Returns Conflict (WORKSPACE_ARCHIVED)
+    // UTC008: Workspace is archived (IsActive = false) -> Returns Conflict (WORKSPACE_ARCHIVED)
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenWorkspaceIsArchived_ReturnsConflict()
     {
@@ -199,7 +261,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Workspace đã được lưu trữ, dữ liệu chỉ đọc.", result.ErrorMessage);
     }
 
-    // UTC07: Code format is invalid (uppercase, underscore, or consecutive hyphens) -> Returns Validation Error
+    // UTC009: Code format is invalid (uppercase, underscore, or consecutive hyphens) -> Returns Validation Error
     [Theory]
     [InlineData("INVALID_CODE")]
     [InlineData("ws--01")]
@@ -217,7 +279,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Contains("Mã chỉ gồm chữ thường, số và dấu \"-\" (2–50 ký tự)", result.Errors["code"]);
     }
 
-    // UTC08: Multiple fields are invalid simultaneously -> Returns all validation errors
+    // UTC010: Multiple fields are invalid simultaneously -> Returns all validation errors
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenMultipleFieldsAreInvalid_ReturnsAllValidationErrors()
     {
@@ -237,7 +299,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Contains("code", result.Errors.Keys);
     }
 
-    // UTC09: New Code already exists on another workspace in company -> Returns Conflict (WORKSPACE_CODE_TAKEN)
+    // UTC011: New Code already exists on another workspace in company -> Returns Conflict (WORKSPACE_CODE_TAKEN)
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenNewCodeAlreadyExists_ReturnsConflict()
     {
@@ -256,7 +318,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Mã workspace đã được dùng trong công ty.", result.ErrorMessage);
     }
 
-    // UTC10: Tracked workspace entity is not found (GetByIdAsync returns null) -> Returns NotFound
+    // UTC012: Tracked workspace entity is not found (GetByIdAsync returns null) -> Returns NotFound
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenTrackedWorkspaceNotFound_ReturnsNotFound()
     {
@@ -278,7 +340,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
     // 3. BOUNDARY CASES (Name: 1, 2, 255, 256 | Code: 1, 2, 50, 51)
     // =========================================================================
 
-    // UTC11: Name boundary length 1 (below minimum 2) -> Returns Validation Error
+    // UTC013: Name boundary length 1 (below minimum 2) -> Returns Validation Error
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenNameLengthIs1_ReturnsValidationError()
     {
@@ -293,10 +355,10 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Contains("Tên workspace từ 2 đến 255 ký tự", result.Errors["name"]);
     }
 
-    // UTC12 + UTC13: Name boundary length 2 (min) and 255 (max) -> Returns Ok
+    // UTC014 + UTC015: Name boundary length 2 (min) and 255 (max) -> Returns Ok
     [Theory]
-    [InlineData(2)]     // UTC12: Name 2 characters (lower boundary)
-    [InlineData(255)]   // UTC13: Name 255 characters (upper boundary)
+    [InlineData(2)]     // UTC014: Name 2 characters (lower boundary)
+    [InlineData(255)]   // UTC015: Name 255 characters (upper boundary)
     public async Task UpdateWorkspaceAsync_WhenNameLengthIsWithinBoundary_ReturnsOk(int length)
     {
         var (workspace, _) = SetupValidAuthorizationAndWorkspace(userId: 1, companyId: 10, workspaceId: 100);
@@ -311,7 +373,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Equal(length, workspace.Name.Length);
     }
 
-    // UTC14: Name boundary length 256 (exceeds maximum 255) -> Returns Validation Error
+    // UTC016: Name boundary length 256 (exceeds maximum 255) -> Returns Validation Error
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenNameExceeds255Chars_ReturnsValidationError()
     {
@@ -326,7 +388,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Contains("Tên workspace từ 2 đến 255 ký tự", result.Errors["name"]);
     }
 
-    // UTC15: Code boundary length 1 (below minimum 2) -> Returns Validation Error
+    // UTC017: Code boundary length 1 (below minimum 2) -> Returns Validation Error
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenCodeLengthIs1_ReturnsValidationError()
     {
@@ -341,10 +403,10 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Contains("Mã chỉ gồm chữ thường, số và dấu \"-\" (2–50 ký tự)", result.Errors["code"]);
     }
 
-    // UTC16 + UTC17: Code boundary length 2 (min) and 50 (max) -> Returns Ok
+    // UTC018 + UTC019: Code boundary length 2 (min) and 50 (max) -> Returns Ok
     [Theory]
-    [InlineData(2)]     // UTC16: Code 2 characters (lower boundary)
-    [InlineData(50)]    // UTC17: Code 50 characters (upper boundary)
+    [InlineData(2)]     // UTC018: Code 2 characters (lower boundary)
+    [InlineData(50)]    // UTC019: Code 50 characters (upper boundary)
     public async Task UpdateWorkspaceAsync_WhenCodeLengthIsWithinBoundary_ReturnsOk(int length)
     {
         var (workspace, _) = SetupValidAuthorizationAndWorkspace(userId: 1, companyId: 10, workspaceId: 100);
@@ -359,7 +421,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Equal(length, workspace.Code.Length);
     }
 
-    // UTC18: Code boundary length 51 (exceeds maximum 50) -> Returns Validation Error
+    // UTC020: Code boundary length 51 (exceeds maximum 50) -> Returns Validation Error
     [Fact]
     public async Task UpdateWorkspaceAsync_WhenCodeExceeds50Chars_ReturnsValidationError()
     {

@@ -47,7 +47,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Create company successfully with full valid information (updates creator phone if empty)
+    // UTC001: Create company successfully with full valid information and update the creator phone when empty.
     [Fact]
     public async Task CreateCompanyAsync_WithFullValidRequest_ReturnsCreatedAndUpdatesUserPhone()
     {
@@ -92,7 +92,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         CompanyRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
-    // UTC02: Create company successfully with only required fields (non-nullable strings default to empty, nullable fields null)
+    // UTC002: Create company successfully with only required fields; optional values remain empty or null.
     [Fact]
     public async Task CreateCompanyAsync_WithMinimalRequiredFields_ReturnsCreated()
     {
@@ -123,7 +123,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         AuthRepositoryMock.Verify(r => r.GetUserByIdAsync(It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // UTC03: Create company with AdminPhone when creator user already has a phone number -> Does not overwrite existing phone
+    // UTC003: Do not overwrite the creator phone when the creator already has one.
     [Fact]
     public async Task CreateCompanyAsync_WhenCreatorAlreadyHasPhone_DoesNotOverwritePhone()
     {
@@ -153,7 +153,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC04: User is not authenticated (UserIdOrNull is null) -> Returns Unauthorized
+    // UTC004: An unauthenticated user returns Unauthorized.
     [Fact]
     public async Task CreateCompanyAsync_WhenUserUnauthenticated_ReturnsUnauthorized()
     {
@@ -173,7 +173,60 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal("Your session is invalid or has expired.", result.ErrorMessage);
     }
 
-    // UTC05: Company Name is empty or whitespace -> Returns Validation Error
+    // UTC005: An active company already exists -> Returns Conflict and stops before creator checks.
+    [Fact]
+    public async Task CreateCompanyAsync_WhenActiveCompanyAlreadyExists_ReturnsConflict()
+    {
+        CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
+        CompanyRepositoryMock
+            .Setup(r => r.AnyActiveCompanyExistsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var request = new CreateCompanyRequestDto
+        {
+            Name = "SSAM Tech",
+            WorkspaceSlug = "ssam-tech"
+        };
+
+        var result = await CompanyService.CreateCompanyAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
+        Assert.Equal("COMPANY_ALREADY_EXISTS", result.ErrorCode);
+        CompanyRepositoryMock.Verify(
+            r => r.HasAnyActiveCompanyAsync(It.IsAny<long>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // UTC006: The creator already belongs to an active company -> Returns Conflict.
+    [Fact]
+    public async Task CreateCompanyAsync_WhenCreatorAlreadyBelongsToCompany_ReturnsConflict()
+    {
+        CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
+        CompanyRepositoryMock
+            .Setup(r => r.AnyActiveCompanyExistsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(false);
+        CompanyRepositoryMock
+            .Setup(r => r.HasAnyActiveCompanyAsync(1, null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+
+        var request = new CreateCompanyRequestDto
+        {
+            Name = "SSAM Tech",
+            WorkspaceSlug = "ssam-tech"
+        };
+
+        var result = await CompanyService.CreateCompanyAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
+        Assert.Equal("ALREADY_IN_COMPANY", result.ErrorCode);
+        CompanyRepositoryMock.Verify(
+            r => r.CodeExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // UTC007: An empty or whitespace company name returns a validation error.
     [Fact]
     public async Task CreateCompanyAsync_WhenNameIsWhitespace_ReturnsValidationError()
     {
@@ -194,10 +247,10 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Tên công ty là bắt buộc.", result.Errors["name"]);
     }
 
-    // UTC06 + UTC07: WorkspaceSlug is empty or invalid format -> Returns Validation Error
+    // UTC008 + UTC009: An empty or invalid workspace slug returns a validation error.
     [Theory]
-    [InlineData("   ", "Workspace slug là bắt buộc.")]                                              // UTC06: Whitespace only
-    [InlineData("SSAM_Tech!", "Workspace slug chỉ được chứa chữ thường, số và dấu gạch ngang.")]   // UTC07: Uppercase & invalid chars
+    [InlineData("   ", "Workspace slug là bắt buộc.")]                                              // UTC008: Whitespace-only slug.
+    [InlineData("SSAM_Tech!", "Workspace slug chỉ được chứa chữ thường, số và dấu gạch ngang.")]   // UTC009: Uppercase and invalid characters.
     public async Task CreateCompanyAsync_WhenWorkspaceSlugIsInvalid_ReturnsValidationError(string invalidSlug, string expectedError)
     {
         CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
@@ -217,10 +270,10 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains(expectedError, result.Errors["workspaceSlug"]);
     }
 
-    // UTC08 + UTC09: EmailDomain uses public email providers -> Returns Validation Error
+    // UTC010 + UTC011: A public email domain returns a validation error.
     [Theory]
-    [InlineData("gmail.com")]       // UTC08: Lowercase public domain
-    [InlineData("  OUTLOOK.COM  ")] // UTC09: Uppercase with spaces public domain
+    [InlineData("gmail.com")]       // UTC010: Lowercase public domain.
+    [InlineData("  OUTLOOK.COM  ")] // UTC011: Uppercase public domain with spaces.
     public async Task CreateCompanyAsync_WhenEmailDomainIsPublic_ReturnsValidationError(string publicDomain)
     {
         CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
@@ -241,10 +294,10 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Không dùng tên miền email công cộng (gmail.com, yahoo.com…).", result.Errors["emailDomain"]);
     }
 
-    // UTC10 + UTC11: AdminPhone has invalid format -> Returns Validation Error
+    // UTC012 + UTC013: An invalid admin phone format returns a validation error.
     [Theory]
-    [InlineData("1234567890")]  // UTC10: Does not start with 0 or +84
-    [InlineData("09123456")]    // UTC11: Too short (8 digits)
+    [InlineData("1234567890")]  // UTC012: Does not start with 0 or +84.
+    [InlineData("09123456")]    // UTC013: Too short.
     public async Task CreateCompanyAsync_WhenAdminPhoneIsInvalid_ReturnsValidationError(string invalidPhone)
     {
         CurrentUserMock.Setup(u => u.UserIdOrNull).Returns(1);
@@ -265,7 +318,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Số điện thoại không hợp lệ.", result.Errors["adminPhone"]);
     }
 
-    // UTC12: All validated fields are invalid simultaneously -> Returns all 4 validation errors
+    // UTC014: Multiple invalid fields return all four validation errors.
     [Fact]
     public async Task CreateCompanyAsync_WhenMultipleFieldsAreInvalid_ReturnsAllValidationErrors()
     {
@@ -291,7 +344,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("adminPhone", result.Errors.Keys);
     }
 
-    // UTC13: WorkspaceSlug already exists in database -> Returns Conflict
+    // UTC015: An existing workspace slug returns Conflict.
     [Fact]
     public async Task CreateCompanyAsync_WhenWorkspaceSlugAlreadyExists_ReturnsConflict()
     {
@@ -320,10 +373,10 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
     // 3. BOUNDARY CASES
     // =========================================================================
 
-    // UTC14 + UTC15: AdminPhone boundary valid lengths (10 digits & +84 + 10 digits) -> Success
+    // UTC016 + UTC017: Valid admin-phone boundary formats return success.
     [Theory]
-    [InlineData("0912345678")]      // UTC14: Lower boundary (0 + 9 digits = 10 digits)
-    [InlineData("+849123456789")]   // UTC15: Upper boundary (+84 + 10 digits)
+    [InlineData("0912345678")]      // UTC016: 0 followed by 9 digits.
+    [InlineData("+849123456789")]   // UTC017: +84 followed by 9 digits.
     public async Task CreateCompanyAsync_WhenAdminPhoneIsAtValidBoundary_ReturnsCreated(string validBoundaryPhone)
     {
         var request = new CreateCompanyRequestDto
@@ -345,7 +398,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal(StatusCodes.Status201Created, result.StatusCode);
     }
 
-    // UTC16: AdminPhone exceeds upper boundary (0 + 11 digits = 12 digits) -> Returns Validation Error
+    // UTC018: An admin phone beyond the supported boundary returns a validation error.
     [Fact]
     public async Task CreateCompanyAsync_WhenAdminPhoneExceedsUpperBoundary_ReturnsValidationError()
     {
@@ -367,10 +420,10 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Contains("Số điện thoại không hợp lệ.", result.Errors["adminPhone"]);
     }
 
-    // UTC17 + UTC18: Name boundary length 1 and 255 -> Returns Created
+    // UTC019 + UTC020: Name boundary lengths 1 and 255 return Created.
     [Theory]
-    [InlineData(1)]     // UTC17: Name 1 character
-    [InlineData(255)]   // UTC18: Name 255 characters
+    [InlineData(1)]     // UTC019: Name contains 1 character.
+    [InlineData(255)]   // UTC020: Name contains 255 characters.
     public async Task CreateCompanyAsync_WhenNameLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validName = new string('A', length);
@@ -391,7 +444,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal(length, result.Data.Name.Length);
     }
 
-    // UTC19: Name boundary length 256 -> Throws DbUpdateException
+    // UTC021: A 256-character name propagates the database update exception.
     [Fact]
     public async Task CreateCompanyAsync_WhenNameExceeds255Chars_ThrowsDbUpdateException()
     {
@@ -413,10 +466,10 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
             CompanyService.CreateCompanyAsync(request, TestContext.Current.CancellationToken));
     }
 
-    // UTC20 + UTC21: WorkspaceSlug (Code) boundary length 1 and 50 -> Returns Created
+    // UTC022 + UTC023: Workspace-slug boundary lengths 1 and 50 return Created.
     [Theory]
-    [InlineData(1)]     // UTC20: WorkspaceSlug 1 character
-    [InlineData(50)]    // UTC21: WorkspaceSlug 50 characters
+    [InlineData(1)]     // UTC022: Workspace slug contains 1 character.
+    [InlineData(50)]    // UTC023: Workspace slug contains 50 characters.
     public async Task CreateCompanyAsync_WhenWorkspaceSlugLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validSlug = new string('a', length);
@@ -437,7 +490,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal(length, result.Data.Code.Length);
     }
 
-    // UTC22: WorkspaceSlug (Code) boundary length 51 -> Throws DbUpdateException
+    // UTC024: A 51-character workspace slug propagates the database update exception.
     [Fact]
     public async Task CreateCompanyAsync_WhenWorkspaceSlugExceeds50Chars_ThrowsDbUpdateException()
     {
@@ -459,10 +512,10 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
             CompanyService.CreateCompanyAsync(request, TestContext.Current.CancellationToken));
     }
 
-    // UTC23 + UTC24: EmailDomain boundary length 1 and 255 -> Returns Created
+    // UTC025 + UTC026: Email-domain boundary lengths 1 and 255 return Created.
     [Theory]
-    [InlineData(1)]     // UTC23: EmailDomain 1 character
-    [InlineData(255)]   // UTC24: EmailDomain 255 characters
+    [InlineData(1)]     // UTC025: Email domain contains 1 character.
+    [InlineData(255)]   // UTC026: Email domain contains 255 characters.
     public async Task CreateCompanyAsync_WhenEmailDomainLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validDomain = length == 1
@@ -487,7 +540,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal(length, result.Data.EmailDomain!.Length);
     }
 
-    // UTC25: EmailDomain boundary length 256 -> Throws DbUpdateException
+    // UTC027: A 256-character email domain propagates the database update exception.
     [Fact]
     public async Task CreateCompanyAsync_WhenEmailDomainExceeds255Chars_ThrowsDbUpdateException()
     {
@@ -510,10 +563,10 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
             CompanyService.CreateCompanyAsync(request, TestContext.Current.CancellationToken));
     }
 
-    // UTC26 + UTC27: TaxCode boundary length 1 and 100 -> Returns Created
+    // UTC028 + UTC029: Tax-code boundary lengths 1 and 100 return Created.
     [Theory]
-    [InlineData(1)]     // UTC26: TaxCode 1 character
-    [InlineData(100)]   // UTC27: TaxCode 100 characters
+    [InlineData(1)]     // UTC028: Tax code contains 1 character.
+    [InlineData(100)]   // UTC029: Tax code contains 100 characters.
     public async Task CreateCompanyAsync_WhenTaxCodeLengthIsWithinBoundary_ReturnsCreated(int length)
     {
         var validTaxCode = new string('1', length);
@@ -534,7 +587,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.Equal(length, result.Data.TaxCode!.Length);
     }
 
-    // UTC28: TaxCode boundary length 101 -> Throws DbUpdateException
+    // UTC030: A 101-character tax code propagates the database update exception.
     [Fact]
     public async Task CreateCompanyAsync_WhenTaxCodeExceeds100Chars_ThrowsDbUpdateException()
     {

@@ -87,7 +87,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
     // 1. NORMAL CASES
     // =========================================================================
 
-    // UTC01: Manager removes another member -> Deactivates project & workspace memberships, updates workspace timestamp, returns NoContent
+    // UTC001: A manager removes another active member and deactivates related memberships.
     [Fact]
     public async Task RemoveMemberAsync_WhenManagerRemovesMember_DeactivatesMembershipsAndReturnsNoContent()
     {
@@ -113,7 +113,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
             Times.Once);
     }
 
-    // UTC02: Member leaves workspace voluntarily (targetUserId == currentUserId) -> Requires no management permission, returns NoContent
+    // UTC002: A member voluntarily leaves without requiring management permission.
     [Fact]
     public async Task RemoveMemberAsync_WhenMemberLeavesVoluntarily_RequiresNullPermissionAndReturnsNoContent()
     {
@@ -139,7 +139,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC03: User is not authenticated -> Returns Unauthorized
+    // UTC003: An unauthenticated user cannot remove a member.
     [Fact]
     public async Task RemoveMemberAsync_WhenUserUnauthenticated_ReturnsUnauthorized()
     {
@@ -152,7 +152,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Your session is invalid or has expired.", result.ErrorMessage);
     }
 
-    // UTC04: User lacks WorkspaceMemberManage permission when removing another member -> Returns Forbidden
+    // UTC004: A user without member-management permission is forbidden.
     [Fact]
     public async Task RemoveMemberAsync_WhenPermissionDenied_ReturnsForbidden()
     {
@@ -168,7 +168,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("FORBIDDEN", result.ErrorCode);
     }
 
-    // UTC05: Workspace is a personal workspace (CompanyId == null) -> Returns BadRequest (PERSONAL_WORKSPACE)
+    // UTC005: Removing a member from a personal workspace returns BadRequest.
     [Fact]
     public async Task RemoveMemberAsync_WhenPersonalWorkspace_ReturnsBadRequest()
     {
@@ -182,7 +182,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Workspace cá nhân không có thành viên khác.", result.ErrorMessage);
     }
 
-    // UTC06: Workspace is archived (IsActive == false) -> Returns Conflict (WORKSPACE_ARCHIVED)
+    // UTC006: Removing a member from an archived workspace returns Conflict.
     [Fact]
     public async Task RemoveMemberAsync_WhenWorkspaceIsArchived_ReturnsConflict()
     {
@@ -196,7 +196,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Workspace đã được lưu trữ, dữ liệu chỉ đọc.", result.ErrorMessage);
     }
 
-    // UTC07: Target user is not an active member of the workspace -> Returns NotFound
+    // UTC007: Removing a non-member returns NotFound.
     [Fact]
     public async Task RemoveMemberAsync_WhenTargetMemberNotFound_ReturnsNotFound()
     {
@@ -212,7 +212,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Không tìm thấy dữ liệu.", result.ErrorMessage);
     }
 
-    // UTC08: Target user is the sole Project Manager of an active project -> Returns Conflict (LAST_PROJECT_MANAGER)
+    // UTC008: Removing the sole project manager returns Conflict.
     [Fact]
     public async Task RemoveMemberAsync_WhenTargetUserIsSoleProjectManager_ReturnsConflict()
     {
@@ -233,10 +233,10 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
     // 3. BOUNDARY CASES (Active WorkspaceAdmin count: 1 vs 2)
     // =========================================================================
 
-    // UTC09 + UTC10: Target user is WorkspaceAdmin & active admin count is 0 or 1 (minimum boundary) -> Returns Conflict (LAST_WORKSPACE_ADMIN)
+    // UTC009 + UTC010: Target user is WorkspaceAdmin & active admin count is 0 or 1 (minimum boundary) -> Returns Conflict (LAST_WORKSPACE_ADMIN)
     [Theory]
-    [InlineData(0)] // UTC09: Below boundary (0)
-    [InlineData(1)] // UTC10: Exact lower boundary (1 last admin)
+    [InlineData(0)] // UTC009: Below boundary (0)
+    [InlineData(1)] // UTC010: Exact lower boundary (1 last admin)
     public async Task RemoveMemberAsync_WhenRemovingLastWorkspaceAdmin_ReturnsConflict(int activeAdminCount)
     {
         SetupValidWorkspaceAndMember(
@@ -253,7 +253,7 @@ public class RemoveMemberAsyncTests : WorkspaceServiceTestBase
         Assert.Equal("Workspace phải còn ít nhất 1 Workspace Admin.", result.ErrorMessage);
     }
 
-    // UTC11: Target user is WorkspaceAdmin & active admin count is 2 (above minimum 1) -> Returns NoContent
+    // UTC011: Removing a workspace admin succeeds when another admin remains.
     [Fact]
     public async Task RemoveMemberAsync_WhenMultipleWorkspaceAdminsExist_ReturnsNoContent()
     {
