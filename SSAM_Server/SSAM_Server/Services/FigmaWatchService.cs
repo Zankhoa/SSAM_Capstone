@@ -26,6 +26,7 @@ public class FigmaWatchService : IFigmaWatchService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly FigmaOptions _options;
     private readonly TimeProvider _clock;
+    private readonly INotificationService _notifications;
     private readonly ILogger<FigmaWatchService> _logger;
 
     public FigmaWatchService(
@@ -33,12 +34,14 @@ public class FigmaWatchService : IFigmaWatchService
         IHttpClientFactory httpClientFactory,
         IOptions<FigmaOptions> options,
         TimeProvider clock,
+        INotificationService notifications,
         ILogger<FigmaWatchService> logger)
     {
         _db = db;
         _httpClientFactory = httpClientFactory;
         _options = options.Value;
         _clock = clock;
+        _notifications = notifications;
         _logger = logger;
     }
 
@@ -261,6 +264,7 @@ public class FigmaWatchService : IFigmaWatchService
 
         var activeCases = await _db.TestCases
             .AsNoTracking()
+            .Include(tc => tc.Plan)
             .Where(tc => affectedCaseIds.Contains(tc.Id) && tc.Status == TestCaseStatuses.Active)
             .ToListAsync(ct);
 
@@ -330,6 +334,40 @@ public class FigmaWatchService : IFigmaWatchService
                 TestCaseId = tc.Id,
                 Text = $"Thiết kế Figma \"{displayName}\" đã thay đổi — cần kiểm tra lại {tc.Code}"
             });
+        }
+
+        var moduleIds = activeCases.Select(c => c.ModuleId).Distinct().ToList();
+        var projectIds = activeCases.Select(c => c.Plan.ProjectId).Distinct().ToList();
+        var assignedUserIds = await _db.TestAssignments
+            .AsNoTracking()
+            .Where(a => moduleIds.Contains(a.ModuleId))
+            .Select(a => a.AssigneeId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        if (assignedUserIds.Count == 0 && projectIds.Count > 0)
+        {
+            assignedUserIds = await _db.ProjectMembers
+                .AsNoTracking()
+                .Where(pm => projectIds.Contains(pm.ProjectId) && pm.IsActive)
+                .Select(pm => pm.UserId)
+                .Distinct()
+                .ToListAsync(ct);
+        }
+
+        var sampleCodes = string.Join(", ", activeCases.Select(c => c.Code).Distinct().Take(3));
+        var firstProjectId = projectIds.FirstOrDefault();
+        var link = firstProjectId > 0 ? $"/projects/{firstProjectId}/tests" : null;
+        var msg = $"{activeCases.Count} test case bị ảnh hưởng ({sampleCodes}) do thiết kế Figma \"{displayName}\" thay đổi.";
+        foreach (var uid in assignedUserIds)
+        {
+            await _notifications.NotifyAsync(
+                uid,
+                "TESTCASE_DESIGN_CHANGED",
+                $"Cảnh báo UI/UX Figma ảnh hưởng Test Case",
+                msg,
+                link,
+                ct);
         }
 
         return flaggedCount;

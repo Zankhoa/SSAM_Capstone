@@ -24,6 +24,7 @@ public class ProjectScreenConfiguration : IEntityTypeConfiguration<ProjectScreen
         builder.Property(s => s.ImageStoredName).HasColumnName("image_stored_name").HasMaxLength(255);
         builder.Property(s => s.ImageContentType).HasColumnName("image_content_type").HasMaxLength(100);
         builder.Property(s => s.DocumentId).HasColumnName("document_id");
+        builder.Property(s => s.ReqUidsJson).HasColumnName("req_uids_json").HasMaxLength(2000);
         builder.Property(s => s.Notes).HasColumnName("notes").HasMaxLength(2000);
         builder.Property(s => s.CreatedById).HasColumnName("created_by_id").IsRequired();
         builder.Property(s => s.CreatedAt).HasColumnName("created_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");

@@ -78,6 +78,7 @@ public abstract class KanbanServiceTestBase : IDisposable
             PermissionServiceMock.Object,
             Clock,
             AccessGuardMock.Object,
+            new Mock<INotificationService>().Object,
             configuration);
     }
 

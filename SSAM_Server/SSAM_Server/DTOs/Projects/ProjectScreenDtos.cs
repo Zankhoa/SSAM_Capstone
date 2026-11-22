@@ -32,6 +32,9 @@ public class ProjectScreenDto
     [JsonPropertyName("documentTitle")]
     public string? DocumentTitle { get; set; }
 
+    [JsonPropertyName("reqUids")]
+    public List<string> ReqUids { get; set; } = new();
+
     [JsonPropertyName("notes")]
     public string? Notes { get; set; }
 
@@ -59,10 +62,39 @@ public class UpsertProjectScreenForm
     [JsonPropertyName("documentId")]
     public long? DocumentId { get; set; }
 
+    public string? ReqUidsJson { get; set; }
+
     [JsonPropertyName("notes")]
     public string? Notes { get; set; }
 
     public IFormFile? Image { get; set; }
 
     public bool RemoveImage { get; set; }
+}
+
+public class GenerateLayoutRequestDto
+{
+    [JsonPropertyName("documentId")]
+    public long DocumentId { get; set; }
+
+    [JsonPropertyName("reqUids")]
+    public List<string>? ReqUids { get; set; }
+
+    [JsonPropertyName("title")]
+    public string? Title { get; set; }
+
+    [JsonPropertyName("notes")]
+    public string? Notes { get; set; }
+}
+
+public class GenerateLayoutResponseDto
+{
+    [JsonPropertyName("screen")]
+    public ProjectScreenDto Screen { get; set; } = new();
+
+    [JsonPropertyName("svgContent")]
+    public string SvgContent { get; set; } = string.Empty;
+
+    [JsonPropertyName("usedAi")]
+    public bool UsedAi { get; set; }
 }

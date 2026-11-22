@@ -16,9 +16,6 @@ public class NormalizeNotesAsyncTests : DocumentServiceTestBase
         DocumentTestData.GuardAllow(AccessGuardMock, ProjectId, PermissionKeys.DocumentCreate);
     }
 
-    private const string DefaultActors = "Người dùng (User), Quản trị viên (Admin)";
-    private const string DefaultFlow = "• Xử lý luồng nghiệp vụ chính theo phạm vi tài liệu";
-    private const string DefaultRules = "• Kiểm tra phân quyền và tính hợp lệ của dữ liệu đầu vào trước khi lưu.\n• Ghi nhận lịch sử thao tác (audit log) cho các thay đổi quan trọng.";
 
     private void VerifyNoSideEffects()
     {
@@ -49,9 +46,9 @@ public class NormalizeNotesAsyncTests : DocumentServiceTestBase
         VerifyNoSideEffects();
     }
 
-    // UTC02: Free text without section labels -> first line becomes scope and defaults fill actors/flows/rules
+    // UTC02: Free text without section labels -> first line becomes scope and actors/flows/rules stay empty
     [Fact]
-    public async Task NormalizeNotesAsync_WithFreeText_FillsDefaults()
+    public async Task NormalizeNotesAsync_WithFreeText_LeavesOtherFieldsEmpty()
     {
         SetupAuthorizedUser();
 
@@ -59,9 +56,9 @@ public class NormalizeNotesAsyncTests : DocumentServiceTestBase
 
         Assert.True(result.IsSuccess);
         Assert.Equal("Hệ thống quản lý thư viện số", result.Data!.Scope);
-        Assert.Equal(DefaultActors, result.Data.Actors);
-        Assert.Equal(DefaultFlow, result.Data.MainFlows);
-        Assert.Equal(DefaultRules, result.Data.BusinessRules);
+        Assert.Equal(string.Empty, result.Data.Actors);
+        Assert.Equal(string.Empty, result.Data.MainFlows);
+        Assert.Equal(string.Empty, result.Data.BusinessRules);
     }
 
     // UTC03: Notes are trimmed before validation and processing
@@ -217,7 +214,7 @@ public class NormalizeNotesAsyncTests : DocumentServiceTestBase
 
         Assert.True(result.IsSuccess);
         Assert.Equal("abcdefghij", result.Data!.Scope);
-        Assert.Equal(DefaultActors, result.Data.Actors);
+        Assert.Equal(string.Empty, result.Data.Actors);
     }
 
     // UTC14: Notes of 10 characters surrounded by whitespace (trimmed length 10) -> success
