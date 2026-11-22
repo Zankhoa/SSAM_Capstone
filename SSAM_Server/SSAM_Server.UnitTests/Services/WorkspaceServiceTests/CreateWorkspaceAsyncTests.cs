@@ -6,11 +6,6 @@ using SSAM_Server.DTOs.Workspaces;
 using SSAM_Server.Interfaces.Security;
 using SSAM_Server.Models;
 using SSAM_Server.Security;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace SSAM_Server.UnitTests.Services.WorkspaceServiceTests;
 
@@ -247,11 +242,61 @@ public class CreateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Equal(48, savedWorkspace.Code.Length);
     }
 
+    // UTC005: A company with three active departments links the two selected departments and their active members.
+    [Fact]
+    public async Task CreateWorkspaceAsync_WithTwoOfThreeDepartments_AddsOnlySelectedDepartmentLinksAndMembers()
+    {
+        var capturedMembers = new List<WorkspaceMember>();
+        SetupSuccessfulCreation(userId: 1, companyId: 10, generatedWorkspaceId: 105, wsAdminRoleId: 5);
+        Db.Departments.AddRange(
+            new Department { Id = 11, CompanyId = 10, Name = "Engineering", IsActive = true },
+            new Department { Id = 12, CompanyId = 10, Name = "Product", IsActive = true },
+            new Department { Id = 13, CompanyId = 10, Name = "Quality Assurance", IsActive = true });
+        Db.CompanyMembers.AddRange(
+            new CompanyMember { Id = 1, CompanyId = 10, UserId = 1, RoleId = 2, DepartmentId = 11, IsActive = true },
+            new CompanyMember { Id = 2, CompanyId = 10, UserId = 20, RoleId = 2, DepartmentId = 11, IsActive = true },
+            new CompanyMember { Id = 3, CompanyId = 10, UserId = 21, RoleId = 2, DepartmentId = 12, IsActive = true },
+            new CompanyMember { Id = 4, CompanyId = 10, UserId = 22, RoleId = 2, DepartmentId = 13, IsActive = true });
+        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        CompanyRepositoryMock
+            .Setup(c => c.ResolveRoleIdAsync(10, CompanyRoleCodes.WorkspaceMember, RoleScopes.Workspace,
+                CompanyRoleCodes.WorkspaceMember, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(6);
+        WorkspaceRepositoryMock
+            .Setup(r => r.AddMemberAsync(It.IsAny<WorkspaceMember>(), It.IsAny<CancellationToken>()))
+            .Callback<WorkspaceMember, CancellationToken>((member, _) => capturedMembers.Add(member))
+            .Returns(Task.CompletedTask);
+
+        var result = await WorkspaceService.CreateWorkspaceAsync(
+            new CreateWorkspaceRequestDto
+            {
+                CompanyId = 10,
+                Name = "Engineering and QA Workspace",
+                DepartmentIds = [11, 13]
+            },
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var departmentLinks = Db.ChangeTracker.Entries<WorkspaceDepartment>()
+            .Select(e => e.Entity)
+            .Where(link => link.WorkspaceId == 105)
+            .ToList();
+        Assert.Equal(2, departmentLinks.Count);
+        Assert.Contains(departmentLinks, link => link.DepartmentId == 11);
+        Assert.Contains(departmentLinks, link => link.DepartmentId == 13);
+        Assert.DoesNotContain(departmentLinks, link => link.DepartmentId == 12);
+        Assert.Contains(capturedMembers, member => member.UserId == 1 && member.RoleId == 5);
+        Assert.Contains(capturedMembers, member => member.UserId == 20 && member.RoleId == 6);
+        Assert.Contains(capturedMembers, member => member.UserId == 22 && member.RoleId == 6);
+        Assert.DoesNotContain(capturedMembers, member => member.UserId == 21);
+    }
+
     // =========================================================================
     // 2. ABNORMAL CASES
     // =========================================================================
 
-    // UTC005: A company with active departments requires at least one selected department.
+    // UTC006: A company with active departments requires at least one selected department.
     [Fact]
     public async Task CreateWorkspaceAsync_WhenCompanyHasDepartmentsButNoneSelected_ReturnsDepartmentValidationError()
     {
@@ -267,42 +312,6 @@ public class CreateWorkspaceAsyncTests : WorkspaceServiceTestBase
         Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
         Assert.Contains("departmentIds", result.Errors!.Keys);
         Assert.Contains("Vui lòng chọn ít nhất 1 phòng ban cho workspace", result.Errors["departmentIds"]);
-    }
-
-    // UTC006: Selected departments are linked and their active members are added with the workspace-member role.
-    [Fact]
-    public async Task CreateWorkspaceAsync_WithDepartments_AddsDepartmentLinksAndActiveDepartmentMembers()
-    {
-        var capturedMembers = new List<WorkspaceMember>();
-        SetupSuccessfulCreation(userId: 1, companyId: 10, generatedWorkspaceId: 104, wsAdminRoleId: 5);
-        Db.Departments.AddRange(
-            new Department { Id = 11, CompanyId = 10, Name = "Engineering", IsActive = true },
-            new Department { Id = 12, CompanyId = 10, Name = "Inactive", IsActive = false });
-        Db.CompanyMembers.AddRange(
-            new CompanyMember { Id = 1, CompanyId = 10, UserId = 1, RoleId = 2, DepartmentId = 11, IsActive = true },
-            new CompanyMember { Id = 2, CompanyId = 10, UserId = 20, RoleId = 2, DepartmentId = 11, IsActive = true },
-            new CompanyMember { Id = 3, CompanyId = 10, UserId = 21, RoleId = 2, DepartmentId = 11, IsActive = false });
-        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
-
-        CompanyRepositoryMock
-            .Setup(c => c.ResolveRoleIdAsync(10, CompanyRoleCodes.WorkspaceMember, RoleScopes.Workspace,
-                CompanyRoleCodes.WorkspaceMember, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(6);
-        WorkspaceRepositoryMock
-            .Setup(r => r.AddMemberAsync(It.IsAny<WorkspaceMember>(), It.IsAny<CancellationToken>()))
-            .Callback<WorkspaceMember, CancellationToken>((member, _) => capturedMembers.Add(member))
-            .Returns(Task.CompletedTask);
-
-        var result = await WorkspaceService.CreateWorkspaceAsync(
-            new CreateWorkspaceRequestDto { CompanyId = 10, Name = "Engineering Workspace", DepartmentIds = [11, 11] },
-            TestContext.Current.CancellationToken);
-
-        Assert.True(result.IsSuccess);
-        Assert.Contains(Db.ChangeTracker.Entries<WorkspaceDepartment>(), e =>
-            e.Entity.WorkspaceId == 104 && e.Entity.DepartmentId == 11);
-        Assert.Contains(capturedMembers, m => m.UserId == 1 && m.RoleId == 5);
-        Assert.Contains(capturedMembers, m => m.UserId == 20 && m.RoleId == 6);
-        Assert.DoesNotContain(capturedMembers, m => m.UserId == 21);
     }
 
     // UTC007: User is not authenticated -> Returns Unauthorized

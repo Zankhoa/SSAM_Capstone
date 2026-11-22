@@ -149,31 +149,7 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
         WorkspaceRepositoryMock.Verify(r => r.CodeExistsAsync(It.IsAny<long>(), It.IsAny<string>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    // =========================================================================
-    // 2. ABNORMAL CASES
-    // =========================================================================
-
-    // UTC004: An invalid department ID returns a validation error without saving the workspace.
-    [Fact]
-    public async Task UpdateWorkspaceAsync_WhenDepartmentIsInvalid_ReturnsDepartmentValidationError()
-    {
-        SetupValidAuthorizationAndWorkspace(userId: 1, companyId: 10, workspaceId: 100);
-        Db.Departments.Add(new Department { Id = 11, CompanyId = 10, Name = "Engineering", IsActive = true });
-        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
-
-        var result = await WorkspaceService.UpdateWorkspaceAsync(
-            100,
-            new UpdateWorkspaceRequestDto { DepartmentIds = [999] },
-            TestContext.Current.CancellationToken);
-
-        Assert.False(result.IsSuccess);
-        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
-        Assert.Contains("departmentIds", result.Errors!.Keys);
-        Assert.Contains("Danh sách phòng ban không hợp lệ", result.Errors["departmentIds"]);
-        WorkspaceRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    // UTC005: Updating departments removes old links, adds new links, and adds members from the new department.
+    // UTC004: Updating departments removes old links, adds new links, and adds members from the new department.
     [Fact]
     public async Task UpdateWorkspaceAsync_WithDepartmentsSynchronizesLinksAndAddsDepartmentMembers()
     {
@@ -212,6 +188,30 @@ public class UpdateWorkspaceAsyncTests : WorkspaceServiceTestBase
             It.Is<WorkspaceMember>(m => m.WorkspaceId == 100 && m.UserId == 20 && m.RoleId == 6 && m.IsActive),
             It.IsAny<CancellationToken>()), Times.Once);
         WorkspaceRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    // =========================================================================
+    // 2. ABNORMAL CASES
+    // =========================================================================
+
+    // UTC005: An invalid department ID returns a validation error without saving the workspace.
+    [Fact]
+    public async Task UpdateWorkspaceAsync_WhenDepartmentIsInvalid_ReturnsDepartmentValidationError()
+    {
+        SetupValidAuthorizationAndWorkspace(userId: 1, companyId: 10, workspaceId: 100);
+        Db.Departments.Add(new Department { Id = 11, CompanyId = 10, Name = "Engineering", IsActive = true });
+        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await WorkspaceService.UpdateWorkspaceAsync(
+            100,
+            new UpdateWorkspaceRequestDto { DepartmentIds = [999] },
+            TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.Contains("departmentIds", result.Errors!.Keys);
+        Assert.Contains("Danh sách phòng ban không hợp lệ", result.Errors["departmentIds"]);
+        WorkspaceRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // UTC006: User is not authenticated -> Returns Unauthorized

@@ -84,4 +84,48 @@ public class UpdateMemberRoleAsyncTests : ProjectServiceTestBase
         Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
         Assert.Equal("LAST_PROJECT_MANAGER", result.ErrorCode);
     }
+
+    // UTC005: An archived project cannot change member roles.
+    [Fact]
+    public async Task UpdateMemberRoleAsync_WhenProjectArchived_ReturnsConflict()
+    {
+        SetupProjectAccess(permissions: new[] { PermissionKeys.ProjectMemberManage }, projectActive: false);
+
+        var result = await ProjectService.UpdateMemberRoleAsync(200, 20,
+            new UpdateProjectMemberRoleRequestDto { RoleId = 52 }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
+        Assert.Equal("PROJECT_ARCHIVED", result.ErrorCode);
+    }
+
+    // UTC006: A missing replacement role returns not found.
+    [Fact]
+    public async Task UpdateMemberRoleAsync_WhenReplacementRoleIsMissing_ReturnsNotFound()
+    {
+        SetupValidRoleUpdate();
+        CompanyRepositoryMock.Setup(r => r.GetRoleByIdAsync(10, 52, It.IsAny<CancellationToken>())).ReturnsAsync((CompanyRole?)null);
+
+        var result = await ProjectService.UpdateMemberRoleAsync(200, 20,
+            new UpdateProjectMemberRoleRequestDto { RoleId = 52 }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status404NotFound, result.StatusCode);
+    }
+
+    // UTC007: A replacement role outside project scope is rejected.
+    [Fact]
+    public async Task UpdateMemberRoleAsync_WhenReplacementRoleHasWrongScope_ReturnsBadRequest()
+    {
+        SetupValidRoleUpdate();
+        CompanyRepositoryMock.Setup(r => r.GetRoleByIdAsync(10, 52, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CompanyRole { Id = 52, CompanyId = 10, Scope = RoleScopes.Workspace, IsActive = true });
+
+        var result = await ProjectService.UpdateMemberRoleAsync(200, 20,
+            new UpdateProjectMemberRoleRequestDto { RoleId = 52 }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.Equal("ROLE_SCOPE_MISMATCH", result.ErrorCode);
+    }
 }

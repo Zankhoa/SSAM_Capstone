@@ -185,6 +185,8 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         var request = new CreateCompanyRequestDto
         {
             Name = "SSAM Tech",
+            TaxCode = "0101234567",
+            Address = "Hà Nội",
             WorkspaceSlug = "ssam-tech"
         };
 
@@ -193,6 +195,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.False(result.IsSuccess);
         Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
         Assert.Equal("COMPANY_ALREADY_EXISTS", result.ErrorCode);
+        Assert.Equal("Hệ thống đã có công ty, không thể tạo thêm công ty mới.", result.ErrorMessage);
         CompanyRepositoryMock.Verify(
             r => r.HasAnyActiveCompanyAsync(It.IsAny<long>(), It.IsAny<long?>(), It.IsAny<CancellationToken>()),
             Times.Never);
@@ -213,6 +216,8 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         var request = new CreateCompanyRequestDto
         {
             Name = "SSAM Tech",
+            TaxCode = "0101234567",
+            Address = "Hà Nội",
             WorkspaceSlug = "ssam-tech"
         };
 
@@ -221,6 +226,7 @@ public class CreateCompanyAsyncTests : CompanyServiceTestBase
         Assert.False(result.IsSuccess);
         Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
         Assert.Equal("ALREADY_IN_COMPANY", result.ErrorCode);
+        Assert.Equal("Tài khoản này đã thuộc một công ty, không thể tạo thêm công ty khác.", result.ErrorMessage);
         CompanyRepositoryMock.Verify(
             r => r.CodeExistsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()),
             Times.Never);

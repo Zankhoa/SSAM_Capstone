@@ -100,4 +100,30 @@ public class RemoveMemberAsyncTests : ProjectServiceTestBase
         Assert.Equal("LAST_PROJECT_MANAGER", result.ErrorCode);
         Assert.True(member.IsActive);
     }
+
+    // UTC006: An archived project cannot remove members.
+    [Fact]
+    public async Task RemoveMemberAsync_WhenProjectArchived_ReturnsConflict()
+    {
+        SetupProjectAccess(permissions: new[] { PermissionKeys.ProjectMemberManage }, projectActive: false);
+
+        var result = await ProjectService.RemoveMemberAsync(200, 20, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
+        Assert.Equal("PROJECT_ARCHIVED", result.ErrorCode);
+    }
+
+    // UTC007: A workspace archived state prevents member removal even when project access exists.
+    [Fact]
+    public async Task RemoveMemberAsync_WhenWorkspaceArchived_ReturnsConflict()
+    {
+        SetupProjectAccess(permissions: new[] { PermissionKeys.ProjectMemberManage }, workspaceActive: false);
+
+        var result = await ProjectService.RemoveMemberAsync(200, 20, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
+        Assert.Equal("WORKSPACE_ARCHIVED", result.ErrorCode);
+    }
 }

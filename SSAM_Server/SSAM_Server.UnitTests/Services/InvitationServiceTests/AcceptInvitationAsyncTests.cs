@@ -296,14 +296,12 @@ public class AcceptInvitationAsyncTests : InvitationServiceTestBase
         Assert.Equal("Lời mời đã được sử dụng.", result.ErrorMessage);
     }
 
-    // UTC006: Invitation is expired (ExpiresAt == now or ExpiresAt < now) -> Returns BadRequest (TOKEN_EXPIRED)
-    [Theory]
-    [InlineData(0)]   // UTC006: Exact expiration boundary (ExpiresAt == now)
-    [InlineData(-1)]  // UTC007: Expired 1 second ago
-    public async Task AcceptInvitationAsync_WhenInvitationExpired_ReturnsBadRequest(int offsetSeconds)
+    // UTC006: Invitation is expired (ExpiresAt < now) -> Returns BadRequest (TOKEN_EXPIRED)
+    [Fact]
+    public async Task AcceptInvitationAsync_WhenInvitationExpired_ReturnsBadRequest()
     {
         var now = Clock.GetUtcNow().UtcDateTime;
-        SetupValidPendingInvite(token: "expired-token", expiresAt: now.AddSeconds(offsetSeconds));
+        SetupValidPendingInvite(token: "expired-token", expiresAt: now.AddSeconds(-1));
 
         var result = await InvitationService.AcceptInvitationAsync("expired-token", null, TestContext.Current.CancellationToken);
 
@@ -313,7 +311,7 @@ public class AcceptInvitationAsyncTests : InvitationServiceTestBase
         Assert.Equal("Lời mời đã hết hạn.", result.ErrorMessage);
     }
 
-    // UTC008: Invitation is deleted concurrently before transaction reads it -> Returns BadRequest (TOKEN_INVALID)
+    // UTC007: Invitation is deleted concurrently before transaction reads it -> Returns BadRequest (TOKEN_INVALID)
     [Fact]
     public async Task AcceptInvitationAsync_WhenInviteDeletedConcurrentlyInTransaction_ReturnsBadRequest()
     {
@@ -331,7 +329,7 @@ public class AcceptInvitationAsyncTests : InvitationServiceTestBase
         Assert.Equal("Mã lời mời không hợp lệ.", result.ErrorMessage);
     }
 
-    // UTC009: Unauthenticated user with null request or blank FullName & empty Password -> Returns Validation Error
+    // UTC008: Unauthenticated user with null request or blank FullName & empty Password -> Returns Validation Error
     [Fact]
     public async Task AcceptInvitationAsync_WhenUnauthenticatedAndRequestIsNull_ReturnsValidationError()
     {
@@ -348,11 +346,11 @@ public class AcceptInvitationAsyncTests : InvitationServiceTestBase
         Assert.Contains("Password must contain at least 8 characters.", result.Errors["password"]);
     }
 
-    // UTC010: Unauthenticated user with password violating complexity rules -> Returns Validation Error
+    // UTC009 + UTC010 + UTC011: Unauthenticated user with password violating complexity rules -> Returns Validation Error
     [Theory]
-    [InlineData("Password!", "Password must contain at least one digit.")] // UTC010: Missing digit
-    [InlineData("password1!", "Password must contain both uppercase and lowercase letters.")] // UTC011: Missing uppercase
-    [InlineData("Password12", "Password must contain at least one special character.")] // UTC012: Missing special character
+    [InlineData("Password!", "Password must contain at least one digit.")] // UTC009: Missing digit
+    [InlineData("password1!", "Password must contain both uppercase and lowercase letters.")] // UTC010: Missing uppercase
+    [InlineData("Password12", "Password must contain at least one special character.")] // UTC011: Missing special character
     public async Task AcceptInvitationAsync_WhenPasswordViolatesComplexityRules_ReturnsValidationError(
         string weakPassword,
         string expectedError)
@@ -374,7 +372,7 @@ public class AcceptInvitationAsyncTests : InvitationServiceTestBase
         Assert.Contains(expectedError, result.Errors["password"]);
     }
 
-    // UTC013: Unauthenticated user when invite email already has an existing account -> Returns Conflict
+    // UTC012: Unauthenticated user when invite email already has an existing account -> Returns Conflict
     [Fact]
     public async Task AcceptInvitationAsync_WhenUnauthenticatedAndAccountAlreadyExists_ReturnsConflict()
     {
@@ -398,7 +396,7 @@ public class AcceptInvitationAsyncTests : InvitationServiceTestBase
         Assert.Equal("Email này đã có tài khoản, vui lòng đăng nhập trước khi chấp nhận lời mời.", result.ErrorMessage);
     }
 
-    // UTC014: Authenticated user is not found in database -> Returns NotFound
+    // UTC013: Authenticated user is not found in database -> Returns NotFound
     [Fact]
     public async Task AcceptInvitationAsync_WhenAuthenticatedUserNotFound_ReturnsNotFound()
     {
@@ -415,7 +413,7 @@ public class AcceptInvitationAsyncTests : InvitationServiceTestBase
         Assert.Equal("Không tìm thấy người dùng.", result.ErrorMessage);
     }
 
-    // UTC015: Authenticated user email does not match invitation email -> Returns Conflict
+    // UTC014: Authenticated user email does not match invitation email -> Returns Conflict
     [Fact]
     public async Task AcceptInvitationAsync_WhenAuthenticatedUserEmailMismatches_ReturnsConflict()
     {
@@ -434,8 +432,23 @@ public class AcceptInvitationAsyncTests : InvitationServiceTestBase
     }
 
     // =========================================================================
-    // 3. BOUNDARY CASES (ExpiresAt: +1s | Password: 7, 8 | FullName: 1, 255, 256)
+    // 3. BOUNDARY CASES (ExpiresAt: 0s, +1s | Password: 7, 8 | FullName: 1, 255, 256)
     // =========================================================================
+
+    // UTC0156: ExpiresAt boundary (ExpiresAt = now) -> Returns BadRequest (TOKEN_EXPIRED)
+    [Fact]
+    public async Task AcceptInvitationAsync_WhenẼpiresExactNow_ReturnsBadRequest()
+    {
+        var now = Clock.GetUtcNow().UtcDateTime;
+        SetupValidPendingInvite(token: "expired-token", expiresAt: now);
+
+        var result = await InvitationService.AcceptInvitationAsync("expired-token", null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.Equal("TOKEN_EXPIRED", result.ErrorCode);
+        Assert.Equal("Lời mời đã hết hạn.", result.ErrorMessage);
+    }
 
     // UTC016: ExpiresAt boundary (now + 1 second, just above <= now) -> Succeeds and returns Ok
     [Fact]

@@ -115,4 +115,54 @@ public class AddMembersAsyncTests : ProjectServiceTestBase
         Assert.False(result.IsSuccess);
         Assert.Equal("ALREADY_MEMBER", result.ErrorCode);
     }
+
+    // UTC006: An archived project cannot accept new members.
+    [Fact]
+    public async Task AddMembersAsync_WhenProjectArchived_ReturnsConflict()
+    {
+        SetupProjectAccess(permissions: new[] { PermissionKeys.ProjectMemberManage }, projectActive: false);
+
+        var result = await ProjectService.AddMembersAsync(200, new AddProjectMembersRequestDto
+        {
+            Members = new List<ProjectMemberInputDto> { new() { UserId = 20, RoleId = 52 } }
+        }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
+        Assert.Equal("PROJECT_ARCHIVED", result.ErrorCode);
+    }
+
+    // UTC007: A missing project role returns not found before persistence.
+    [Fact]
+    public async Task AddMembersAsync_WhenRoleIsMissing_ReturnsNotFound()
+    {
+        SetupValidAdd();
+        CompanyRepositoryMock.Setup(r => r.GetRoleByIdAsync(10, 52, It.IsAny<CancellationToken>())).ReturnsAsync((CompanyRole?)null);
+
+        var result = await ProjectService.AddMembersAsync(200, new AddProjectMembersRequestDto
+        {
+            Members = new List<ProjectMemberInputDto> { new() { UserId = 20, RoleId = 52 } }
+        }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status404NotFound, result.StatusCode);
+    }
+
+    // UTC008: A role outside project scope is rejected.
+    [Fact]
+    public async Task AddMembersAsync_WhenRoleHasWrongScope_ReturnsBadRequest()
+    {
+        SetupValidAdd();
+        CompanyRepositoryMock.Setup(r => r.GetRoleByIdAsync(10, 52, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new CompanyRole { Id = 52, CompanyId = 10, Scope = RoleScopes.Workspace, IsActive = true });
+
+        var result = await ProjectService.AddMembersAsync(200, new AddProjectMembersRequestDto
+        {
+            Members = new List<ProjectMemberInputDto> { new() { UserId = 20, RoleId = 52 } }
+        }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.Equal("ROLE_SCOPE_MISMATCH", result.ErrorCode);
+    }
 }

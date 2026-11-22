@@ -105,4 +105,57 @@ public class UpdateProjectAsyncTests : ProjectServiceTestBase
         Assert.Equal("FORBIDDEN", result.ErrorCode);
         Assert.Equal(PermissionKeys.ProjectUpdate, result.RequiredPermission);
     }
+
+    // UTC006: An archived workspace cannot be updated.
+    [Fact]
+    public async Task UpdateProjectAsync_WhenWorkspaceArchived_ReturnsConflict()
+    {
+        SetupValidUpdate(workspaceActive: false);
+
+        var result = await ProjectService.UpdateProjectAsync(200, new UpdateProjectRequestDto { Name = "Updated" }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status409Conflict, result.StatusCode);
+        Assert.Equal("WORKSPACE_ARCHIVED", result.ErrorCode);
+    }
+
+    // UTC007: A missing tracked project returns not found without saving.
+    [Fact]
+    public async Task UpdateProjectAsync_WhenTrackedProjectIsMissing_ReturnsNotFound()
+    {
+        SetupValidUpdate();
+        ProjectRepositoryMock.Setup(r => r.GetByIdAsync(200, It.IsAny<CancellationToken>())).ReturnsAsync((Project?)null);
+
+        var result = await ProjectService.UpdateProjectAsync(200, new UpdateProjectRequestDto { Name = "Updated" }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status404NotFound, result.StatusCode);
+        ProjectRepositoryMock.Verify(r => r.SaveChangesAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // UTC008: A name shorter than two characters returns validation errors.
+    [Fact]
+    public async Task UpdateProjectAsync_WhenNameIsTooShort_ReturnsValidationError()
+    {
+        SetupValidUpdate();
+
+        var result = await ProjectService.UpdateProjectAsync(200, new UpdateProjectRequestDto { Name = "A" }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.Contains("name", result.Errors!.Keys);
+    }
+
+    // UTC009: A description longer than 500 characters returns validation errors.
+    [Fact]
+    public async Task UpdateProjectAsync_WhenDescriptionIsTooLong_ReturnsValidationError()
+    {
+        SetupValidUpdate();
+
+        var result = await ProjectService.UpdateProjectAsync(200, new UpdateProjectRequestDto { Description = new string('D', 501) }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status400BadRequest, result.StatusCode);
+        Assert.Contains("description", result.Errors!.Keys);
+    }
 }
