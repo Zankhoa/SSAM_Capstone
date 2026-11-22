@@ -1,0 +1,41 @@
+@baseUrl = https://localhost:7271/api/v1
+@token = replace-with-access-token
+@projectId = 1
+@conversationId = 1
+@documentId = 1
+
+### Start or continue a project AI conversation
+POST {{baseUrl}}/projects/{{projectId}}/ai/chat
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "message": "Summarize the current project risks.",
+  "projectId": {{projectId}}
+}
+
+### List the current user's saved conversations
+GET {{baseUrl}}/projects/{{projectId}}/ai/conversations
+Authorization: Bearer {{token}}
+
+### Load messages from one saved conversation
+GET {{baseUrl}}/projects/{{projectId}}/ai/conversations/{{conversationId}}
+Authorization: Bearer {{token}}
+
+### Start or continue a document AI conversation
+POST {{baseUrl}}/projects/{{projectId}}/ai/tasks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "task": "doc-chat",
+  "input": {
+    "documentId": {{documentId}},
+    "question": "Summarize this document.",
+    "selection": ""
+  }
+}
+
+### List saved conversations for one document
+GET {{baseUrl}}/projects/{{projectId}}/ai/conversations?documentId={{documentId}}
+Authorization: Bearer {{token}}

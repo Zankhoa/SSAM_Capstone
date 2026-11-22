@@ -44,6 +44,38 @@ public class AiController : ControllerBase
         return result.ToActionResult(this);
     }
 
+    [HttpGet("projects/{projectId:long}/ai/conversations")]
+    [EndpointSummary("List saved AI conversations")]
+    [EndpointDescription("Lists the current user's conversations for a project, optionally scoped to a document.")]
+    [ProducesResponseType(typeof(IReadOnlyList<AiConversationSummaryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ListConversations(
+        long projectId,
+        [FromQuery] long? documentId,
+        CancellationToken ct)
+    {
+        var result = await _aiChatService.ListConversationsAsync(projectId, documentId, ct);
+        return result.ToActionResult(this);
+    }
+
+    [HttpGet("projects/{projectId:long}/ai/conversations/{conversationId:long}")]
+    [EndpointSummary("Get a saved AI conversation")]
+    [EndpointDescription("Returns messages only when the conversation belongs to the current user, project, and optional document.")]
+    [ProducesResponseType(typeof(AiConversationDetailsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetConversation(
+        long projectId,
+        long conversationId,
+        [FromQuery] long? documentId,
+        CancellationToken ct)
+    {
+        var result = await _aiChatService.GetConversationAsync(projectId, conversationId, documentId, ct);
+        return result.ToActionResult(this);
+    }
+
     [HttpPost("projects/{projectId:long}/ai/tasks")]
     [EndpointSummary("Run a project-scoped AI task")]
     [EndpointDescription("Runs an allow-listed AI task after checking project access, the ai.use permission, and the project's AI setting.")]

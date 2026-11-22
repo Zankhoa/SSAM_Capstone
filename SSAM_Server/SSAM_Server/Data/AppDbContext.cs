@@ -79,6 +79,10 @@ public class AppDbContext : DbContext
     public DbSet<TestRetestFlag> TestRetestFlags => Set<TestRetestFlag>();
     public DbSet<TestActivity> TestActivities => Set<TestActivity>();
 
+    // AI chat persistence
+    public DbSet<AiConversation> AiConversations => Set<AiConversation>();
+    public DbSet<AiConversationMessage> AiConversationMessages => Set<AiConversationMessage>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

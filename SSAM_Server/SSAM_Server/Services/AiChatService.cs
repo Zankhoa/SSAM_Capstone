@@ -98,28 +98,81 @@ public class AiChatService : IAiChatService
         var usedTools = new List<AiToolCallRecordDto>();
         ProjectSnapshot? snapshot = null;
 
-        var projectView = await _accessGuard.EnsureProjectPermissionAsync(projectId.Value, PermissionKeys.ProjectView, ct);
-        if (!projectView.IsSuccess) return projectView.Cast<AiChatResponseDto>();
-
-        var aiPermission = await _accessGuard.EnsureProjectPermissionAsync(projectId.Value, PermissionKeys.AiUse, ct);
-        if (!aiPermission.IsSuccess) return aiPermission.Cast<AiChatResponseDto>();
-
-        var aiEnabled = await _db.Projects
-            .AsNoTracking()
-            .Where(p => p.Id == projectId.Value)
-            .Select(p => (bool?)p.AiEnabled)
-            .SingleOrDefaultAsync(ct);
-        if (aiEnabled != true)
-        {
-            return ServiceResult<AiChatResponseDto>.Forbidden(
-                "AI_DISABLED",
-                "AI features are disabled for this project.");
-        }
+        var access = await EnsureAiChatAccessAsync(projectId.Value, null, ct);
+        if (!access.IsSuccess) return access.Cast<AiChatResponseDto>();
 
         var projectPermissions = await _permissions.GetProjectPermissionsAsync(userId.Value, projectId.Value, ct);
         var canViewIssues = HasPermission(projectPermissions, PermissionKeys.IssueView);
         var canViewDocuments = HasPermission(projectPermissions, PermissionKeys.DocumentView);
         var canViewTests = HasPermission(projectPermissions, PermissionKeys.TestCaseView);
+
+        AiConversation? conversation;
+        if (request.ConversationId.HasValue)
+        {
+            conversation = await _db.AiConversations
+                .FirstOrDefaultAsync(c =>
+                    c.Id == request.ConversationId.Value &&
+                    c.ProjectId == projectId.Value &&
+                    c.DocumentId == null &&
+                    c.UserId == userId.Value, ct);
+            if (conversation == null)
+            {
+                return ServiceResult<AiChatResponseDto>.NotFound(
+                    "AI_CONVERSATION_NOT_FOUND",
+                    "Conversation not found.");
+            }
+
+            if (!HasConversationPermissions(
+                    conversation.CanViewIssues,
+                    conversation.CanViewDocuments,
+                    conversation.CanViewTests,
+                    canViewIssues,
+                    canViewDocuments,
+                    canViewTests))
+            {
+                return ServiceResult<AiChatResponseDto>.Forbidden(
+                    "AI_CONVERSATION_PERMISSION_CHANGED",
+                    "You no longer have access to all project modules used in this conversation.");
+            }
+
+            conversation.CanViewIssues |= canViewIssues;
+            conversation.CanViewDocuments |= canViewDocuments;
+            conversation.CanViewTests |= canViewTests;
+        }
+        else
+        {
+            var title = message.Length > 120 ? message[..117] + "..." : message;
+            conversation = new AiConversation
+            {
+                ProjectId = projectId.Value,
+                DocumentId = null,
+                UserId = userId.Value,
+                Title = title,
+                CanViewIssues = canViewIssues,
+                CanViewDocuments = canViewDocuments,
+                CanViewTests = canViewTests
+            };
+            _db.AiConversations.Add(conversation);
+        }
+
+        var userEntry = new AiConversationMessage
+        {
+            Role = "user",
+            Content = message,
+            CreatedAt = DateTime.UtcNow
+        };
+        conversation.UpdatedAt = DateTime.UtcNow;
+        conversation.Messages.Add(userEntry);
+        await _db.SaveChangesAsync(ct);
+
+        var history = await _db.AiConversationMessages
+            .AsNoTracking()
+            .Where(m => m.ConversationId == conversation.Id && m.Id != userEntry.Id)
+            .OrderByDescending(m => m.CreatedAt)
+            .ThenByDescending(m => m.Id)
+            .Take(10)
+            .ToListAsync(ct);
+        history.Reverse();
 
         snapshot = await LoadProjectSnapshotAsync(projectId.Value, canViewIssues, canViewDocuments, canViewTests, ct);
         var retrievedSources = await _contextRetriever.RetrieveAsync(
@@ -171,24 +224,23 @@ public class AiChatService : IAiChatService
             }
         }
 
+        var replyText = string.Empty;
+        var citations = new List<AiCitationDto>();
+        var model = FallbackModelName;
+        var isRealAi = false;
+
         if (!string.IsNullOrWhiteSpace(_options.ApiKey))
         {
             try
             {
-                var messages = BuildChatMessages(message, request.History, snapshot, retrievedSources);
+                var messages = BuildChatMessages(message, history, snapshot, retrievedSources);
                 var response = await _chatClient.GetResponseAsync(messages, cancellationToken: ct);
                 var responseText = response.Text?.Trim();
                 if (!string.IsNullOrEmpty(responseText))
                 {
-                    var (replyText, citations) = ParseChatResponse(responseText, retrievedSources);
-                    return ServiceResult<AiChatResponseDto>.Ok(new AiChatResponseDto
-                    {
-                        Reply = replyText,
-                        Citations = citations,
-                        UsedToolCalls = usedTools,
-                        Model = _options.DefaultModel,
-                        IsRealAi = true
-                    });
+                    (replyText, citations) = ParseChatResponse(responseText, retrievedSources);
+                    model = _options.DefaultModel;
+                    isRealAi = true;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -197,16 +249,218 @@ public class AiChatService : IAiChatService
             }
         }
 
+        if (string.IsNullOrEmpty(replyText))
+        {
+            replyText = BuildFallbackReply(snapshot, retrievedSources);
+            citations = AiCitationMapper.Resolve(
+                retrievedSources.Take(8).Select(source => source.CitationKey),
+                retrievedSources);
+        }
+
+        var assistantEntry = new AiConversationMessage
+        {
+            Role = "assistant",
+            Content = replyText,
+            CitationsJson = JsonSerializer.Serialize(citations),
+            Model = model,
+            IsRealAi = isRealAi,
+            CreatedAt = DateTime.UtcNow
+        };
+        conversation.Messages.Add(assistantEntry);
+        conversation.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
         return ServiceResult<AiChatResponseDto>.Ok(new AiChatResponseDto
         {
-            Reply = BuildFallbackReply(snapshot, retrievedSources),
-            Citations = AiCitationMapper.Resolve(
-                retrievedSources.Take(8).Select(source => source.CitationKey),
-                retrievedSources),
+            ConversationId = conversation.Id,
+            Reply = replyText,
+            Citations = citations,
             UsedToolCalls = usedTools,
-            Model = FallbackModelName,
-            IsRealAi = false
+            Model = model,
+            IsRealAi = isRealAi
         });
+    }
+
+    public async Task<ServiceResult<IReadOnlyList<AiConversationSummaryDto>>> ListConversationsAsync(
+        long projectId,
+        long? documentId = null,
+        CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+        {
+            return ServiceResult<IReadOnlyList<AiConversationSummaryDto>>.Unauthorized(
+                "Your session is invalid or has expired.");
+        }
+
+        var access = await EnsureAiChatAccessAsync(projectId, documentId, ct);
+        if (!access.IsSuccess) return access.Cast<IReadOnlyList<AiConversationSummaryDto>>();
+
+        var projectPermissions = await _permissions.GetProjectPermissionsAsync(userId.Value, projectId, ct);
+        var canViewIssues = HasPermission(projectPermissions, PermissionKeys.IssueView);
+        var canViewDocuments = HasPermission(projectPermissions, PermissionKeys.DocumentView);
+        var canViewTests = HasPermission(projectPermissions, PermissionKeys.TestCaseView);
+
+        var conversations = await _db.AiConversations
+            .AsNoTracking()
+            .Where(c =>
+                c.ProjectId == projectId &&
+                c.UserId == userId.Value &&
+                c.DocumentId == documentId &&
+                (!c.CanViewIssues || canViewIssues) &&
+                (!c.CanViewDocuments || canViewDocuments) &&
+                (!c.CanViewTests || canViewTests))
+            .OrderByDescending(c => c.UpdatedAt)
+            .ThenByDescending(c => c.Id)
+            .Take(50)
+            .Select(c => new AiConversationSummaryDto(
+                c.Id,
+                c.Title,
+                new DateTimeOffset(DateTime.SpecifyKind(c.CreatedAt, DateTimeKind.Utc)),
+                new DateTimeOffset(DateTime.SpecifyKind(c.UpdatedAt, DateTimeKind.Utc))))
+            .ToListAsync(ct);
+
+        return ServiceResult<IReadOnlyList<AiConversationSummaryDto>>.Ok(conversations);
+    }
+
+    public async Task<ServiceResult<AiConversationDetailsDto>> GetConversationAsync(
+        long projectId,
+        long conversationId,
+        long? documentId = null,
+        CancellationToken ct = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+        {
+            return ServiceResult<AiConversationDetailsDto>.Unauthorized(
+                "Your session is invalid or has expired.");
+        }
+
+        var access = await EnsureAiChatAccessAsync(projectId, documentId, ct);
+        if (!access.IsSuccess) return access.Cast<AiConversationDetailsDto>();
+
+        var projectPermissions = await _permissions.GetProjectPermissionsAsync(userId.Value, projectId, ct);
+        var canViewIssues = HasPermission(projectPermissions, PermissionKeys.IssueView);
+        var canViewDocuments = HasPermission(projectPermissions, PermissionKeys.DocumentView);
+        var canViewTests = HasPermission(projectPermissions, PermissionKeys.TestCaseView);
+
+        var conversation = await _db.AiConversations
+            .AsNoTracking()
+            .Where(c =>
+                c.Id == conversationId &&
+                c.ProjectId == projectId &&
+                c.UserId == userId.Value &&
+                c.DocumentId == documentId)
+            .Select(c => new
+            {
+                c.Id,
+                c.Title,
+                c.CreatedAt,
+                c.UpdatedAt,
+                c.CanViewIssues,
+                c.CanViewDocuments,
+                c.CanViewTests,
+                Messages = c.Messages
+                    .OrderBy(m => m.CreatedAt)
+                    .ThenBy(m => m.Id)
+                    .Select(m => new
+                    {
+                        m.Id,
+                        m.Role,
+                        m.Content,
+                        m.CreatedAt,
+                        m.CitationsJson,
+                        m.Model,
+                        m.IsRealAi
+                    })
+                    .ToList()
+            })
+            .FirstOrDefaultAsync(ct);
+
+        if (conversation == null)
+        {
+            return ServiceResult<AiConversationDetailsDto>.NotFound(
+                "AI_CONVERSATION_NOT_FOUND",
+                "Conversation not found.");
+        }
+
+        if (!HasConversationPermissions(
+                conversation.CanViewIssues,
+                conversation.CanViewDocuments,
+                conversation.CanViewTests,
+                canViewIssues,
+                canViewDocuments,
+                canViewTests))
+        {
+            return ServiceResult<AiConversationDetailsDto>.Forbidden(
+                "AI_CONVERSATION_PERMISSION_CHANGED",
+                "You no longer have access to all project modules used in this conversation.");
+        }
+
+        var messages = conversation.Messages
+            .Select(m => new AiConversationMessageDto(
+                m.Id,
+                m.Role,
+                m.Content,
+                new DateTimeOffset(DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc)),
+                string.IsNullOrWhiteSpace(m.CitationsJson)
+                    ? Array.Empty<AiCitationDto>()
+                    : JsonSerializer.Deserialize<List<AiCitationDto>>(m.CitationsJson) ?? new List<AiCitationDto>(),
+                m.Model,
+                m.IsRealAi))
+            .ToList();
+
+        return ServiceResult<AiConversationDetailsDto>.Ok(new AiConversationDetailsDto(
+            conversation.Id,
+            conversation.Title,
+            new DateTimeOffset(DateTime.SpecifyKind(conversation.CreatedAt, DateTimeKind.Utc)),
+            new DateTimeOffset(DateTime.SpecifyKind(conversation.UpdatedAt, DateTimeKind.Utc)),
+            messages));
+    }
+
+    private async Task<ServiceResult> EnsureAiChatAccessAsync(
+        long projectId,
+        long? documentId,
+        CancellationToken ct)
+    {
+        var projectView = await _accessGuard.EnsureProjectPermissionAsync(
+            projectId, PermissionKeys.ProjectView, ct);
+        if (!projectView.IsSuccess) return projectView;
+
+        var aiPermission = await _accessGuard.EnsureProjectPermissionAsync(
+            projectId, PermissionKeys.AiUse, ct);
+        if (!aiPermission.IsSuccess) return aiPermission;
+
+        var aiEnabled = await _db.Projects
+            .AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => (bool?)p.AiEnabled)
+            .SingleOrDefaultAsync(ct);
+        if (aiEnabled != true)
+        {
+            return ServiceResult.Forbidden("AI_DISABLED", "AI features are disabled for this project.");
+        }
+
+        if (documentId.HasValue)
+        {
+            var documentPermission = await _accessGuard.EnsureProjectPermissionAsync(
+                projectId, PermissionKeys.DocumentView, ct);
+            if (!documentPermission.IsSuccess) return documentPermission;
+
+            var documentExists = await _db.DocumentNodes
+                .AsNoTracking()
+                .AnyAsync(d =>
+                    d.Id == documentId.Value &&
+                    d.ProjectId == projectId &&
+                    !d.IsDeleted &&
+                    d.Kind == DocumentNodeKinds.Page, ct);
+            if (!documentExists)
+            {
+                return ServiceResult.NotFound("DOCUMENT_NOT_FOUND", "The document was not found.");
+            }
+        }
+
+        return ServiceResult.Success();
     }
 
     private async Task<ProjectSnapshot?> LoadProjectSnapshotAsync(
@@ -292,9 +546,20 @@ public class AiChatService : IAiChatService
     private static bool HasPermission(IEnumerable<string> permissions, string requiredPermission) =>
         permissions.Contains(requiredPermission, StringComparer.OrdinalIgnoreCase);
 
+    private static bool HasConversationPermissions(
+        bool conversationCanViewIssues,
+        bool conversationCanViewDocuments,
+        bool conversationCanViewTests,
+        bool canViewIssues,
+        bool canViewDocuments,
+        bool canViewTests) =>
+        (!conversationCanViewIssues || canViewIssues) &&
+        (!conversationCanViewDocuments || canViewDocuments) &&
+        (!conversationCanViewTests || canViewTests);
+
     private static List<ChatMessage> BuildChatMessages(
         string userMessage,
-        List<AiChatMessageDto>? history,
+        IReadOnlyList<AiConversationMessage> history,
         ProjectSnapshot? snapshot,
         IReadOnlyList<AiRetrievedSourceDto> retrievedSources)
     {
@@ -335,18 +600,11 @@ public class AiChatService : IAiChatService
 
         var messages = new List<ChatMessage> { new(ChatRole.System, systemPrompt) };
 
-        if (history != null)
+        foreach (var item in history)
         {
-            foreach (var item in history.TakeLast(10))
-            {
-                if (string.IsNullOrWhiteSpace(item.Content)) continue;
-                var role = item.Role?.ToLowerInvariant() switch
-                {
-                    "assistant" or "model" => ChatRole.Assistant,
-                    _ => ChatRole.User
-                };
-                messages.Add(new ChatMessage(role, item.Content));
-            }
+            if (string.IsNullOrWhiteSpace(item.Content)) continue;
+            var role = item.Role == "assistant" ? ChatRole.Assistant : ChatRole.User;
+            messages.Add(new ChatMessage(role, item.Content));
         }
 
         messages.Add(new ChatMessage(ChatRole.User, userMessage));

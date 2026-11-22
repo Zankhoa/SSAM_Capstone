@@ -81,6 +81,132 @@ namespace SSAM_Server.Data.Migrations
                     b.ToTable("Accounts", (string)null);
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.AiConversation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<bool>("CanViewDocuments")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("can_view_documents");
+
+                    b.Property<bool>("CanViewIssues")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("can_view_issues");
+
+                    b.Property<bool>("CanViewTests")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false)
+                        .HasColumnName("can_view_tests");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long?>("DocumentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("document_id");
+
+                    b.Property<long>("ProjectId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("nvarchar(120)")
+                        .HasColumnName("title");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("updated_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long>("UserId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("ProjectId", "UserId", "DocumentId", "UpdatedAt")
+                        .HasDatabaseName("IX_AiConversations_Project_User_Updated");
+
+                    b.ToTable("AiConversations", (string)null);
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.AiConversationMessage", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<string>("CitationsJson")
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("citations_json");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)")
+                        .HasColumnName("content");
+
+                    b.Property<long>("ConversationId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("conversation_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<bool?>("IsRealAi")
+                        .HasColumnType("bit")
+                        .HasColumnName("is_real_ai");
+
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("model");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(20)")
+                        .HasColumnName("role");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId", "CreatedAt", "Id")
+                        .HasDatabaseName("IX_AiConversationMessages_Conversation_Created");
+
+                    b.ToTable("AiConversationMessages", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_AiConversationMessages_CitationsJson", "[citations_json] IS NULL OR ISJSON([citations_json]) = 1");
+
+                            t.HasCheckConstraint("CK_AiConversationMessages_Role", "[role] IN ('user', 'assistant')");
+                        });
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.BoardWipLimit", b =>
                 {
                     b.Property<long>("ProjectId")
@@ -3902,6 +4028,47 @@ namespace SSAM_Server.Data.Migrations
                     b.ToTable("WorkspaceMembers", (string)null);
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.AiConversation", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.DocumentNode", "Document")
+                        .WithMany()
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_AiConversations_Document");
+
+                    b.HasOne("SSAM_Server.Models.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_AiConversations_Project");
+
+                    b.HasOne("SSAM_Server.Models.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_AiConversations_User");
+
+                    b.Navigation("Document");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("User");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.AiConversationMessage", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.AiConversation", "Conversation")
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_AiConversationMessages_Conversation");
+
+                    b.Navigation("Conversation");
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.BoardWipLimit", b =>
                 {
                     b.HasOne("SSAM_Server.Models.Project", "Project")
@@ -5194,6 +5361,11 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("RefreshTokens");
 
                     b.Navigation("User");
+                });
+
+            modelBuilder.Entity("SSAM_Server.Models.AiConversation", b =>
+                {
+                    b.Navigation("Messages");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.Company", b =>

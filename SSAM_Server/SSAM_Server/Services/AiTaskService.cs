@@ -20,6 +20,7 @@ public class AiTaskService : IAiTaskService
     private readonly IChatClient _chatClient;
     private readonly IProjectAccessGuard _accessGuard;
     private readonly IAiProjectContextRetriever _contextRetriever;
+    private readonly ICurrentUser _currentUser;
     private readonly AiOptions _options;
     private readonly ILogger<AiTaskService> _logger;
 
@@ -28,6 +29,7 @@ public class AiTaskService : IAiTaskService
         IChatClient chatClient,
         IProjectAccessGuard accessGuard,
         IAiProjectContextRetriever contextRetriever,
+        ICurrentUser currentUser,
         IOptions<AiOptions> options,
         ILogger<AiTaskService> logger)
     {
@@ -35,6 +37,7 @@ public class AiTaskService : IAiTaskService
         _chatClient = chatClient;
         _accessGuard = accessGuard;
         _contextRetriever = contextRetriever;
+        _currentUser = currentUser;
         _options = options.Value;
         _logger = logger;
     }
@@ -95,6 +98,9 @@ public class AiTaskService : IAiTaskService
         }
 
         IReadOnlyList<AiRetrievedSourceDto> documentChatSources = Array.Empty<AiRetrievedSourceDto>();
+        long? documentChatId = null;
+        string? documentChatQuestion = null;
+        string? documentChatSelection = null;
         if (request.Task == "doc-chat")
         {
             if (!TryGetLong(request.Input, "documentId", out var documentId))
@@ -125,6 +131,9 @@ public class AiTaskService : IAiTaskService
             }
 
             var selection = TryGetString(request.Input, "selection");
+            documentChatId = documentId;
+            documentChatQuestion = question;
+            documentChatSelection = selection;
             documentChatSources = await _contextRetriever.RetrieveAsync(
                 projectId,
                 question,
@@ -133,17 +142,6 @@ public class AiTaskService : IAiTaskService
                 canViewTests: false,
                 documentId: documentId,
                 ct: ct);
-
-            input = JsonSerializer.Serialize(new
-            {
-                documentId,
-                question,
-                selection,
-                history = request.Input.TryGetProperty("history", out var history)
-                    ? (JsonElement?)history
-                    : null,
-                sources = AiContextPromptFormatter.Format(documentChatSources)
-            });
         }
 
         if (string.IsNullOrWhiteSpace(_options.ApiKey))
@@ -152,6 +150,88 @@ public class AiTaskService : IAiTaskService
                 StatusCodes.Status503ServiceUnavailable,
                 "AI_UNAVAILABLE",
                 "The AI provider is not configured.");
+        }
+
+        AiConversation? documentChatConversation = null;
+        if (documentChatId.HasValue)
+        {
+            var userId = _currentUser.UserIdOrNull;
+            if (userId == null)
+            {
+                return ServiceResult<AiTaskResponseDto>.Unauthorized(
+                    "Your session is invalid or has expired.");
+            }
+
+            var hasConversationId = request.Input.TryGetProperty("conversationId", out var conversationIdElement) &&
+                                   conversationIdElement.ValueKind != JsonValueKind.Null;
+            if (hasConversationId &&
+                !TryGetLong(request.Input, "conversationId", out _))
+            {
+                return ServiceResult<AiTaskResponseDto>.Validation(new Dictionary<string, string[]>
+                {
+                    ["input.conversationId"] = new[] { "Conversation ID must be a positive integer." }
+                });
+            }
+
+            if (hasConversationId)
+            {
+                TryGetLong(request.Input, "conversationId", out var requestedConversationId);
+                documentChatConversation = await _db.AiConversations
+                    .FirstOrDefaultAsync(c =>
+                        c.Id == requestedConversationId &&
+                        c.ProjectId == projectId &&
+                        c.DocumentId == documentChatId.Value &&
+                        c.UserId == userId.Value, ct);
+                if (documentChatConversation == null)
+                {
+                    return ServiceResult<AiTaskResponseDto>.NotFound(
+                        "AI_CONVERSATION_NOT_FOUND",
+                        "Conversation not found.");
+                }
+            }
+            else
+            {
+                var title = documentChatQuestion!.Length > 120
+                    ? documentChatQuestion[..117] + "..."
+                    : documentChatQuestion;
+                documentChatConversation = new AiConversation
+                {
+                    ProjectId = projectId,
+                    DocumentId = documentChatId.Value,
+                    UserId = userId.Value,
+                    Title = title,
+                    CanViewDocuments = true
+                };
+                _db.AiConversations.Add(documentChatConversation);
+            }
+
+            documentChatConversation.Messages.Add(new AiConversationMessage
+            {
+                Role = "user",
+                Content = documentChatQuestion!,
+                CreatedAt = DateTime.UtcNow
+            });
+            documentChatConversation.UpdatedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync(ct);
+
+            var history = await _db.AiConversationMessages
+                .AsNoTracking()
+                .Where(m => m.ConversationId == documentChatConversation.Id)
+                .OrderByDescending(m => m.CreatedAt)
+                .ThenByDescending(m => m.Id)
+                .Skip(1)
+                .Take(10)
+                .ToListAsync(ct);
+            history.Reverse();
+
+            input = JsonSerializer.Serialize(new
+            {
+                documentId = documentChatId.Value,
+                question = documentChatQuestion,
+                selection = documentChatSelection,
+                history = history.Select(m => new { role = m.Role, text = m.Content }),
+                sources = AiContextPromptFormatter.Format(documentChatSources)
+            });
         }
 
         var messages = new List<ChatMessage>
@@ -212,13 +292,27 @@ public class AiTaskService : IAiTaskService
                         distinctReferenceCount - citations.Count,
                         projectId);
                 }
+
+                documentChatConversation!.Messages.Add(new AiConversationMessage
+                {
+                    Role = "assistant",
+                    Content = answer,
+                    CitationsJson = JsonSerializer.Serialize(citations),
+                    Model = _options.DefaultModel,
+                    IsRealAi = true,
+                    CreatedAt = DateTime.UtcNow
+                });
+                documentChatConversation.UpdatedAt = DateTime.UtcNow;
+                await _db.SaveChangesAsync(ct);
+
                 return ServiceResult<AiTaskResponseDto>.Ok(new AiTaskResponseDto
                 {
                     Output = JsonSerializer.SerializeToElement(new
                     {
                         answer,
                         refs = citations.Select(citation => citation.Reference).ToList(),
-                        citations
+                        citations,
+                        conversationId = documentChatConversation.Id
                     }, new JsonSerializerOptions(JsonSerializerDefaults.Web))
                 });
             }
