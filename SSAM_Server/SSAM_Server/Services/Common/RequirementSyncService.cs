@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
 
 namespace SSAM_Server.Services.Common;
@@ -10,10 +11,12 @@ namespace SSAM_Server.Services.Common;
 public class RequirementSyncService : IRequirementSyncService
 {
     private readonly AppDbContext _db;
+    private readonly INotificationService _notifications;
 
-    public RequirementSyncService(AppDbContext db)
+    public RequirementSyncService(AppDbContext db, INotificationService notifications)
     {
         _db = db;
+        _notifications = notifications;
     }
 
     public async Task PropagateBaselineChangesAsync(
@@ -52,6 +55,17 @@ public class RequirementSyncService : IRequirementSyncService
                         Note = $"{link.ReqUid} cập nhật ở {node.Code ?? node.Title} v{approvedVersion.Label}",
                         CreatedAt = now
                     });
+
+                    if (link.Issue.AssigneeId.HasValue && link.Issue.AssigneeId.Value != actorUserId)
+                    {
+                        await _notifications.NotifyAsync(
+                            link.Issue.AssigneeId.Value,
+                            "ISSUE_REQ_CHANGED",
+                            $"Cảnh báo yêu cầu thay đổi: {link.Issue.Key}",
+                            $"{link.ReqUid} đã cập nhật ở {node.Code ?? node.Title} v{approvedVersion.Label}",
+                            $"/projects/{node.ProjectId}/kanban?issue={Uri.EscapeDataString(link.Issue.Key)}",
+                            ct);
+                    }
                 }
             }
         }
@@ -145,6 +159,38 @@ public class RequirementSyncService : IRequirementSyncService
                     TestCaseId = tc.Id,
                     Text = $"{reqKey} đổi ở bản {approvedVersion.Label} → cần test lại"
                 });
+            }
+
+            var moduleIds = affectedCases.Select(x => x.Case.ModuleId).Distinct().ToList();
+            var assignedUserIds = await _db.TestAssignments
+                .AsNoTracking()
+                .Where(a => moduleIds.Contains(a.ModuleId))
+                .Select(a => a.AssigneeId)
+                .Distinct()
+                .ToListAsync(ct);
+
+            if (assignedUserIds.Count == 0)
+            {
+                assignedUserIds = await _db.ProjectMembers
+                    .AsNoTracking()
+                    .Where(pm => pm.ProjectId == node.ProjectId && pm.IsActive)
+                    .Select(pm => pm.UserId)
+                    .Distinct()
+                    .ToListAsync(ct);
+            }
+
+            var sampleCodes = string.Join(", ", affectedCases.Select(x => x.Case.Code).Distinct().Take(3));
+            var msg = $"{affectedCases.Select(x => x.Case.Id).Distinct().Count()} test case bị ảnh hưởng ({sampleCodes}) do {node.Code ?? node.Title} v{approvedVersion.Label} thay đổi.";
+            foreach (var uid in assignedUserIds)
+            {
+                if (uid == actorUserId) continue;
+                await _notifications.NotifyAsync(
+                    uid,
+                    "TESTCASE_REQ_CHANGED",
+                    $"Cảnh báo tài liệu ảnh hưởng Test Case",
+                    msg,
+                    $"/projects/{node.ProjectId}/tests",
+                    ct);
             }
         }
     }

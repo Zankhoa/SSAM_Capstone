@@ -6,6 +6,7 @@ using SSAM_Server.Common;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Projects;
+using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
 using SSAM_Server.Security;
 using SSAM_Server.Services.Common;
@@ -20,17 +21,20 @@ public class ProjectScreensController : ControllerBase
     private readonly AppDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly IProjectAccessGuard _accessGuard;
+    private readonly INotificationService _notifications;
     private readonly string _uploadRoot;
 
     public ProjectScreensController(
         AppDbContext db,
         ICurrentUser currentUser,
         IProjectAccessGuard accessGuard,
+        INotificationService notifications,
         IConfiguration configuration)
     {
         _db = db;
         _currentUser = currentUser;
         _accessGuard = accessGuard;
+        _notifications = notifications;
         _uploadRoot = configuration["Storage:UploadPath"] ?? Path.Combine(AppContext.BaseDirectory, "uploads");
     }
 
@@ -106,6 +110,56 @@ public class ProjectScreensController : ControllerBase
         _db.ProjectScreens.Add(entity);
         await _db.SaveChangesAsync(ct);
 
+        if (entity.DocumentId.HasValue)
+        {
+            var affectedCaseInfo = await _db.TestCaseRequirementLinks
+                .AsNoTracking()
+                .Include(l => l.TestCase)
+                    .ThenInclude(tc => tc.Plan)
+                .Where(l => l.DocumentId == entity.DocumentId.Value &&
+                            l.TestCase.Plan.ProjectId == projectId &&
+                            l.TestCase.Status == TestCaseStatuses.Active)
+                .Select(l => new { l.TestCase.Id, l.TestCase.Code, l.TestCase.ModuleId })
+                .Distinct()
+                .ToListAsync(ct);
+
+            if (affectedCaseInfo.Count > 0)
+            {
+                var actorId = _currentUser.UserIdOrNull ?? 0;
+                var moduleIds = affectedCaseInfo.Select(x => x.ModuleId).Distinct().ToList();
+                var targetUserIds = await _db.TestAssignments
+                    .AsNoTracking()
+                    .Where(a => moduleIds.Contains(a.ModuleId))
+                    .Select(a => a.AssigneeId)
+                    .Distinct()
+                    .ToListAsync(ct);
+
+                if (targetUserIds.Count == 0)
+                {
+                    targetUserIds = await _db.ProjectMembers
+                        .AsNoTracking()
+                        .Where(pm => pm.ProjectId == projectId && pm.IsActive)
+                        .Select(pm => pm.UserId)
+                        .Distinct()
+                        .ToListAsync(ct);
+                }
+
+                var sampleCodes = string.Join(", ", affectedCaseInfo.Select(x => x.Code).Take(3));
+                var msg = $"Màn hình/Layout \"{entity.Title}\" vừa cập nhật, có thể ảnh hưởng {affectedCaseInfo.Count} test case ({sampleCodes}).";
+                foreach (var uid in targetUserIds)
+                {
+                    if (uid == actorId) continue;
+                    await _notifications.NotifyAsync(
+                        uid,
+                        "TESTCASE_DESIGN_CHANGED",
+                        $"Cảnh báo UI/UX cập nhật: {entity.Title}",
+                        msg,
+                        $"/projects/{projectId}/tests",
+                        ct);
+                }
+            }
+        }
+
         var loaded = await _db.ProjectScreens
             .AsNoTracking()
             .Include(s => s.Document)
@@ -171,6 +225,56 @@ public class ProjectScreensController : ControllerBase
         entity.Notes = string.IsNullOrWhiteSpace(form.Notes) ? null : form.Notes.Trim();
 
         await _db.SaveChangesAsync(ct);
+
+        if (entity.DocumentId.HasValue)
+        {
+            var affectedCaseInfo = await _db.TestCaseRequirementLinks
+                .AsNoTracking()
+                .Include(l => l.TestCase)
+                    .ThenInclude(tc => tc.Plan)
+                .Where(l => l.DocumentId == entity.DocumentId.Value &&
+                            l.TestCase.Plan.ProjectId == projectId &&
+                            l.TestCase.Status == TestCaseStatuses.Active)
+                .Select(l => new { l.TestCase.Id, l.TestCase.Code, l.TestCase.ModuleId })
+                .Distinct()
+                .ToListAsync(ct);
+
+            if (affectedCaseInfo.Count > 0)
+            {
+                var actorId = _currentUser.UserIdOrNull ?? 0;
+                var moduleIds = affectedCaseInfo.Select(x => x.ModuleId).Distinct().ToList();
+                var targetUserIds = await _db.TestAssignments
+                    .AsNoTracking()
+                    .Where(a => moduleIds.Contains(a.ModuleId))
+                    .Select(a => a.AssigneeId)
+                    .Distinct()
+                    .ToListAsync(ct);
+
+                if (targetUserIds.Count == 0)
+                {
+                    targetUserIds = await _db.ProjectMembers
+                        .AsNoTracking()
+                        .Where(pm => pm.ProjectId == projectId && pm.IsActive)
+                        .Select(pm => pm.UserId)
+                        .Distinct()
+                        .ToListAsync(ct);
+                }
+
+                var sampleCodes = string.Join(", ", affectedCaseInfo.Select(x => x.Code).Take(3));
+                var msg = $"Màn hình/Layout \"{entity.Title}\" vừa cập nhật, có thể ảnh hưởng {affectedCaseInfo.Count} test case ({sampleCodes}).";
+                foreach (var uid in targetUserIds)
+                {
+                    if (uid == actorId) continue;
+                    await _notifications.NotifyAsync(
+                        uid,
+                        "TESTCASE_DESIGN_CHANGED",
+                        $"Cảnh báo UI/UX cập nhật: {entity.Title}",
+                        msg,
+                        $"/projects/{projectId}/tests",
+                        ct);
+                }
+            }
+        }
 
         var loaded = await _db.ProjectScreens
             .AsNoTracking()

@@ -90,6 +90,10 @@ public static class DependencyInjectionExtensions
         services.AddSingleton<IEmailService, QueuedEmailService>();
         services.AddHostedService<EmailDispatcherService>();
 
+        // Realtime notifications (SSE)
+        services.AddSingleton<NotificationBroadcaster>();
+        services.AddScoped<INotificationService, NotificationService>();
+
         // AI client & service (supports both Gemini and Anthropic)
         var aiOptions = configuration.GetSection(AiOptions.SectionName).Get<AiOptions>() ?? new AiOptions();
         var useGemini = string.Equals(aiOptions.Provider, "Gemini", StringComparison.OrdinalIgnoreCase)

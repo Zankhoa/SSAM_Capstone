@@ -9,6 +9,7 @@ using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Companies;
 using SSAM_Server.DTOs.Kanban;
 using SSAM_Server.DTOs.Projects;
+using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
 using SSAM_Server.Security;
 
@@ -21,6 +22,7 @@ public class KanbanService : IKanbanService
     private readonly IPermissionService _permissions;
     private readonly TimeProvider _clock;
     private readonly IProjectAccessGuard _accessGuard;
+    private readonly INotificationService _notifications;
     private readonly string _uploadRoot;
 
     public KanbanService(
@@ -29,6 +31,7 @@ public class KanbanService : IKanbanService
         IPermissionService permissions,
         TimeProvider clock,
         IProjectAccessGuard accessGuard,
+        INotificationService notifications,
         IConfiguration configuration)
     {
         _db = db;
@@ -36,6 +39,7 @@ public class KanbanService : IKanbanService
         _permissions = permissions;
         _clock = clock;
         _accessGuard = accessGuard;
+        _notifications = notifications;
         _uploadRoot = configuration["Storage:UploadPath"] ?? Path.Combine(AppContext.BaseDirectory, "uploads");
     }
 
@@ -682,12 +686,14 @@ public class KanbanService : IKanbanService
         if (request.AssigneeIdSpecified && issue.AssigneeId != request.AssigneeId)
         {
             string assigneeNote;
+            long? notifyAssigneeId = null;
             if (request.AssigneeId.HasValue)
             {
                 var newAssignee = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == request.AssigneeId.Value, ct);
                 if (newAssignee == null)
                     return ServiceResult<IssueDetailDto>.NotFound("USER_NOT_FOUND", "Assignee user not found.");
                 assigneeNote = $"Giao cho {newAssignee.FullName}";
+                if (newAssignee.Id != userId) notifyAssigneeId = newAssignee.Id;
             }
             else
             {
@@ -703,6 +709,17 @@ public class KanbanService : IKanbanService
                 Note = assigneeNote,
                 CreatedAt = now
             });
+
+            if (notifyAssigneeId.HasValue)
+            {
+                await _notifications.NotifyAsync(
+                    notifyAssigneeId.Value,
+                    "ISSUE_ASSIGNED",
+                    $"Bạn được giao {issue.Key}",
+                    issue.Title,
+                    $"/projects/{issue.ProjectId}/kanban?issue={Uri.EscapeDataString(issue.Key)}",
+                    ct);
+            }
         }
 
         if (request.SprintIdSpecified && issue.SprintId != request.SprintId)
@@ -1341,6 +1358,7 @@ public class KanbanService : IKanbanService
         _db.IssueComments.Add(comment);
         await _db.SaveChangesAsync(ct);
 
+        var mentionedIds = new HashSet<long>();
         if (request.MentionUserIds != null && request.MentionUserIds.Count > 0)
         {
             var validUserIds = await _db.ProjectMembers
@@ -1351,6 +1369,7 @@ public class KanbanService : IKanbanService
 
             foreach (var uid in validUserIds)
             {
+                mentionedIds.Add(uid);
                 _db.IssueCommentMentions.Add(new IssueCommentMention
                 {
                     CommentId = comment.Id,
@@ -1369,6 +1388,20 @@ public class KanbanService : IKanbanService
         });
 
         await _db.SaveChangesAsync(ct);
+
+        var linkUrl = $"/projects/{issue.ProjectId}/kanban?issue={Uri.EscapeDataString(issue.Key)}";
+        var preview = body.Length > 140 ? body[..140] + "…" : body;
+        var notified = new HashSet<long> { userId };
+
+        foreach (var uid in mentionedIds)
+        {
+            if (notified.Add(uid))
+                await _notifications.NotifyAsync(uid, "ISSUE_MENTION", $"Nhắc tên bạn trong {issue.Key}", preview, linkUrl, ct);
+        }
+        if (issue.AssigneeId.HasValue && notified.Add(issue.AssigneeId.Value))
+            await _notifications.NotifyAsync(issue.AssigneeId.Value, "ISSUE_COMMENT", $"Bình luận mới ở {issue.Key}", preview, linkUrl, ct);
+        if (notified.Add(issue.ReporterId))
+            await _notifications.NotifyAsync(issue.ReporterId, "ISSUE_COMMENT", $"Bình luận mới ở {issue.Key}", preview, linkUrl, ct);
 
         var loaded = await _db.IssueComments
             .AsNoTracking()
