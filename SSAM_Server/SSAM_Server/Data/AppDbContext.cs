@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<User> Users => Set<User>();
     public DbSet<Company> Companies => Set<Company>();
+    public DbSet<Department> Departments => Set<Department>();
     public DbSet<CompanyMember> CompanyMembers => Set<CompanyMember>();
     public DbSet<CompanyRole> CompanyRoles => Set<CompanyRole>();
     public DbSet<ExternalLogin> ExternalLogins => Set<ExternalLogin>();
@@ -28,7 +29,9 @@ public class AppDbContext : DbContext
     // Onboarding & Workspaces
     public DbSet<Workspace> Workspaces => Set<Workspace>();
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
+    public DbSet<WorkspaceDepartment> WorkspaceDepartments => Set<WorkspaceDepartment>();
     public DbSet<MembershipRequest> MembershipRequests => Set<MembershipRequest>();
+    public DbSet<CompanyInvitation> CompanyInvitations => Set<CompanyInvitation>();
 
     // RBAC & Projects & Workflow
     public DbSet<Permission> Permissions => Set<Permission>();
@@ -60,6 +63,7 @@ public class AppDbContext : DbContext
     public DbSet<IssueComment> IssueComments => Set<IssueComment>();
     public DbSet<IssueCommentMention> IssueCommentMentions => Set<IssueCommentMention>();
     public DbSet<IssueActivity> IssueActivities => Set<IssueActivity>();
+    public DbSet<IssueAttachment> IssueAttachments => Set<IssueAttachment>();
 
     // Module D — Test Cases & Test Plans (v2)
     public DbSet<TestPlan> TestPlans => Set<TestPlan>();
@@ -70,9 +74,15 @@ public class AppDbContext : DbContext
     public DbSet<TestAssignment> TestAssignments => Set<TestAssignment>();
     public DbSet<TestCase> TestCases => Set<TestCase>();
     public DbSet<TestCaseRequirementLink> TestCaseRequirementLinks => Set<TestCaseRequirementLink>();
+    public DbSet<TestCaseFigmaLink> TestCaseFigmaLinks => Set<TestCaseFigmaLink>();
+    public DbSet<FigmaFileWatch> FigmaFileWatches => Set<FigmaFileWatch>();
     public DbSet<TestResult> TestResults => Set<TestResult>();
     public DbSet<TestRetestFlag> TestRetestFlags => Set<TestRetestFlag>();
     public DbSet<TestActivity> TestActivities => Set<TestActivity>();
+
+    // AI chat persistence
+    public DbSet<AiConversation> AiConversations => Set<AiConversation>();
+    public DbSet<AiConversationMessage> AiConversationMessages => Set<AiConversationMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

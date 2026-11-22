@@ -35,6 +35,9 @@ public class CompanyMatchResponseDto
     [JsonPropertyName("matched")]
     public bool Matched { get; set; }
 
+    [JsonPropertyName("companyExists")]
+    public bool CompanyExists { get; set; }
+
     [JsonPropertyName("company")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public MatchedCompanyDto? Company { get; set; }

@@ -16,6 +16,9 @@ public class CreateInvitationRequestDto
     [JsonPropertyName("workspaceRoleId")]
     public long? WorkspaceRoleId { get; set; }
 
+    [JsonPropertyName("departmentId")]
+    public long? DepartmentId { get; set; }
+
     [JsonPropertyName("roleName")]
     public string? RoleName { get; set; }
 }

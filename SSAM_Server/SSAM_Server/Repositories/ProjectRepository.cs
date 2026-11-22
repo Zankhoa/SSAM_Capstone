@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
+using SSAM_Server.DTOs.Companies;
 using SSAM_Server.DTOs.Projects;
 using SSAM_Server.Models;
 using SSAM_Server.Security;
@@ -81,7 +82,21 @@ public class ProjectRepository : IProjectRepository
             .Where(wm => wm.WorkspaceId == workspaceId && wm.IsActive && userIds.Contains(wm.UserId))
             .ToDictionaryAsync(wm => wm.UserId, wm => wm.Role, ct);
 
-        return members.Select(pm => MapMemberDto(pm, wsRoles.GetValueOrDefault(pm.UserId))).ToList();
+        var companyId = await _db.Workspaces
+            .AsNoTracking()
+            .Where(w => w.Id == workspaceId)
+            .Select(w => w.CompanyId)
+            .FirstOrDefaultAsync(ct);
+
+        var depts = companyId.HasValue
+            ? await _db.CompanyMembers
+                .AsNoTracking()
+                .Include(cm => cm.Department)
+                .Where(cm => cm.CompanyId == companyId.Value && userIds.Contains(cm.UserId) && cm.Department != null)
+                .ToDictionaryAsync(cm => cm.UserId, cm => cm.Department, ct)
+            : new Dictionary<long, Department?>();
+
+        return members.Select(pm => MapMemberDto(pm, wsRoles.GetValueOrDefault(pm.UserId), depts.GetValueOrDefault(pm.UserId))).ToList();
     }
 
     public async Task<ProjectMemberDto?> GetMemberDtoAsync(long projectId, long workspaceId, long userId, CancellationToken ct = default)
@@ -100,7 +115,22 @@ public class ProjectRepository : IProjectRepository
             .Include(x => x.Role)
             .FirstOrDefaultAsync(x => x.WorkspaceId == workspaceId && x.UserId == userId && x.IsActive, ct);
 
-        return MapMemberDto(pm, wm?.Role);
+        var companyId = await _db.Workspaces
+            .AsNoTracking()
+            .Where(w => w.Id == workspaceId)
+            .Select(w => w.CompanyId)
+            .FirstOrDefaultAsync(ct);
+
+        var department = companyId.HasValue
+            ? await _db.CompanyMembers
+                .AsNoTracking()
+                .Include(cm => cm.Department)
+                .Where(cm => cm.CompanyId == companyId.Value && cm.UserId == userId)
+                .Select(cm => cm.Department)
+                .FirstOrDefaultAsync(ct)
+            : null;
+
+        return MapMemberDto(pm, wm?.Role, department);
     }
 
     public async Task<List<ProjectMemberCandidateDto>> ListMemberCandidatesAsync(
@@ -751,7 +781,7 @@ public class ProjectRepository : IProjectRepository
         };
     }
 
-    private static ProjectMemberDto MapMemberDto(ProjectMember pm, CompanyRole? wsRole)
+    private static ProjectMemberDto MapMemberDto(ProjectMember pm, CompanyRole? wsRole, Department? department = null)
     {
         return new ProjectMemberDto
         {
@@ -777,6 +807,14 @@ public class ProjectRepository : IProjectRepository
                     Kind = wsRole.Kind
                 }
                 : new RoleRefDto { RoleId = 0, Code = null, Name = "—", Scope = RoleScopes.Workspace, Kind = RoleKinds.Other },
+            Department = department != null
+                ? new DepartmentRefDto
+                {
+                    DepartmentId = department.Id,
+                    Name = department.Name,
+                    Code = department.Code
+                }
+                : null,
             JoinedAt = pm.JoinedAt
         };
     }

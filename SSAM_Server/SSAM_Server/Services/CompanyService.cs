@@ -132,34 +132,13 @@ public class CompanyService : ICompanyService
 
     public async Task<ServiceResult<CompanyMatchResponseDto>> MatchDomainAsync(string email, CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
-        {
-            return ServiceResult<CompanyMatchResponseDto>.Ok(new CompanyMatchResponseDto { Matched = false });
-        }
-
-        var domain = email.Split('@')[1].Trim().ToLowerInvariant();
-        if (PublicEmailDomains.Contains(domain))
-        {
-            return ServiceResult<CompanyMatchResponseDto>.Ok(new CompanyMatchResponseDto { Matched = false });
-        }
-
-        var company = await _companyRepository.GetActiveByDomainAsync(domain, cancellationToken);
-        if (company == null)
-        {
-            return ServiceResult<CompanyMatchResponseDto>.Ok(new CompanyMatchResponseDto { Matched = false });
-        }
-
+        // Không cho phép tự xin vào công ty; chỉ vào được qua lời mời từ Admin (/invite/{token}).
+        // Trả về companyExists để FE biết hệ thống đã có công ty (chặn cả việc tạo công ty thứ 2).
+        var companyExists = await _companyRepository.AnyActiveCompanyExistsAsync(cancellationToken);
         return ServiceResult<CompanyMatchResponseDto>.Ok(new CompanyMatchResponseDto
         {
-            Matched = true,
-            Company = new MatchedCompanyDto
-            {
-                Id = company.Id,
-                Name = company.Name,
-                Domain = company.EmailDomain,
-                LogoUrl = company.LogoUrl,
-                AutoJoinEnabled = company.DomainAutoJoinEnabled
-            }
+            Matched = false,
+            CompanyExists = companyExists
         });
     }
 
@@ -169,6 +148,16 @@ public class CompanyService : ICompanyService
         if (creatorUserId == null)
         {
             return ServiceResult<CompanyDto>.Unauthorized("Your session is invalid or has expired.");
+        }
+
+        if (await _companyRepository.AnyActiveCompanyExistsAsync(cancellationToken))
+        {
+            return ServiceResult<CompanyDto>.Conflict("COMPANY_ALREADY_EXISTS", "Hệ thống đã có công ty, không thể tạo thêm công ty mới.");
+        }
+
+        if (await _companyRepository.HasAnyActiveCompanyAsync(creatorUserId.Value, null, cancellationToken))
+        {
+            return ServiceResult<CompanyDto>.Conflict("ALREADY_IN_COMPANY", "Tài khoản này đã thuộc một công ty, không thể tạo thêm công ty khác.");
         }
 
         var validationErrors = new Dictionary<string, string[]>();
@@ -256,88 +245,28 @@ public class CompanyService : ICompanyService
         return ServiceResult<CompanyDto>.Created(dto);
     }
 
-    public async Task<ServiceResult<CompanyJoinResponseDto>> JoinCompanyAsync(long companyId, CancellationToken cancellationToken = default)
+    public Task<ServiceResult<CompanyJoinResponseDto>> JoinCompanyAsync(long companyId, CancellationToken cancellationToken = default)
     {
-        var userId = _currentUser.UserIdOrNull;
-        if (userId == null)
+        if (_currentUser.UserIdOrNull == null)
         {
-            return ServiceResult<CompanyJoinResponseDto>.Unauthorized("Your session is invalid or has expired.");
+            return Task.FromResult(ServiceResult<CompanyJoinResponseDto>.Unauthorized("Your session is invalid or has expired."));
         }
 
-        var company = await _companyRepository.GetByIdAsync(companyId, cancellationToken);
-        if (company == null || !company.IsActive)
-        {
-            return ServiceResult<CompanyJoinResponseDto>.NotFound("Không tìm thấy công ty.");
-        }
-
-        var user = await _authRepository.GetUserByIdAsync(userId.Value, cancellationToken);
-        if (user == null)
-        {
-            return ServiceResult<CompanyJoinResponseDto>.NotFound("Không tìm thấy người dùng.");
-        }
-
-        var userDomain = user.Email.Contains('@') ? user.Email.Split('@')[1].ToLowerInvariant() : string.Empty;
-        var companyDomain = company.EmailDomain?.ToLowerInvariant();
-
-        if (!company.DomainAutoJoinEnabled || string.IsNullOrEmpty(companyDomain) || userDomain != companyDomain)
-        {
-            return ServiceResult<CompanyJoinResponseDto>.Forbidden("AUTO_JOIN_NOT_ALLOWED", "Công ty chưa bật tự động tham gia hoặc domain email không khớp.");
-        }
-
-        var existingMember = await _companyRepository.GetMemberAsync(companyId, userId.Value, cancellationToken);
-        if (existingMember != null)
-        {
-            return ServiceResult<CompanyJoinResponseDto>.Ok(new CompanyJoinResponseDto { CompanyId = companyId, Status = "joined" });
-        }
-
-        var memberRoleId = await _companyRepository.ResolveRoleIdAsync(companyId, CompanyRoleCodes.Member, RoleScopes.Tenant, CompanyRoleCodes.Member, cancellationToken);
-
-        await _companyRepository.AddMemberAsync(new CompanyMember
-        {
-            CompanyId = companyId,
-            UserId = userId.Value,
-            RoleId = memberRoleId,
-            IsActive = true,
-            JoinedAt = _clock.GetUtcNow().UtcDateTime
-        }, cancellationToken);
-        await _companyRepository.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<CompanyJoinResponseDto>.Ok(new CompanyJoinResponseDto { CompanyId = companyId, Status = "joined" });
+        return Task.FromResult(ServiceResult<CompanyJoinResponseDto>.Forbidden(
+            "JOIN_BY_INVITE_ONLY",
+            "Chỉ quản trị viên mới có thể mời thành viên vào công ty."));
     }
 
-    public async Task<ServiceResult<JoinRequestResponseDto>> CreateJoinRequestAsync(long companyId, CancellationToken cancellationToken = default)
+    public Task<ServiceResult<JoinRequestResponseDto>> CreateJoinRequestAsync(long companyId, CancellationToken cancellationToken = default)
     {
-        var userId = _currentUser.UserIdOrNull;
-        if (userId == null)
+        if (_currentUser.UserIdOrNull == null)
         {
-            return ServiceResult<JoinRequestResponseDto>.Unauthorized("Your session is invalid or has expired.");
+            return Task.FromResult(ServiceResult<JoinRequestResponseDto>.Unauthorized("Your session is invalid or has expired."));
         }
 
-        var company = await _companyRepository.GetByIdAsync(companyId, cancellationToken);
-        if (company == null || !company.IsActive)
-        {
-            return ServiceResult<JoinRequestResponseDto>.NotFound("Không tìm thấy công ty.");
-        }
-
-        var user = await _authRepository.GetUserByIdAsync(userId.Value, cancellationToken);
-        if (user == null)
-        {
-            return ServiceResult<JoinRequestResponseDto>.NotFound("Không tìm thấy người dùng.");
-        }
-
-        var request = new MembershipRequest
-        {
-            CompanyId = companyId,
-            UserId = userId.Value,
-            Email = user.Email,
-            Source = "join_request",
-            Status = "pending",
-            CreatedAt = _clock.GetUtcNow().UtcDateTime
-        };
-        await _companyRepository.AddMembershipRequestAsync(request, cancellationToken);
-        await _companyRepository.SaveChangesAsync(cancellationToken);
-
-        return ServiceResult<JoinRequestResponseDto>.Created(new JoinRequestResponseDto { RequestId = request.Id, Status = "pending" });
+        return Task.FromResult(ServiceResult<JoinRequestResponseDto>.Forbidden(
+            "JOIN_BY_INVITE_ONLY",
+            "Chỉ quản trị viên mới có thể mời thành viên vào công ty."));
     }
 
     public async Task<ServiceResult<JoinRequestStatusResponseDto>> GetJoinRequestStatusAsync(long companyId, long requestId, CancellationToken cancellationToken = default)

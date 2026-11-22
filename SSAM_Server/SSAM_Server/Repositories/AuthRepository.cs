@@ -44,6 +44,7 @@ public class AuthRepository : IAuthRepository
         => _db.CompanyMembers
             .AsNoTracking()
             .Include(cm => cm.Company)
+            .Include(cm => cm.Department)
             .Include(cm => cm.Role)
                 .ThenInclude(r => r.RolePermissions)
                     .ThenInclude(rp => rp.Permission)

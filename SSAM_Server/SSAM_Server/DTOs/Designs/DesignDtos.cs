@@ -16,3 +16,33 @@ public class ResolveDesignResponse
     [JsonPropertyName("thumbnailUrl")]
     public string? ThumbnailUrl { get; set; }
 }
+
+public class FigmaWebhookPayload
+{
+    [JsonPropertyName("event_type")]
+    public string? EventType { get; set; }
+
+    [JsonPropertyName("file_key")]
+    public string? FileKey { get; set; }
+
+    [JsonPropertyName("file_name")]
+    public string? FileName { get; set; }
+
+    [JsonPropertyName("passcode")]
+    public string? Passcode { get; set; }
+
+    [JsonPropertyName("timestamp")]
+    public string? Timestamp { get; set; }
+}
+
+public class FigmaCheckUpdatesResponse
+{
+    [JsonPropertyName("checkedCount")]
+    public int CheckedCount { get; set; }
+
+    [JsonPropertyName("changedFiles")]
+    public List<string> ChangedFiles { get; set; } = new();
+
+    [JsonPropertyName("flaggedTestCases")]
+    public int FlaggedTestCases { get; set; }
+}

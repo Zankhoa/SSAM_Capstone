@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
+using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Workspaces;
 using SSAM_Server.Models;
@@ -11,6 +13,7 @@ public class WorkspaceService : IWorkspaceService
 {
     private readonly IWorkspaceRepository _workspaceRepository;
     private readonly ICompanyRepository _companyRepository;
+    private readonly AppDbContext _db;
     private readonly IPermissionService _permissionService;
     private readonly ICurrentUser _currentUser;
     private readonly TimeProvider _clock;
@@ -18,12 +21,14 @@ public class WorkspaceService : IWorkspaceService
     public WorkspaceService(
         IWorkspaceRepository workspaceRepository,
         ICompanyRepository companyRepository,
+        AppDbContext db,
         IPermissionService permissionService,
         ICurrentUser currentUser,
         TimeProvider clock)
     {
         _workspaceRepository = workspaceRepository;
         _companyRepository = companyRepository;
+        _db = db;
         _permissionService = permissionService;
         _currentUser = currentUser;
         _clock = clock;
@@ -150,6 +155,27 @@ public class WorkspaceService : IWorkspaceService
         if (description != null && description.Length > 1000)
             validationErrors["description"] = new[] { "Mô tả tối đa 1000 ký tự" };
 
+        var distinctDeptIds = (request.DepartmentIds ?? new List<long>()).Where(id => id > 0).Distinct().ToList();
+        if (request.CompanyId.HasValue)
+        {
+            var hasCompanyDepartments = await _db.Departments
+                .AsNoTracking()
+                .AnyAsync(d => d.CompanyId == request.CompanyId.Value && d.IsActive, cancellationToken);
+
+            if (hasCompanyDepartments && distinctDeptIds.Count == 0)
+            {
+                validationErrors["departmentIds"] = new[] { "Vui lòng chọn ít nhất 1 phòng ban cho workspace" };
+            }
+            else if (distinctDeptIds.Count > 0)
+            {
+                var validCount = await _db.Departments
+                    .AsNoTracking()
+                    .CountAsync(d => d.CompanyId == request.CompanyId.Value && d.IsActive && distinctDeptIds.Contains(d.Id), cancellationToken);
+                if (validCount != distinctDeptIds.Count)
+                    validationErrors["departmentIds"] = new[] { "Danh sách phòng ban không hợp lệ" };
+            }
+        }
+
         if (validationErrors.Count > 0)
             return ServiceResult<WorkspaceDto>.Validation(validationErrors);
 
@@ -209,6 +235,52 @@ public class WorkspaceService : IWorkspaceService
                     IsActive = true,
                     JoinedAt = now
                 }, ct);
+
+                if (distinctDeptIds.Count > 0)
+                {
+                    foreach (var deptId in distinctDeptIds)
+                    {
+                        _db.WorkspaceDepartments.Add(new WorkspaceDepartment
+                        {
+                            WorkspaceId = workspace.Id,
+                            DepartmentId = deptId,
+                            CreatedAt = now
+                        });
+                    }
+
+                    // Tự động thêm nhân viên đang thuộc các phòng ban đã chọn vào workspace với role Workspace Member
+                    var wsMemberRoleId = await _companyRepository.ResolveRoleIdAsync(
+                        request.CompanyId.Value,
+                        CompanyRoleCodes.WorkspaceMember,
+                        RoleScopes.Workspace,
+                        CompanyRoleCodes.WorkspaceMember,
+                        ct);
+
+                    var deptUserIds = await _db.CompanyMembers
+                        .AsNoTracking()
+                        .Where(cm =>
+                            cm.CompanyId == request.CompanyId.Value &&
+                            cm.IsActive &&
+                            cm.DepartmentId.HasValue &&
+                            distinctDeptIds.Contains(cm.DepartmentId.Value) &&
+                            cm.UserId != creatorUserId.Value)
+                        .Select(cm => cm.UserId)
+                        .Distinct()
+                        .ToListAsync(ct);
+
+                    foreach (var memberUserId in deptUserIds)
+                    {
+                        await _workspaceRepository.AddMemberAsync(new WorkspaceMember
+                        {
+                            WorkspaceId = workspace.Id,
+                            UserId = memberUserId,
+                            RoleId = wsMemberRoleId,
+                            IsActive = true,
+                            JoinedAt = now
+                        }, ct);
+                    }
+                }
+
                 await _workspaceRepository.SaveChangesAsync(ct);
             }
 
@@ -269,6 +341,91 @@ public class WorkspaceService : IWorkspaceService
             tracked.Code = code;
         if (request.DescriptionSpecified)
             tracked.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+
+        if (request.DepartmentIds != null && access.Workspace.CompanyId.HasValue)
+        {
+            var companyId = access.Workspace.CompanyId.Value;
+            var distinctDeptIds = request.DepartmentIds.Where(id => id > 0).Distinct().ToList();
+            if (distinctDeptIds.Count > 0)
+            {
+                var validCount = await _db.Departments
+                    .AsNoTracking()
+                    .CountAsync(d => d.CompanyId == companyId && d.IsActive && distinctDeptIds.Contains(d.Id), cancellationToken);
+                if (validCount != distinctDeptIds.Count)
+                {
+                    return ServiceResult<WorkspaceDto>.Validation(new Dictionary<string, string[]>
+                    {
+                        ["departmentIds"] = new[] { "Danh sách phòng ban không hợp lệ" }
+                    });
+                }
+            }
+
+            var existingLinks = await _db.WorkspaceDepartments
+                .Where(wd => wd.WorkspaceId == workspaceId)
+                .ToListAsync(cancellationToken);
+
+            var existingDeptSet = existingLinks.Select(l => l.DepartmentId).ToHashSet();
+            var nextDeptSet = distinctDeptIds.ToHashSet();
+
+            var toRemove = existingLinks.Where(l => !nextDeptSet.Contains(l.DepartmentId)).ToList();
+            if (toRemove.Count > 0)
+                _db.WorkspaceDepartments.RemoveRange(toRemove);
+
+            var addedDeptIds = distinctDeptIds.Where(id => !existingDeptSet.Contains(id)).ToList();
+            var now = _clock.GetUtcNow().UtcDateTime;
+            foreach (var deptId in addedDeptIds)
+            {
+                _db.WorkspaceDepartments.Add(new WorkspaceDepartment
+                {
+                    WorkspaceId = workspaceId,
+                    DepartmentId = deptId,
+                    CreatedAt = now
+                });
+            }
+
+            if (addedDeptIds.Count > 0)
+            {
+                var wsMemberRoleId = await _companyRepository.ResolveRoleIdAsync(
+                    companyId,
+                    CompanyRoleCodes.WorkspaceMember,
+                    RoleScopes.Workspace,
+                    CompanyRoleCodes.WorkspaceMember,
+                    cancellationToken);
+
+                var deptUserIds = await _db.CompanyMembers
+                    .AsNoTracking()
+                    .Where(cm =>
+                        cm.CompanyId == companyId &&
+                        cm.IsActive &&
+                        cm.DepartmentId.HasValue &&
+                        addedDeptIds.Contains(cm.DepartmentId.Value))
+                    .Select(cm => cm.UserId)
+                    .Distinct()
+                    .ToListAsync(cancellationToken);
+
+                foreach (var memberUserId in deptUserIds)
+                {
+                    var existingWsMember = await _workspaceRepository.GetMemberRecordAsync(workspaceId, memberUserId, cancellationToken);
+                    if (existingWsMember == null)
+                    {
+                        await _workspaceRepository.AddMemberAsync(new WorkspaceMember
+                        {
+                            WorkspaceId = workspaceId,
+                            UserId = memberUserId,
+                            RoleId = wsMemberRoleId,
+                            IsActive = true,
+                            JoinedAt = now
+                        }, cancellationToken);
+                    }
+                    else if (!existingWsMember.IsActive)
+                    {
+                        existingWsMember.IsActive = true;
+                        existingWsMember.RoleId ??= wsMemberRoleId;
+                        existingWsMember.JoinedAt = now;
+                    }
+                }
+            }
+        }
 
         tracked.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
         await _workspaceRepository.SaveChangesAsync(cancellationToken);

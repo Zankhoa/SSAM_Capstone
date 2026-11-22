@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SSAM_Server.Common;
 using SSAM_Server.DTOs.Ai;
+using SSAM_Server.DTOs.Common;
 using SSAM_Server.Interfaces.Services;
 
 namespace SSAM_Server.Controllers;
@@ -12,10 +13,12 @@ namespace SSAM_Server.Controllers;
 public class AiController : ControllerBase
 {
     private readonly IAiChatService _aiChatService;
+    private readonly IAiTaskService _aiTaskService;
 
-    public AiController(IAiChatService aiChatService)
+    public AiController(IAiChatService aiChatService, IAiTaskService aiTaskService)
     {
         _aiChatService = aiChatService;
+        _aiTaskService = aiTaskService;
     }
 
     [HttpGet("ai/status")]
@@ -38,6 +41,58 @@ public class AiController : ControllerBase
     public async Task<IActionResult> ChatInProject(long projectId, [FromBody] AiChatRequestDto request, CancellationToken ct)
     {
         var result = await _aiChatService.ChatAsync(projectId, request, ct);
+        return result.ToActionResult(this);
+    }
+
+    [HttpGet("projects/{projectId:long}/ai/conversations")]
+    [EndpointSummary("List saved AI conversations")]
+    [EndpointDescription("Lists the current user's conversations for a project, optionally scoped to a document.")]
+    [ProducesResponseType(typeof(IReadOnlyList<AiConversationSummaryDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
+    public async Task<IActionResult> ListConversations(
+        long projectId,
+        [FromQuery] long? documentId,
+        CancellationToken ct)
+    {
+        var result = await _aiChatService.ListConversationsAsync(projectId, documentId, ct);
+        return result.ToActionResult(this);
+    }
+
+    [HttpGet("projects/{projectId:long}/ai/conversations/{conversationId:long}")]
+    [EndpointSummary("Get a saved AI conversation")]
+    [EndpointDescription("Returns messages only when the conversation belongs to the current user, project, and optional document.")]
+    [ProducesResponseType(typeof(AiConversationDetailsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetConversation(
+        long projectId,
+        long conversationId,
+        [FromQuery] long? documentId,
+        CancellationToken ct)
+    {
+        var result = await _aiChatService.GetConversationAsync(projectId, conversationId, documentId, ct);
+        return result.ToActionResult(this);
+    }
+
+    [HttpPost("projects/{projectId:long}/ai/tasks")]
+    [EndpointSummary("Run a project-scoped AI task")]
+    [EndpointDescription("Runs an allow-listed AI task after checking project access, the ai.use permission, and the project's AI setting.")]
+    [ProducesResponseType(typeof(AiTaskResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status502BadGateway)]
+    [ProducesResponseType(typeof(ErrorResponseDto), StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> RunTask(
+        long projectId,
+        [FromBody] AiTaskRequestDto request,
+        CancellationToken ct)
+    {
+        var result = await _aiTaskService.RunAsync(projectId, request, ct);
         return result.ToActionResult(this);
     }
 }
