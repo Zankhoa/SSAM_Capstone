@@ -1800,22 +1800,39 @@ public class DocumentService : IDocumentService
             foreach (var item in acceptedItems)
             {
                 var reqUid = await _db.AllocateReqUidAsync(projectId, innerCt);
+                var acceptanceCriteria = item.AcceptanceCriteria ?? new List<string>();
+                var diagram = item.Diagram;
+                if (docType == DocumentTypes.Srs &&
+                    (diagram is null || string.IsNullOrWhiteSpace(diagram.Mermaid)))
+                {
+                    diagram = DiagramGeneratorHelper.TryGenerateDiagram(
+                        string.Join(Environment.NewLine, acceptanceCriteria),
+                        "flowchart");
+                }
+
                 generatedItems.Add(new GeneratedItemDto
                 {
                     ReqUid = reqUid,
                     Title = item.Title.Trim(),
                     Description = item.Description.Trim(),
                     Priority = item.Priority,
-                    AcceptanceCriteria = item.AcceptanceCriteria ?? new List<string>(),
+                    AcceptanceCriteria = acceptanceCriteria,
                     SourceLines = item.SourceLines ?? new List<int>(),
                     Confidence = item.Confidence,
-                    Diagram = item.Diagram,
+                    Diagram = diagram,
                     IsAiGenerated = true,
                     ReviewStatus = ExtractedRequirementDto.ReviewAccepted
                 });
             }
 
-            var contentJson = DocumentGeneratorHelper.BuildGeneratedContentJson(request.Fields ?? new NormalizedFieldsDto(), generatedItems);
+            var fields = request.Fields ?? new NormalizedFieldsDto();
+            var contentJson = docType switch
+            {
+                DocumentTypes.Srs => DocumentGeneratorHelper.BuildSrsGeneratedContentJson(fields, generatedItems),
+                DocumentTypes.Brd => DocumentGeneratorHelper.BuildBrdGeneratedContentJson(fields, generatedItems),
+                DocumentTypes.Urd => DocumentGeneratorHelper.BuildUrdGeneratedContentJson(fields, generatedItems),
+                _ => DocumentGeneratorHelper.BuildGeneratedContentJson(fields, generatedItems)
+            };
             using var jsonDoc = JsonDocument.Parse(contentJson);
             var (normalizedJson, plainText, extractedReqs) = DocumentContentHelper.ProcessContent(jsonDoc.RootElement);
 
@@ -2113,7 +2130,7 @@ public class DocumentService : IDocumentService
         try
         {
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(v.Content) ? "{}" : v.Content);
-            contentEl = doc.RootElement.Clone();
+            contentEl = DocumentContentHelper.NormalizeMermaidBlocksForEditor(doc.RootElement);
         }
         catch
         {

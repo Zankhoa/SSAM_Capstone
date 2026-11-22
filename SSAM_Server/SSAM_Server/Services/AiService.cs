@@ -110,7 +110,8 @@ public class AiService : IAiService
                 "Return only a JSON object {\"items\": [...]} matching the requested schema. Each item must have a clear title, " +
                 "a testable description, priority HIGH, MEDIUM, or LOW, acceptanceCriteria as an array of strings, " +
                 "and sourceLines as an array of zero-based line numbers from rawNotes when identifiable; use an empty array otherwise. " +
-                "Include confidence as a number from 0 to 1. Do not generate or include a diagram. " +
+                "Include confidence as a number from 0 to 1. Do not put diagram data in this response; " +
+                "the document-generation step creates Mermaid diagrams from sufficient accepted criteria after selection. " +
                 "Keep the language of the source. Do not invent actors, behaviors, or business rules. " +
                 "Do not include fields that are not in the requested schema."),
             new(ChatRole.User, context)

@@ -13,13 +13,7 @@ public static partial class DiagramGeneratorHelper
     {
         var cleanText = (text ?? string.Empty).Trim();
         var kind = NormalizeKind(preferredKind, cleanText);
-
-        var steps = cleanText
-            .Split(new[] { '\r', '\n', '.', ';' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(s => StepPrefixRegex().Replace(s.Trim(), "").Trim())
-            .Where(s => s.Length >= 3)
-            .Take(7)
-            .ToList();
+        var steps = ExtractSteps(cleanText);
 
         if (steps.Count == 0)
         {
@@ -28,6 +22,31 @@ public static partial class DiagramGeneratorHelper
             steps.Add("Hoàn tất");
         }
 
+        return BuildDiagram(steps, kind);
+    }
+
+    public static DiagramProposalDto? TryGenerateDiagram(string text, string? preferredKind)
+    {
+        var cleanText = (text ?? string.Empty).Trim();
+        var steps = ExtractSteps(cleanText);
+        if (steps.Count < 2)
+        {
+            return null;
+        }
+
+        return BuildDiagram(steps, NormalizeKind(preferredKind, cleanText));
+    }
+
+    private static List<string> ExtractSteps(string text) =>
+        text
+            .Split(new[] { '\r', '\n', '.', ';' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => StepPrefixRegex().Replace(s.Trim(), "").Trim())
+            .Where(s => s.Length >= 3)
+            .Take(7)
+            .ToList();
+
+    private static DiagramProposalDto BuildDiagram(List<string> steps, string kind)
+    {
         return kind switch
         {
             "sequence" => BuildSequence(steps),
