@@ -31,6 +31,7 @@ public class AppDbContext : DbContext
     public DbSet<WorkspaceMember> WorkspaceMembers => Set<WorkspaceMember>();
     public DbSet<WorkspaceDepartment> WorkspaceDepartments => Set<WorkspaceDepartment>();
     public DbSet<MembershipRequest> MembershipRequests => Set<MembershipRequest>();
+    public DbSet<CompanyInvitation> CompanyInvitations => Set<CompanyInvitation>();
 
     // RBAC & Projects & Workflow
     public DbSet<Permission> Permissions => Set<Permission>();

@@ -144,7 +144,7 @@ public class InvitationService : IInvitationService
         var now = _clock.GetUtcNow().UtcDateTime;
         var expiresAt = now.AddDays(7);
         var token = AuthService.GenerateSecureToken();
-        var invite = new MembershipRequest
+        var invite = new CompanyInvitation
         {
             CompanyId = companyId,
             Email = email,
@@ -153,7 +153,6 @@ public class InvitationService : IInvitationService
             WorkspaceId = request.WorkspaceId,
             WorkspaceRoleId = request.WorkspaceId.HasValue ? request.WorkspaceRoleId : null,
             DepartmentId = request.DepartmentId,
-            Source = "admin_invite",
             Status = "pending",
             Token = token,
             ExpiresAt = expiresAt,

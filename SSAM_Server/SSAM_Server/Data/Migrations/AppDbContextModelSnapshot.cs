@@ -323,6 +323,89 @@ namespace SSAM_Server.Data.Migrations
                     b.ToTable("Companies", (string)null);
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.CompanyInvitation", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<long>("CompanyId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("company_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at")
+                        .HasDefaultValueSql("SYSUTCDATETIME()");
+
+                    b.Property<long?>("DepartmentId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("department_id");
+
+                    b.Property<string>("Email")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("email");
+
+                    b.Property<DateTime?>("ExpiresAt")
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("expires_at");
+
+                    b.Property<long?>("RoleId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("role_id");
+
+                    b.Property<string>("RoleName")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)")
+                        .HasColumnName("role_name");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)")
+                        .HasDefaultValue("pending")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Token")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)")
+                        .HasColumnName("token");
+
+                    b.Property<long?>("WorkspaceId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("workspace_id");
+
+                    b.Property<long?>("WorkspaceRoleId")
+                        .HasColumnType("bigint")
+                        .HasColumnName("workspace_role_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompanyId");
+
+                    b.HasIndex("DepartmentId");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("Token")
+                        .IsUnique()
+                        .HasDatabaseName("IX_CompanyInvitations_Token");
+
+                    b.HasIndex("WorkspaceId");
+
+                    b.HasIndex("WorkspaceRoleId");
+
+                    b.ToTable("CompanyInvitations", (string)null);
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.CompanyMember", b =>
                 {
                     b.Property<long>("Id")
@@ -1552,34 +1635,11 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnName("created_at")
                         .HasDefaultValueSql("SYSUTCDATETIME()");
 
-                    b.Property<long?>("DepartmentId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("department_id");
-
                     b.Property<string>("Email")
                         .IsRequired()
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)")
                         .HasColumnName("email");
-
-                    b.Property<DateTime?>("ExpiresAt")
-                        .HasColumnType("datetime2(3)")
-                        .HasColumnName("expires_at");
-
-                    b.Property<long?>("RoleId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("role_id");
-
-                    b.Property<string>("RoleName")
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)")
-                        .HasColumnName("role_name");
-
-                    b.Property<string>("Source")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasColumnName("source");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -1589,41 +1649,15 @@ namespace SSAM_Server.Data.Migrations
                         .HasDefaultValue("pending")
                         .HasColumnName("status");
 
-                    b.Property<string>("Token")
-                        .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)")
-                        .HasColumnName("token");
-
                     b.Property<long?>("UserId")
                         .HasColumnType("bigint")
                         .HasColumnName("user_id");
-
-                    b.Property<long?>("WorkspaceId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("workspace_id");
-
-                    b.Property<long?>("WorkspaceRoleId")
-                        .HasColumnType("bigint")
-                        .HasColumnName("workspace_role_id");
 
                     b.HasKey("Id");
 
                     b.HasIndex("CompanyId");
 
-                    b.HasIndex("DepartmentId");
-
-                    b.HasIndex("RoleId");
-
-                    b.HasIndex("Token")
-                        .IsUnique()
-                        .HasDatabaseName("IX_MembershipRequests_Token")
-                        .HasFilter("[token] IS NOT NULL");
-
                     b.HasIndex("UserId");
-
-                    b.HasIndex("WorkspaceId");
-
-                    b.HasIndex("WorkspaceRoleId");
 
                     b.ToTable("MembershipRequests", (string)null);
                 });
@@ -4090,6 +4124,50 @@ namespace SSAM_Server.Data.Migrations
                     b.Navigation("Status");
                 });
 
+            modelBuilder.Entity("SSAM_Server.Models.CompanyInvitation", b =>
+                {
+                    b.HasOne("SSAM_Server.Models.Company", "Company")
+                        .WithMany()
+                        .HasForeignKey("CompanyId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("FK_CompanyInvitations_Companies");
+
+                    b.HasOne("SSAM_Server.Models.Department", "Department")
+                        .WithMany()
+                        .HasForeignKey("DepartmentId")
+                        .OnDelete(DeleteBehavior.NoAction)
+                        .HasConstraintName("FK_CompanyInvitations_Departments");
+
+                    b.HasOne("SSAM_Server.Models.CompanyRole", "Role")
+                        .WithMany()
+                        .HasForeignKey("RoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_CompanyInvitations_Role");
+
+                    b.HasOne("SSAM_Server.Models.Workspace", "Workspace")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_CompanyInvitations_Workspaces");
+
+                    b.HasOne("SSAM_Server.Models.CompanyRole", "WorkspaceRole")
+                        .WithMany()
+                        .HasForeignKey("WorkspaceRoleId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_CompanyInvitations_WorkspaceRole");
+
+                    b.Navigation("Company");
+
+                    b.Navigation("Department");
+
+                    b.Navigation("Role");
+
+                    b.Navigation("Workspace");
+
+                    b.Navigation("WorkspaceRole");
+                });
+
             modelBuilder.Entity("SSAM_Server.Models.CompanyMember", b =>
                 {
                     b.HasOne("SSAM_Server.Models.Company", "Company")
@@ -4604,47 +4682,15 @@ namespace SSAM_Server.Data.Migrations
                         .IsRequired()
                         .HasConstraintName("FK_MembershipRequests_Companies");
 
-                    b.HasOne("SSAM_Server.Models.Department", "Department")
-                        .WithMany()
-                        .HasForeignKey("DepartmentId")
-                        .OnDelete(DeleteBehavior.NoAction)
-                        .HasConstraintName("FK_MembershipRequests_Departments");
-
-                    b.HasOne("SSAM_Server.Models.CompanyRole", "Role")
-                        .WithMany()
-                        .HasForeignKey("RoleId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_MembershipRequests_Role");
-
                     b.HasOne("SSAM_Server.Models.User", "User")
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_MembershipRequests_Users");
 
-                    b.HasOne("SSAM_Server.Models.Workspace", "Workspace")
-                        .WithMany()
-                        .HasForeignKey("WorkspaceId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_MembershipRequests_Workspaces");
-
-                    b.HasOne("SSAM_Server.Models.CompanyRole", "WorkspaceRole")
-                        .WithMany()
-                        .HasForeignKey("WorkspaceRoleId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .HasConstraintName("FK_MembershipRequests_WorkspaceRole");
-
                     b.Navigation("Company");
 
-                    b.Navigation("Department");
-
-                    b.Navigation("Role");
-
                     b.Navigation("User");
-
-                    b.Navigation("Workspace");
-
-                    b.Navigation("WorkspaceRole");
                 });
 
             modelBuilder.Entity("SSAM_Server.Models.PasswordResetToken", b =>
