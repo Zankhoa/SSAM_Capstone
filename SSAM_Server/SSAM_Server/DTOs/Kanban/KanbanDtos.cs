@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SSAM_Server.DTOs.Common;
+using SSAM_Server.DTOs.Companies;
 using SSAM_Server.DTOs.Projects;
 
 namespace SSAM_Server.DTOs.Kanban;
@@ -207,6 +208,9 @@ public class IssueSummaryDto
     [JsonPropertyName("assignee")]
     public UserRefDto? Assignee { get; set; }
 
+    [JsonPropertyName("department")]
+    public DepartmentRefDto? Department { get; set; }
+
     [JsonPropertyName("sprintId")]
     public long? SprintId { get; set; }
 
@@ -314,6 +318,9 @@ public class IssueDetailDto : IssueSummaryDto
     [JsonPropertyName("testCases")]
     public List<IssueLinkedTestCaseDto> TestCases { get; set; } = new();
 
+    [JsonPropertyName("attachments")]
+    public List<IssueAttachmentDto> Attachments { get; set; } = new();
+
     [JsonPropertyName("allowedTransitions")]
     public List<IssueAllowedTransitionDto> AllowedTransitions { get; set; } = new();
 
@@ -322,6 +329,30 @@ public class IssueDetailDto : IssueSummaryDto
 
     [JsonPropertyName("can")]
     public IssuePermissionsDto Can { get; set; } = new();
+}
+
+public class IssueAttachmentDto
+{
+    [JsonPropertyName("attachmentId")]
+    public long AttachmentId { get; set; }
+
+    [JsonPropertyName("issueId")]
+    public long IssueId { get; set; }
+
+    [JsonPropertyName("fileName")]
+    public string FileName { get; set; } = string.Empty;
+
+    [JsonPropertyName("contentType")]
+    public string ContentType { get; set; } = string.Empty;
+
+    [JsonPropertyName("fileSize")]
+    public long FileSize { get; set; }
+
+    [JsonPropertyName("uploadedBy")]
+    public UserRefDto UploadedBy { get; set; } = new();
+
+    [JsonPropertyName("createdAt")]
+    public string CreatedAt { get; set; } = string.Empty;
 }
 
 public class IssueCommentDto
@@ -421,6 +452,9 @@ public class CreateIssueRequest
     [JsonPropertyName("assigneeId")]
     public long? AssigneeId { get; set; }
 
+    [JsonPropertyName("departmentId")]
+    public long? DepartmentId { get; set; }
+
     [JsonPropertyName("sprintId")]
     public long? SprintId { get; set; }
 
@@ -441,6 +475,7 @@ public class UpdateIssueRequest
 {
     private int? _points;
     private long? _assigneeId;
+    private long? _departmentId;
     private long? _sprintId;
     private string? _dueDate;
 
@@ -471,6 +506,14 @@ public class UpdateIssueRequest
         set { _assigneeId = value; AssigneeIdSpecified = true; }
     }
     [JsonIgnore] public bool AssigneeIdSpecified { get; private set; }
+
+    [JsonPropertyName("departmentId")]
+    public long? DepartmentId
+    {
+        get => _departmentId;
+        set { _departmentId = value; DepartmentIdSpecified = true; }
+    }
+    [JsonIgnore] public bool DepartmentIdSpecified { get; private set; }
 
     [JsonPropertyName("sprintId")]
     public long? SprintId

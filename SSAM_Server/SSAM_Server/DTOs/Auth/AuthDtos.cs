@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using SSAM_Server.DTOs.Common;
+using SSAM_Server.DTOs.Companies;
 
 namespace SSAM_Server.DTOs.Auth;
 
@@ -131,6 +132,9 @@ public class UserCompanyDto
 
     [JsonPropertyName("roleCode")]
     public string? RoleCode { get; set; }
+
+    [JsonPropertyName("department")]
+    public DepartmentRefDto? Department { get; set; }
 
     [JsonPropertyName("permissions")]
     public List<string> Permissions { get; set; } = new();

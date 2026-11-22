@@ -89,6 +89,9 @@ public class Issue : IHasUpdatedAt
     public long? AssigneeId { get; set; }
     public User? Assignee { get; set; }
 
+    public long? DepartmentId { get; set; }
+    public Department? Department { get; set; }
+
     public long ReporterId { get; set; }
     public User Reporter { get; set; } = null!;
 
@@ -182,5 +185,21 @@ public class IssueActivity
     public User? Actor { get; set; }
 
     public string? Note { get; set; }
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class IssueAttachment
+{
+    public long Id { get; set; }
+    public long IssueId { get; set; }
+    public Issue Issue { get; set; } = null!;
+
+    public string FileName { get; set; } = string.Empty;
+    public string StoredFileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = "application/octet-stream";
+    public long FileSize { get; set; }
+
+    public long UploadedById { get; set; }
+    public User UploadedBy { get; set; } = null!;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

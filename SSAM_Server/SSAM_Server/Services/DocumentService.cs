@@ -19,6 +19,7 @@ public class DocumentService : IDocumentService
     private readonly IAiService _aiService;
     private readonly IProjectAccessGuard _accessGuard;
     private readonly IRequirementSyncService _requirementSync;
+    private readonly IFigmaWatchService _figmaWatchService;
 
     public DocumentService(
         AppDbContext db,
@@ -27,7 +28,8 @@ public class DocumentService : IDocumentService
         TimeProvider clock,
         IAiService aiService,
         IProjectAccessGuard accessGuard,
-        IRequirementSyncService requirementSync)
+        IRequirementSyncService requirementSync,
+        IFigmaWatchService figmaWatchService)
     {
         _db = db;
         _currentUser = currentUser;
@@ -36,6 +38,7 @@ public class DocumentService : IDocumentService
         _aiService = aiService;
         _accessGuard = accessGuard;
         _requirementSync = requirementSync;
+        _figmaWatchService = figmaWatchService;
     }
 
     public async Task<ServiceResult<ItemsDto<DocumentNodeDto>>> GetProjectDocumentsAsync(
@@ -562,6 +565,7 @@ public class DocumentService : IDocumentService
         }
 
         var (normalizedJson, plainText, extractedReqs) = DocumentContentHelper.ProcessContent(request.Content);
+        await _figmaWatchService.RegisterFilesFromContentAsync(normalizedJson, ct);
 
         var userId = _currentUser.UserId;
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -1796,22 +1800,39 @@ public class DocumentService : IDocumentService
             foreach (var item in acceptedItems)
             {
                 var reqUid = await _db.AllocateReqUidAsync(projectId, innerCt);
+                var acceptanceCriteria = item.AcceptanceCriteria ?? new List<string>();
+                var diagram = item.Diagram;
+                if (docType == DocumentTypes.Srs &&
+                    (diagram is null || string.IsNullOrWhiteSpace(diagram.Mermaid)))
+                {
+                    diagram = DiagramGeneratorHelper.TryGenerateDiagram(
+                        string.Join(Environment.NewLine, acceptanceCriteria),
+                        "flowchart");
+                }
+
                 generatedItems.Add(new GeneratedItemDto
                 {
                     ReqUid = reqUid,
                     Title = item.Title.Trim(),
                     Description = item.Description.Trim(),
                     Priority = item.Priority,
-                    AcceptanceCriteria = item.AcceptanceCriteria ?? new List<string>(),
+                    AcceptanceCriteria = acceptanceCriteria,
                     SourceLines = item.SourceLines ?? new List<int>(),
                     Confidence = item.Confidence,
-                    Diagram = item.Diagram,
+                    Diagram = diagram,
                     IsAiGenerated = true,
                     ReviewStatus = ExtractedRequirementDto.ReviewAccepted
                 });
             }
 
-            var contentJson = DocumentGeneratorHelper.BuildGeneratedContentJson(request.Fields ?? new NormalizedFieldsDto(), generatedItems);
+            var fields = request.Fields ?? new NormalizedFieldsDto();
+            var contentJson = docType switch
+            {
+                DocumentTypes.Srs => DocumentGeneratorHelper.BuildSrsGeneratedContentJson(fields, generatedItems),
+                DocumentTypes.Brd => DocumentGeneratorHelper.BuildBrdGeneratedContentJson(fields, generatedItems),
+                DocumentTypes.Urd => DocumentGeneratorHelper.BuildUrdGeneratedContentJson(fields, generatedItems),
+                _ => DocumentGeneratorHelper.BuildGeneratedContentJson(fields, generatedItems)
+            };
             using var jsonDoc = JsonDocument.Parse(contentJson);
             var (normalizedJson, plainText, extractedReqs) = DocumentContentHelper.ProcessContent(jsonDoc.RootElement);
 
@@ -2109,7 +2130,7 @@ public class DocumentService : IDocumentService
         try
         {
             using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(v.Content) ? "{}" : v.Content);
-            contentEl = doc.RootElement.Clone();
+            contentEl = DocumentContentHelper.NormalizeMermaidBlocksForEditor(doc.RootElement);
         }
         catch
         {

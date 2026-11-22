@@ -22,6 +22,7 @@ public class FigmaService : IFigmaService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IPermissionService _permissionService;
     private readonly ICurrentUser _currentUser;
+    private readonly IFigmaWatchService _figmaWatchService;
     private readonly FigmaOptions _options;
     private readonly ILogger<FigmaService> _logger;
 
@@ -29,12 +30,14 @@ public class FigmaService : IFigmaService
         IHttpClientFactory httpClientFactory,
         IPermissionService permissionService,
         ICurrentUser currentUser,
+        IFigmaWatchService figmaWatchService,
         IOptions<FigmaOptions> options,
         ILogger<FigmaService> logger)
     {
         _httpClientFactory = httpClientFactory;
         _permissionService = permissionService;
         _currentUser = currentUser;
+        _figmaWatchService = figmaWatchService;
         _options = options.Value;
         _logger = logger;
     }
@@ -75,6 +78,15 @@ public class FigmaService : IFigmaService
         }
 
         var thumbnailUrl = await FetchNodeImageUrlAsync(fileKey, nodeId, ct);
+        try
+        {
+            await _figmaWatchService.RegisterFileAsync(fileKey, name, ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to register Figma watch for {FileKey}", fileKey);
+        }
+
         return ServiceResult<ResolveDesignResponse>.Ok(new ResolveDesignResponse
         {
             Name = name!,

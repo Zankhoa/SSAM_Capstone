@@ -13,24 +13,24 @@ public class InvitationRepository : IInvitationRepository
         _db = db;
     }
 
-    public Task<MembershipRequest?> GetInvitationWithDetailsAsync(string token, CancellationToken ct = default)
-        => _db.MembershipRequests
+    public Task<CompanyInvitation?> GetInvitationWithDetailsAsync(string token, CancellationToken ct = default)
+        => _db.CompanyInvitations
             .AsNoTracking()
             .Include(m => m.Company)
             .Include(m => m.Workspace)
             .Include(m => m.Role)
-            .FirstOrDefaultAsync(m => m.Token == token && m.Source == "admin_invite", ct);
+            .FirstOrDefaultAsync(m => m.Token == token, ct);
 
-    public Task<MembershipRequest?> GetByTokenAsync(string token, CancellationToken ct = default)
-        => _db.MembershipRequests.FirstOrDefaultAsync(m => m.Token == token && m.Source == "admin_invite", ct);
+    public Task<CompanyInvitation?> GetByTokenAsync(string token, CancellationToken ct = default)
+        => _db.CompanyInvitations.FirstOrDefaultAsync(m => m.Token == token, ct);
 
-    public async Task AddInvitationAsync(MembershipRequest invite, CancellationToken ct = default)
-        => await _db.MembershipRequests.AddAsync(invite, ct);
+    public async Task AddInvitationAsync(CompanyInvitation invite, CancellationToken ct = default)
+        => await _db.CompanyInvitations.AddAsync(invite, ct);
 
-    public void UpdateInvitation(MembershipRequest invite)
+    public void UpdateInvitation(CompanyInvitation invite)
     {
         if (_db.Entry(invite).State == EntityState.Detached)
-            _db.MembershipRequests.Update(invite);
+            _db.CompanyInvitations.Update(invite);
     }
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default)

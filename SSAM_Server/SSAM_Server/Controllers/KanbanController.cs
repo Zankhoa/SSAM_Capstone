@@ -184,6 +184,34 @@ public class KanbanController : ControllerBase
         return result.ToActionResult(this);
     }
 
+    // POST /issues/{issueId}/attachments
+    [HttpPost("issues/{issueId:long}/attachments")]
+    [Consumes("multipart/form-data")]
+    [RequestSizeLimit(20 * 1024 * 1024)]
+    public async Task<IActionResult> UploadIssueAttachment(long issueId, [FromForm] IFormFile file, CancellationToken ct)
+    {
+        var result = await _kanban.UploadIssueAttachmentAsync(issueId, file, ct);
+        return result.ToActionResult(this);
+    }
+
+    // GET /issues/{issueId}/attachments/{attachmentId}/download
+    [HttpGet("issues/{issueId:long}/attachments/{attachmentId:long}/download")]
+    public async Task<IActionResult> DownloadIssueAttachment(long issueId, long attachmentId, CancellationToken ct)
+    {
+        var result = await _kanban.DownloadIssueAttachmentAsync(issueId, attachmentId, ct);
+        if (!result.IsSuccess) return result.ToActionResult(this);
+        var (stream, contentType, fileName) = result.Data!;
+        return File(stream, contentType, fileName);
+    }
+
+    // DELETE /issues/{issueId}/attachments/{attachmentId}
+    [HttpDelete("issues/{issueId:long}/attachments/{attachmentId:long}")]
+    public async Task<IActionResult> DeleteIssueAttachment(long issueId, long attachmentId, CancellationToken ct)
+    {
+        var result = await _kanban.DeleteIssueAttachmentAsync(issueId, attachmentId, ct);
+        return result.ToActionResult(this);
+    }
+
     // #41 GET /projects/{projectId}/sprints?status=
     [HttpGet("projects/{projectId:long}/sprints")]
     public async Task<IActionResult> GetProjectSprints(

@@ -28,54 +28,17 @@ public class MembershipRequestConfiguration : IEntityTypeConfiguration<Membershi
             .HasMaxLength(255)
             .IsRequired();
 
-        builder.Property(mr => mr.Source)
-            .HasColumnName("source")
-            .HasMaxLength(50)
-            .IsRequired();
-
-        builder.Property(mr => mr.RoleName)
-            .HasColumnName("role_name")
-            .HasMaxLength(100)
-            .IsRequired(false);
-
-        builder.Property(mr => mr.RoleId)
-            .HasColumnName("role_id")
-            .IsRequired(false);
-
-        builder.Property(mr => mr.WorkspaceId)
-            .HasColumnName("workspace_id")
-            .IsRequired(false);
-
-        builder.Property(mr => mr.WorkspaceRoleId)
-            .HasColumnName("workspace_role_id")
-            .IsRequired(false);
-
-        builder.Property(mr => mr.Token)
-            .HasColumnName("token")
-            .HasMaxLength(255)
-            .IsRequired(false);
-
         builder.Property(mr => mr.Status)
             .HasColumnName("status")
             .HasMaxLength(50)
             .HasDefaultValue("pending")
             .IsRequired();
 
-        builder.Property(mr => mr.ExpiresAt)
-            .HasColumnName("expires_at")
-            .HasColumnType("datetime2(3)")
-            .IsRequired(false);
-
         builder.Property(mr => mr.CreatedAt)
             .HasColumnName("created_at")
             .HasColumnType("datetime2(3)")
             .HasDefaultValueSql("SYSUTCDATETIME()")
             .IsRequired();
-
-        builder.HasIndex(mr => mr.Token)
-            .IsUnique()
-            .HasDatabaseName("IX_MembershipRequests_Token")
-            .HasFilter("[token] IS NOT NULL");
 
         builder.HasOne(mr => mr.Company)
             .WithMany()
@@ -88,24 +51,5 @@ public class MembershipRequestConfiguration : IEntityTypeConfiguration<Membershi
             .HasForeignKey(mr => mr.UserId)
             .HasConstraintName("FK_MembershipRequests_Users")
             .OnDelete(DeleteBehavior.Restrict);
-
-        builder.HasOne(mr => mr.Role)
-            .WithMany()
-            .HasForeignKey(mr => mr.RoleId)
-            .HasConstraintName("FK_MembershipRequests_Role")
-            .OnDelete(DeleteBehavior.Restrict);
-
-        builder.HasOne(mr => mr.Workspace)
-            .WithMany()
-            .HasForeignKey(mr => mr.WorkspaceId)
-            .HasConstraintName("FK_MembershipRequests_Workspaces")
-            .OnDelete(DeleteBehavior.Restrict);
-
-        builder.HasOne(mr => mr.WorkspaceRole)
-            .WithMany()
-            .HasForeignKey(mr => mr.WorkspaceRoleId)
-            .HasConstraintName("FK_MembershipRequests_WorkspaceRole")
-            .OnDelete(DeleteBehavior.Restrict);
     }
 }
-

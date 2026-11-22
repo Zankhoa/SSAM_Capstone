@@ -1,11 +1,15 @@
 using System.Globalization;
 using System.Text.Json;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using SSAM_Server.Common;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
+using SSAM_Server.DTOs.Companies;
 using SSAM_Server.DTOs.Kanban;
 using SSAM_Server.DTOs.Projects;
+using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
 using SSAM_Server.Security;
 
@@ -18,19 +22,25 @@ public class KanbanService : IKanbanService
     private readonly IPermissionService _permissions;
     private readonly TimeProvider _clock;
     private readonly IProjectAccessGuard _accessGuard;
+    private readonly INotificationService _notifications;
+    private readonly string _uploadRoot;
 
     public KanbanService(
         AppDbContext db,
         ICurrentUser currentUser,
         IPermissionService permissions,
         TimeProvider clock,
-        IProjectAccessGuard accessGuard)
+        IProjectAccessGuard accessGuard,
+        INotificationService notifications,
+        IConfiguration configuration)
     {
         _db = db;
         _currentUser = currentUser;
         _permissions = permissions;
         _clock = clock;
         _accessGuard = accessGuard;
+        _notifications = notifications;
+        _uploadRoot = configuration["Storage:UploadPath"] ?? Path.Combine(AppContext.BaseDirectory, "uploads");
     }
 
     public async Task<ServiceResult<BoardDto>> GetBoardAsync(long projectId, CancellationToken ct = default)
@@ -370,6 +380,7 @@ public class KanbanService : IKanbanService
                 Priority = priority,
                 Points = request.Points,
                 AssigneeId = request.AssigneeId,
+                DepartmentId = request.DepartmentId,
                 ReporterId = userId,
                 SprintId = request.SprintId,
                 ParentId = request.ParentId,
@@ -522,7 +533,8 @@ public class KanbanService : IKanbanService
             Priority = summary.Priority,
             Points = summary.Points,
             Assignee = summary.Assignee,
-            Reporter = MapUserRef(issue.Reporter),
+            Department = summary.Department,
+            Reporter = await MapUserRefWithDeptAsync(issue.ProjectId, issue.Reporter, ct),
             SprintId = summary.SprintId,
             ParentId = summary.ParentId,
             ParentKey = summary.ParentKey,
@@ -537,6 +549,22 @@ public class KanbanService : IKanbanService
             Tests = summary.Tests,
             TestSummary = summary.TestSummary,
             TestCases = testCaseDtos,
+            Attachments = await _db.IssueAttachments
+                .AsNoTracking()
+                .Include(a => a.UploadedBy)
+                .Where(a => a.IssueId == issueId)
+                .OrderByDescending(a => a.CreatedAt)
+                .Select(a => new IssueAttachmentDto
+                {
+                    AttachmentId = a.Id,
+                    IssueId = a.IssueId,
+                    FileName = a.FileName,
+                    ContentType = a.ContentType,
+                    FileSize = a.FileSize,
+                    UploadedBy = MapUserRef(a.UploadedBy),
+                    CreatedAt = FormatUtc(a.CreatedAt)
+                })
+                .ToListAsync(ct),
             AllowedTransitions = allowedTransitions,
             CreatedAt = FormatUtc(issue.CreatedAt),
             UpdatedAt = summary.UpdatedAt,
@@ -623,6 +651,15 @@ public class KanbanService : IKanbanService
             if (issue.Points != request.Points) { issue.Points = request.Points; changedFields.Add("story points"); }
         }
 
+        if (request.DepartmentIdSpecified)
+        {
+            if (issue.DepartmentId != request.DepartmentId)
+            {
+                issue.DepartmentId = request.DepartmentId;
+                changedFields.Add("phòng ban");
+            }
+        }
+
         if (request.Labels != null)
         {
             issue.Labels = JsonSerializer.Serialize(request.Labels);
@@ -649,12 +686,14 @@ public class KanbanService : IKanbanService
         if (request.AssigneeIdSpecified && issue.AssigneeId != request.AssigneeId)
         {
             string assigneeNote;
+            long? notifyAssigneeId = null;
             if (request.AssigneeId.HasValue)
             {
                 var newAssignee = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == request.AssigneeId.Value, ct);
                 if (newAssignee == null)
                     return ServiceResult<IssueDetailDto>.NotFound("USER_NOT_FOUND", "Assignee user not found.");
                 assigneeNote = $"Giao cho {newAssignee.FullName}";
+                if (newAssignee.Id != userId) notifyAssigneeId = newAssignee.Id;
             }
             else
             {
@@ -670,6 +709,17 @@ public class KanbanService : IKanbanService
                 Note = assigneeNote,
                 CreatedAt = now
             });
+
+            if (notifyAssigneeId.HasValue)
+            {
+                await _notifications.NotifyAsync(
+                    notifyAssigneeId.Value,
+                    "ISSUE_ASSIGNED",
+                    $"Bạn được giao {issue.Key}",
+                    issue.Title,
+                    $"/projects/{issue.ProjectId}/kanban?issue={Uri.EscapeDataString(issue.Key)}",
+                    ct);
+            }
         }
 
         if (request.SprintIdSpecified && issue.SprintId != request.SprintId)
@@ -1308,6 +1358,7 @@ public class KanbanService : IKanbanService
         _db.IssueComments.Add(comment);
         await _db.SaveChangesAsync(ct);
 
+        var mentionedIds = new HashSet<long>();
         if (request.MentionUserIds != null && request.MentionUserIds.Count > 0)
         {
             var validUserIds = await _db.ProjectMembers
@@ -1318,6 +1369,7 @@ public class KanbanService : IKanbanService
 
             foreach (var uid in validUserIds)
             {
+                mentionedIds.Add(uid);
                 _db.IssueCommentMentions.Add(new IssueCommentMention
                 {
                     CommentId = comment.Id,
@@ -1336,6 +1388,20 @@ public class KanbanService : IKanbanService
         });
 
         await _db.SaveChangesAsync(ct);
+
+        var linkUrl = $"/projects/{issue.ProjectId}/kanban?issue={Uri.EscapeDataString(issue.Key)}";
+        var preview = body.Length > 140 ? body[..140] + "…" : body;
+        var notified = new HashSet<long> { userId };
+
+        foreach (var uid in mentionedIds)
+        {
+            if (notified.Add(uid))
+                await _notifications.NotifyAsync(uid, "ISSUE_MENTION", $"Nhắc tên bạn trong {issue.Key}", preview, linkUrl, ct);
+        }
+        if (issue.AssigneeId.HasValue && notified.Add(issue.AssigneeId.Value))
+            await _notifications.NotifyAsync(issue.AssigneeId.Value, "ISSUE_COMMENT", $"Bình luận mới ở {issue.Key}", preview, linkUrl, ct);
+        if (notified.Add(issue.ReporterId))
+            await _notifications.NotifyAsync(issue.ReporterId, "ISSUE_COMMENT", $"Bình luận mới ở {issue.Key}", preview, linkUrl, ct);
 
         var loaded = await _db.IssueComments
             .AsNoTracking()
@@ -1804,6 +1870,14 @@ public class KanbanService : IKanbanService
             .GroupBy(tc => tc.BugIssueId!.Value)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        var deptIds = issues.Where(i => i.DepartmentId.HasValue).Select(i => i.DepartmentId!.Value).Distinct().ToList();
+        var deptsById = deptIds.Count == 0
+            ? new Dictionary<long, Department>()
+            : await _db.Departments.AsNoTracking().Where(d => deptIds.Contains(d.Id)).ToDictionaryAsync(d => d.Id, ct);
+
+        var assigneeUserIds = issues.Where(i => i.AssigneeId.HasValue).Select(i => i.AssigneeId!.Value).Distinct().ToList();
+        var assigneeDeptsByUserId = await LoadUserDepartmentsAsync(projectId, assigneeUserIds, ct);
+
         var dtos = new List<IssueSummaryDto>(issues.Count);
         foreach (var i in issues)
         {
@@ -1876,7 +1950,12 @@ public class KanbanService : IKanbanService
                 StatusColor = i.Status.Color,
                 Priority = i.Priority,
                 Points = i.Points,
-                Assignee = i.Assignee != null ? MapUserRef(i.Assignee) : null,
+                Assignee = i.Assignee != null
+                    ? WithDepartment(MapUserRef(i.Assignee), assigneeDeptsByUserId.GetValueOrDefault(i.Assignee.Id))
+                    : null,
+                Department = i.DepartmentId.HasValue && deptsById.TryGetValue(i.DepartmentId.Value, out var dept)
+                    ? new DepartmentRefDto { DepartmentId = dept.Id, Name = dept.Name, Code = dept.Code }
+                    : null,
                 SprintId = i.SprintId,
                 ParentId = i.ParentId,
                 ParentKey = i.Parent?.Key,
@@ -2017,4 +2096,142 @@ public class KanbanService : IKanbanService
         CreatedAt = FormatUtc(c.CreatedAt),
         Replies = replies.Select(r => MapIssueCommentDto(r, new List<IssueComment>())).ToList()
     };
+
+    private static UserRefDto WithDepartment(UserRefDto user, Department? dept)
+    {
+        if (dept != null)
+        {
+            user.Department = new DepartmentRefDto
+            {
+                DepartmentId = dept.Id,
+                Name = dept.Name,
+                Code = dept.Code
+            };
+        }
+        return user;
+    }
+
+    private async Task<Dictionary<long, Department?>> LoadUserDepartmentsAsync(long projectId, List<long> userIds, CancellationToken ct)
+    {
+        if (userIds.Count == 0) return new Dictionary<long, Department?>();
+        var companyId = await _db.Projects
+            .AsNoTracking()
+            .Where(p => p.Id == projectId)
+            .Select(p => p.Workspace.CompanyId)
+            .FirstOrDefaultAsync(ct);
+        if (!companyId.HasValue) return new Dictionary<long, Department?>();
+
+        return await _db.CompanyMembers
+            .AsNoTracking()
+            .Include(cm => cm.Department)
+            .Where(cm => cm.CompanyId == companyId.Value && userIds.Contains(cm.UserId) && cm.Department != null)
+            .ToDictionaryAsync(cm => cm.UserId, cm => cm.Department, ct);
+    }
+
+    private async Task<UserRefDto> MapUserRefWithDeptAsync(long projectId, User user, CancellationToken ct)
+    {
+        var depts = await LoadUserDepartmentsAsync(projectId, new List<long> { user.Id }, ct);
+        return WithDepartment(MapUserRef(user), depts.GetValueOrDefault(user.Id));
+    }
+
+    public async Task<ServiceResult<IssueAttachmentDto>> UploadIssueAttachmentAsync(long issueId, IFormFile file, CancellationToken ct = default)
+    {
+        if (file == null || file.Length == 0)
+            return ServiceResult<IssueAttachmentDto>.BadRequest("INVALID_FILE", "Vui lòng chọn tệp hợp lệ.");
+
+        const long maxFileBytes = 20 * 1024 * 1024;
+        if (file.Length > maxFileBytes)
+            return ServiceResult<IssueAttachmentDto>.BadRequest("FILE_TOO_LARGE", "Dung lượng tệp tối đa là 20 MB.");
+
+        var issue = await _db.Issues.AsNoTracking().FirstOrDefaultAsync(i => i.Id == issueId, ct);
+        if (issue == null)
+            return ServiceResult<IssueAttachmentDto>.NotFound("ISSUE_NOT_FOUND", "Issue not found.");
+
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueUpdate, ct);
+        if (!auth.IsSuccess) return auth.Cast<IssueAttachmentDto>();
+
+        var userId = _currentUser.UserIdOrNull!.Value;
+        var originalName = Path.GetFileName(file.FileName);
+        if (string.IsNullOrWhiteSpace(originalName)) originalName = "file";
+        if (originalName.Length > 200) originalName = originalName[^200..];
+
+        var safeStoredName = $"{Guid.NewGuid():N}_{string.Concat(originalName.Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '_' : ch))}";
+        var issueDir = Path.Combine(_uploadRoot, "issues", issueId.ToString(CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(issueDir);
+        var fullPath = Path.Combine(issueDir, safeStoredName);
+
+        await using (var stream = new FileStream(fullPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            await file.CopyToAsync(stream, ct);
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var entity = new IssueAttachment
+        {
+            IssueId = issueId,
+            FileName = originalName,
+            StoredFileName = safeStoredName,
+            ContentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType,
+            FileSize = file.Length,
+            UploadedById = userId,
+            CreatedAt = now
+        };
+        _db.IssueAttachments.Add(entity);
+        await _db.SaveChangesAsync(ct);
+
+        var uploader = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
+        return ServiceResult<IssueAttachmentDto>.Ok(new IssueAttachmentDto
+        {
+            AttachmentId = entity.Id,
+            IssueId = entity.IssueId,
+            FileName = entity.FileName,
+            ContentType = entity.ContentType,
+            FileSize = entity.FileSize,
+            UploadedBy = uploader != null ? MapUserRef(uploader) : new UserRefDto { UserId = userId },
+            CreatedAt = FormatUtc(entity.CreatedAt)
+        });
+    }
+
+    public async Task<ServiceResult<(Stream Stream, string ContentType, string FileName)>> DownloadIssueAttachmentAsync(long issueId, long attachmentId, CancellationToken ct = default)
+    {
+        var att = await _db.IssueAttachments
+            .AsNoTracking()
+            .Include(a => a.Issue)
+            .FirstOrDefaultAsync(a => a.Id == attachmentId && a.IssueId == issueId, ct);
+        if (att == null)
+            return ServiceResult<(Stream, string, string)>.NotFound("ATTACHMENT_NOT_FOUND", "Attachment not found.");
+
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(att.Issue.ProjectId, PermissionKeys.IssueView, ct);
+        if (!auth.IsSuccess) return auth.Cast<(Stream, string, string)>();
+
+        var fullPath = Path.Combine(_uploadRoot, "issues", issueId.ToString(CultureInfo.InvariantCulture), att.StoredFileName);
+        if (!File.Exists(fullPath))
+            return ServiceResult<(Stream, string, string)>.NotFound("FILE_NOT_FOUND", "File does not exist on storage.");
+
+        Stream stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        return ServiceResult<(Stream, string, string)>.Ok((stream, att.ContentType, att.FileName));
+    }
+
+    public async Task<ServiceResult> DeleteIssueAttachmentAsync(long issueId, long attachmentId, CancellationToken ct = default)
+    {
+        var att = await _db.IssueAttachments
+            .Include(a => a.Issue)
+            .FirstOrDefaultAsync(a => a.Id == attachmentId && a.IssueId == issueId, ct);
+        if (att == null)
+            return ServiceResult.NotFound("ATTACHMENT_NOT_FOUND", "Attachment not found.");
+
+        var auth = await _accessGuard.EnsureProjectPermissionAsync(att.Issue.ProjectId, PermissionKeys.IssueUpdate, ct);
+        if (!auth.IsSuccess) return auth;
+
+        var fullPath = Path.Combine(_uploadRoot, "issues", issueId.ToString(CultureInfo.InvariantCulture), att.StoredFileName);
+        _db.IssueAttachments.Remove(att);
+        await _db.SaveChangesAsync(ct);
+
+        if (File.Exists(fullPath))
+        {
+            try { File.Delete(fullPath); } catch { /* ignore physical delete failure */ }
+        }
+
+        return ServiceResult.NoContent();
+    }
 }

@@ -2,13 +2,6 @@ using System.ComponentModel.DataAnnotations;
 
 namespace SSAM_Server.DTOs.Ai;
 
-public class AiChatMessageDto
-{
-    public string Role { get; set; } = "user";
-    public string Content { get; set; } = string.Empty;
-    public string? Timestamp { get; set; }
-}
-
 public class AiChatRequestDto
 {
     [Required]
@@ -17,7 +10,7 @@ public class AiChatRequestDto
 
     public long? ProjectId { get; set; }
 
-    public List<AiChatMessageDto>? History { get; set; }
+    public long? ConversationId { get; set; }
 }
 
 public class AiToolCallRecordDto
@@ -29,7 +22,9 @@ public class AiToolCallRecordDto
 
 public class AiChatResponseDto
 {
+    public long ConversationId { get; set; }
     public string Reply { get; set; } = string.Empty;
+    public List<AiCitationDto> Citations { get; set; } = new();
     public List<AiToolCallRecordDto> UsedToolCalls { get; set; } = new();
     public string Model { get; set; } = string.Empty;
     public bool IsRealAi { get; set; }

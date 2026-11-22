@@ -9,6 +9,8 @@ public interface ICompanyRepository
 {
     Task<Company?> GetByIdAsync(long companyId, CancellationToken ct = default);
     Task<Company?> GetActiveByDomainAsync(string domain, CancellationToken ct = default);
+    Task<bool> AnyActiveCompanyExistsAsync(CancellationToken ct = default);
+    Task<Company?> GetFirstActiveCompanyAsync(CancellationToken ct = default);
     Task<bool> CodeExistsAsync(string code, CancellationToken ct = default);
     Task AddCompanyAsync(Company company, CancellationToken ct = default);
 
@@ -21,6 +23,8 @@ public interface ICompanyRepository
     Task<CompanyMember?> GetMemberAsync(long companyId, long userId, CancellationToken ct = default);
     Task<bool> IsMemberAsync(long companyId, long userId, CancellationToken ct = default);
     Task<bool> IsEmailMemberAsync(long companyId, string email, CancellationToken ct = default);
+    Task<bool> HasAnyActiveCompanyAsync(long userId, long? excludeCompanyId = null, CancellationToken ct = default);
+    Task<bool> IsEmailInAnyOtherCompanyAsync(long excludeCompanyId, string email, CancellationToken ct = default);
     Task<bool> IsAdminAsync(long companyId, long userId, CancellationToken ct = default);
     Task<int> CountActiveTenantAdminsAsync(long companyId, CancellationToken ct = default);
     Task AddMemberAsync(CompanyMember member, CancellationToken ct = default);

@@ -24,6 +24,7 @@ public class TestingService : ITestingService
     private readonly TimeProvider _clock;
     private readonly IAiService _aiService;
     private readonly IFigmaService _figmaService;
+    private readonly IFigmaWatchService _figmaWatchService;
 
     private const string RepositoryPlanName = "__REPOSITORY__";
     private static readonly JsonSerializerOptions JsonOptions = ServiceMappingExtensions.DefaultJsonOptions;
@@ -36,7 +37,8 @@ public class TestingService : ITestingService
         IKanbanService kanbanService,
         TimeProvider clock,
         IAiService aiService,
-        IFigmaService figmaService)
+        IFigmaService figmaService,
+        IFigmaWatchService figmaWatchService)
     {
         _db = db;
         _currentUser = currentUser;
@@ -45,6 +47,7 @@ public class TestingService : ITestingService
         _clock = clock;
         _aiService = aiService;
         _figmaService = figmaService;
+        _figmaWatchService = figmaWatchService;
     }
 
     // =========================================================================
@@ -1513,6 +1516,18 @@ public class TestingService : ITestingService
             await SyncTestCaseReqLinksAsync(tc, plan.ProjectId, request.RequirementRefs, now, ct);
         }
 
+        if (request.CustomFields != null &&
+            (request.CustomFields.TryGetValue("figmaUrl", out var rawFigmaUrl) ||
+             request.CustomFields.TryGetValue("designUrl", out rawFigmaUrl)) &&
+            rawFigmaUrl != null)
+        {
+            var figmaUrlStr = rawFigmaUrl.ToString();
+            if (!string.IsNullOrWhiteSpace(figmaUrlStr))
+            {
+                await _figmaWatchService.LinkTestCaseAsync(tc.Id, figmaUrlStr, ct);
+            }
+        }
+
         _db.TestActivities.Add(new TestActivity
         {
             PlanId = planId,
@@ -2407,6 +2422,7 @@ public class TestingService : ITestingService
                 if (kind == "figma" && !string.IsNullOrWhiteSpace(d.Source.Url))
                 {
                     var figma = await _figmaService.FetchNodeImageForSuggestAsync(d.Source.Url, ct);
+                    await _figmaWatchService.RegisterFileAsync(d.Source.Url, figma?.Name, ct);
                     if (figma != null)
                     {
                         var idx = resolvedDesigns.Count;

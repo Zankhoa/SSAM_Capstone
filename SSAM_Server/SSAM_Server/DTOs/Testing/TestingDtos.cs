@@ -354,6 +354,7 @@ public class AiGeneratedTestCaseDraftDto
     public string Title { get; set; } = string.Empty;
 
     [JsonPropertyName("preconditions")]
+    [JsonConverter(typeof(AiPreconditionsJsonConverter))]
     public string Preconditions { get; set; } = string.Empty;
 
     [JsonPropertyName("priority")]
@@ -364,6 +365,44 @@ public class AiGeneratedTestCaseDraftDto
 
     [JsonPropertyName("steps")]
     public List<TestStepDto> Steps { get; set; } = new();
+}
+
+public sealed class AiPreconditionsJsonConverter : JsonConverter<string>
+{
+    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        if (reader.TokenType == JsonTokenType.String)
+        {
+            return reader.GetString() ?? string.Empty;
+        }
+
+        if (reader.TokenType != JsonTokenType.StartArray)
+        {
+            throw new JsonException("Expected preconditions to be a string or an array of strings.");
+        }
+
+        var preconditions = new List<string>();
+        while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+        {
+            if (reader.TokenType != JsonTokenType.String)
+            {
+                throw new JsonException("Expected each precondition to be a string.");
+            }
+
+            var value = reader.GetString();
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                preconditions.Add(value.Trim());
+            }
+        }
+
+        return string.Join("\n", preconditions);
+    }
+
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+    {
+        writer.WriteStringValue(value);
+    }
 }
 
 // =========================================================================

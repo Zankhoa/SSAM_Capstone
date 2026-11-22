@@ -78,6 +78,33 @@ public static partial class DocumentContentHelper
         return (docObj.ToJsonString(), plainText, requirements);
     }
 
+    public static JsonElement NormalizeMermaidBlocksForEditor(JsonElement contentElement)
+    {
+        var root = JsonNode.Parse(contentElement.GetRawText());
+        if (root is JsonObject docObj && docObj["content"] is JsonArray blocks)
+        {
+            for (var i = 0; i < blocks.Count; i++)
+            {
+                if (blocks[i] is not JsonObject block ||
+                    !string.Equals(block["type"]?.GetValue<string>(), "mermaidBlock", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                var attrs = block["attrs"] as JsonObject;
+                var code = attrs?["code"]?.GetValue<string>()
+                           ?? attrs?["mermaid"]?.GetValue<string>()
+                           ?? ExtractPlainText(block);
+                blocks[i] = MakeCodeBlock("mermaid", code);
+            }
+
+            using var normalizedDoc = JsonDocument.Parse(docObj.ToJsonString());
+            return normalizedDoc.RootElement.Clone();
+        }
+
+        return contentElement.Clone();
+    }
+
     public static List<DTOs.Documents.DocSectionDto> ExtractDocSections(string? contentJson)
     {
         var sections = new List<DTOs.Documents.DocSectionDto>();
@@ -657,6 +684,26 @@ public static partial class DocumentContentHelper
         {
             ["type"] = "paragraph",
             ["content"] = content
+        };
+    }
+
+    public static JsonObject MakeCodeBlock(string language, string code)
+    {
+        return new JsonObject
+        {
+            ["type"] = "codeBlock",
+            ["attrs"] = new JsonObject
+            {
+                ["language"] = language
+            },
+            ["content"] = new JsonArray
+            {
+                new JsonObject
+                {
+                    ["type"] = "text",
+                    ["text"] = code
+                }
+            }
         };
     }
 

@@ -27,6 +27,10 @@ public class CompanyMemberConfiguration : IEntityTypeConfiguration<CompanyMember
             .HasColumnName("role_id")
             .IsRequired();
 
+        builder.Property(cm => cm.DepartmentId)
+            .HasColumnName("department_id")
+            .IsRequired(false);
+
         builder.HasIndex(cm => new { cm.CompanyId, cm.UserId })
             .IsUnique()
             .HasDatabaseName("UQ_CompanyMembers_Company_User");
@@ -59,5 +63,11 @@ public class CompanyMemberConfiguration : IEntityTypeConfiguration<CompanyMember
             .HasForeignKey(cm => cm.RoleId)
             .HasConstraintName("FK_CompanyMembers_CompanyRoles")
             .OnDelete(DeleteBehavior.Restrict);
+
+        builder.HasOne(cm => cm.Department)
+            .WithMany(d => d.Members)
+            .HasForeignKey(cm => cm.DepartmentId)
+            .HasConstraintName("FK_CompanyMembers_Departments")
+            .OnDelete(DeleteBehavior.NoAction);
     }
 }

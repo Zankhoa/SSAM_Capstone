@@ -70,11 +70,12 @@ public static class TestRetestReasons
 {
     public const string BugFixed = "BUG_FIXED";
     public const string ReqChanged = "REQ_CHANGED";
+    public const string DesignChanged = "DESIGN_CHANGED";
     public const string Regression = "REGRESSION";
     public const string Manual = "REGRESSION";
 
     public static bool IsValid(string? reason) =>
-        reason is BugFixed or ReqChanged or Regression or "MANUAL";
+        reason is BugFixed or ReqChanged or DesignChanged or Regression or "MANUAL";
 }
 
 public static class TestActivityTypes
@@ -242,8 +243,33 @@ public class TestCase : IHasUpdatedAt
     public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
 
     public ICollection<TestCaseRequirementLink> RequirementLinks { get; set; } = new List<TestCaseRequirementLink>();
+    public ICollection<TestCaseFigmaLink> FigmaLinks { get; set; } = new List<TestCaseFigmaLink>();
     public ICollection<TestResult> Results { get; set; } = new List<TestResult>();
     public ICollection<TestRetestFlag> RetestFlags { get; set; } = new List<TestRetestFlag>();
+}
+
+public class FigmaFileWatch
+{
+    public long Id { get; set; }
+    public string FileKey { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string? LastVersion { get; set; }
+    public DateTime? LastModified { get; set; }
+    public DateTime? LastCheckedAt { get; set; }
+    public DateTime? LastChangedAt { get; set; }
+    public bool IsActive { get; set; } = true;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+}
+
+public class TestCaseFigmaLink
+{
+    public long TestCaseId { get; set; }
+    public TestCase TestCase { get; set; } = null!;
+
+    public string FileKey { get; set; } = string.Empty;
+    public string? NodeId { get; set; }
+    public string Url { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }
 
 public class TestCaseRequirementLink
