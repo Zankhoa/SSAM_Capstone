@@ -5,6 +5,7 @@ using SSAM_Server.Common;
 using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Documents;
+using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
 using SSAM_Server.Security;
 
@@ -20,6 +21,7 @@ public class DocumentService : IDocumentService
     private readonly IProjectAccessGuard _accessGuard;
     private readonly IRequirementSyncService _requirementSync;
     private readonly IFigmaWatchService _figmaWatchService;
+    private readonly INotificationService _notifications;
 
     public DocumentService(
         AppDbContext db,
@@ -29,7 +31,8 @@ public class DocumentService : IDocumentService
         IAiService aiService,
         IProjectAccessGuard accessGuard,
         IRequirementSyncService requirementSync,
-        IFigmaWatchService figmaWatchService)
+        IFigmaWatchService figmaWatchService,
+        INotificationService notifications)
     {
         _db = db;
         _currentUser = currentUser;
@@ -39,6 +42,7 @@ public class DocumentService : IDocumentService
         _accessGuard = accessGuard;
         _requirementSync = requirementSync;
         _figmaWatchService = figmaWatchService;
+        _notifications = notifications;
     }
 
     public async Task<ServiceResult<ItemsDto<DocumentNodeDto>>> GetProjectDocumentsAsync(
@@ -800,6 +804,19 @@ public class DocumentService : IDocumentService
         });
 
         await _db.SaveChangesAsync(ct);
+
+        var approverIds = ParseRequiredApprovers(node.RequiredApprovers);
+        foreach (var approverId in approverIds.Where(id => id != userId))
+        {
+            await _notifications.NotifyAsync(
+                approverId,
+                "DOC_SUBMITTED",
+                $"Tài liệu chờ duyệt: {node.Title}",
+                $"Phiên bản v{version.Label} vừa được gửi duyệt.",
+                $"/projects/{node.ProjectId}/documents/{node.Id}",
+                ct);
+        }
+
         return await GetDocumentDetailAsync(documentId, versionId, ct);
     }
 
@@ -928,6 +945,18 @@ public class DocumentService : IDocumentService
             });
 
             await _db.SaveChangesAsync(innerCt);
+
+            if (version.SubmittedById.HasValue && version.SubmittedById.Value != userId)
+            {
+                await _notifications.NotifyAsync(
+                    version.SubmittedById.Value,
+                    "DOC_APPROVED",
+                    $"Đã phê duyệt: {node.Title}",
+                    $"Phiên bản v{version.Label} đã được phê duyệt.",
+                    $"/projects/{node.ProjectId}/documents/{node.Id}",
+                    innerCt);
+            }
+
             return await GetDocumentDetailAsync(documentId, version.Id, innerCt);
         }, ct);
     }
@@ -990,6 +1019,18 @@ public class DocumentService : IDocumentService
         });
 
         await _db.SaveChangesAsync(ct);
+
+        if (version.SubmittedById.HasValue && version.SubmittedById.Value != userId)
+        {
+            await _notifications.NotifyAsync(
+                version.SubmittedById.Value,
+                "DOC_CHANGES_REQUESTED",
+                $"Yêu cầu chỉnh sửa: {node.Title}",
+                note,
+                $"/projects/{node.ProjectId}/documents/{node.Id}",
+                ct);
+        }
+
         return await GetDocumentDetailAsync(documentId, version.Id, ct);
     }
 

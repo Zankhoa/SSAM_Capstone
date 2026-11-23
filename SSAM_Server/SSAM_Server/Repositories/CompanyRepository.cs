@@ -238,6 +238,7 @@ public class CompanyRepository : ICompanyRepository
     public Task<CompanyMember?> GetMemberAsync(long companyId, long userId, CancellationToken ct = default)
         => _db.CompanyMembers
             .Include(cm => cm.Role)
+            .Include(cm => cm.User)
             .FirstOrDefaultAsync(cm => cm.CompanyId == companyId && cm.UserId == userId, ct);
 
     public Task<bool> IsMemberAsync(long companyId, long userId, CancellationToken ct = default)

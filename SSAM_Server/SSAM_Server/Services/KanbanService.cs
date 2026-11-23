@@ -422,6 +422,17 @@ public class KanbanService : IKanbanService
 
             await _db.SaveChangesAsync(innerCt);
 
+            if (issue.AssigneeId.HasValue && issue.AssigneeId.Value != userId)
+            {
+                await _notifications.NotifyAsync(
+                    issue.AssigneeId.Value,
+                    "ISSUE_ASSIGNED",
+                    $"Bạn được giao {issue.Key}",
+                    issue.Title,
+                    $"/projects/{projectId}/kanban?issue={Uri.EscapeDataString(issue.Key)}",
+                    innerCt);
+            }
+
             var detailRes = await GetIssueDetailAsync(issue.Id, innerCt);
             return ServiceResult<IssueDetailDto>.Created(detailRes.Data!);
         }, ct);
