@@ -229,6 +229,9 @@ public class IssueSummaryDto
     [JsonPropertyName("dueDate")]
     public string? DueDate { get; set; }
 
+    [JsonPropertyName("goLiveDate")]
+    public string? GoLiveDate { get; set; }
+
     [JsonPropertyName("reqChanged")]
     public bool ReqChanged { get; set; }
 
@@ -467,6 +470,9 @@ public class CreateIssueRequest
     [JsonPropertyName("dueDate")]
     public string? DueDate { get; set; }
 
+    [JsonPropertyName("goLiveDate")]
+    public string? GoLiveDate { get; set; }
+
     [JsonPropertyName("requirementRefs")]
     public List<RequirementRefInputDto>? RequirementRefs { get; set; }
 }
@@ -478,6 +484,7 @@ public class UpdateIssueRequest
     private long? _departmentId;
     private long? _sprintId;
     private string? _dueDate;
+    private string? _goLiveDate;
 
     [JsonPropertyName("title")]
     public string? Title { get; set; }
@@ -533,6 +540,14 @@ public class UpdateIssueRequest
         set { _dueDate = value; DueDateSpecified = true; }
     }
     [JsonIgnore] public bool DueDateSpecified { get; private set; }
+
+    [JsonPropertyName("goLiveDate")]
+    public string? GoLiveDate
+    {
+        get => _goLiveDate;
+        set { _goLiveDate = value; GoLiveDateSpecified = true; }
+    }
+    [JsonIgnore] public bool GoLiveDateSpecified { get; private set; }
 }
 
 public class IssueRankPositionInputDto

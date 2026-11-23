@@ -1265,6 +1265,10 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("date")
                         .HasColumnName("due_date");
 
+                    b.Property<DateOnly?>("GoLiveDate")
+                        .HasColumnType("date")
+                        .HasColumnName("go_live_date");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")

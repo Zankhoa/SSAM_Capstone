@@ -89,6 +89,7 @@ public class IssueConfiguration : IEntityTypeConfiguration<Issue>
 
         builder.Property(i => i.Labels).HasColumnName("labels").IsRequired().HasMaxLength(1000).HasDefaultValue("[]");
         builder.Property(i => i.DueDate).HasColumnName("due_date").HasColumnType("date");
+        builder.Property(i => i.GoLiveDate).HasColumnName("go_live_date").HasColumnType("date");
         builder.Property(i => i.ReqChanged).HasColumnName("req_changed").IsRequired().HasDefaultValue(false);
         builder.Property(i => i.ResolvedAt).HasColumnName("resolved_at");
         builder.Property(i => i.CreatedAt).HasColumnName("created_at").IsRequired().HasDefaultValueSql("GETUTCDATE()");

@@ -306,6 +306,15 @@ public class KanbanService : IKanbanService
                 dueDate = parsedDue;
         }
 
+        DateOnly? goLiveDate = null;
+        if (!string.IsNullOrWhiteSpace(request.GoLiveDate))
+        {
+            if (!DateOnly.TryParse(request.GoLiveDate.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedGoLive))
+                errors["goLiveDate"] = new[] { "goLiveDate must be a valid YYYY-MM-DD date." };
+            else
+                goLiveDate = parsedGoLive;
+        }
+
         if (errors.Count > 0)
             return ServiceResult<IssueDetailDto>.ValidationFailure(errors);
 
@@ -387,6 +396,7 @@ public class KanbanService : IKanbanService
                 Rank = rank,
                 Labels = JsonSerializer.Serialize(request.Labels ?? new List<string>()),
                 DueDate = dueDate,
+                GoLiveDate = goLiveDate,
                 ReqChanged = false,
                 ResolvedAt = targetStatus.Category == "DONE" ? now : null,
                 CreatedAt = now,
@@ -541,6 +551,7 @@ public class KanbanService : IKanbanService
             Rank = summary.Rank,
             Labels = summary.Labels,
             DueDate = summary.DueDate,
+            GoLiveDate = summary.GoLiveDate,
             ReqChanged = summary.ReqChanged,
             Requirements = summary.Requirements,
             SubtaskCount = summary.SubtaskCount,
@@ -598,7 +609,7 @@ public class KanbanService : IKanbanService
                             request.Title == null && request.Description == null &&
                             request.Type == null && request.Priority == null &&
                             !request.PointsSpecified && !request.SprintIdSpecified &&
-                            request.Labels == null && !request.DueDateSpecified;
+                            request.Labels == null && !request.DueDateSpecified && !request.GoLiveDateSpecified;
 
         var requiredPerm = onlyAssignee ? PermissionKeys.IssueAssign : PermissionKeys.IssueUpdate;
         var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, requiredPerm, ct);
@@ -681,6 +692,23 @@ public class KanbanService : IKanbanService
                 return ServiceResult<IssueDetailDto>.ValidationFailure(new Dictionary<string, string[]> { ["dueDate"] = new[] { "Invalid dueDate format." } });
             }
             changedFields.Add("hạn hoàn thành");
+        }
+
+        if (request.GoLiveDateSpecified)
+        {
+            if (string.IsNullOrWhiteSpace(request.GoLiveDate))
+            {
+                issue.GoLiveDate = null;
+            }
+            else if (DateOnly.TryParse(request.GoLiveDate.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedGoLive))
+            {
+                issue.GoLiveDate = parsedGoLive;
+            }
+            else
+            {
+                return ServiceResult<IssueDetailDto>.ValidationFailure(new Dictionary<string, string[]> { ["goLiveDate"] = new[] { "Invalid goLiveDate format." } });
+            }
+            changedFields.Add("ngày go-live");
         }
 
         if (request.AssigneeIdSpecified && issue.AssigneeId != request.AssigneeId)
@@ -1962,6 +1990,7 @@ public class KanbanService : IKanbanService
                 Rank = i.Rank,
                 Labels = SafeDeserialize<List<string>>(i.Labels) ?? new List<string>(),
                 DueDate = i.DueDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                GoLiveDate = i.GoLiveDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
                 ReqChanged = i.ReqChanged,
                 Requirements = reqRefs,
                 SubtaskCount = stCount?.Total ?? 0,

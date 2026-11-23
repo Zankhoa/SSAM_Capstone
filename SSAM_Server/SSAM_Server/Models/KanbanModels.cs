@@ -105,6 +105,7 @@ public class Issue : IHasUpdatedAt
     public string Rank { get; set; } = "000100";
     public string Labels { get; set; } = "[]";
     public DateOnly? DueDate { get; set; }
+    public DateOnly? GoLiveDate { get; set; }
     public bool ReqChanged { get; set; } = false;
     public DateTime? ResolvedAt { get; set; }
 
