@@ -302,9 +302,19 @@ public class AiService : IAiService
             throw new InvalidOperationException("The AI provider returned an invalid test-case draft response.", ex);
         }
 
-        if (drafts is null || drafts.Count == 0 || drafts.Count > requirements.Count * 10)
+        if (drafts is null || drafts.Count == 0)
         {
             throw new InvalidOperationException("The AI provider returned an invalid number of test-case drafts.");
+        }
+
+        if (drafts.Count > requirements.Count * 20)
+        {
+            _logger.LogWarning(
+                "AI provider returned {DraftCount} test-case drafts for {RequirementCount} requirements; capping to {MaxCount}.",
+                drafts.Count,
+                requirements.Count,
+                requirements.Count * 20);
+            drafts = drafts.Take(requirements.Count * 20).ToList();
         }
 
         var validDrafts = new List<AiGeneratedTestCaseDraftDto>();
