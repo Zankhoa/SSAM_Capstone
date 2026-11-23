@@ -243,10 +243,162 @@ public abstract class KanbanServiceTestBase : IDisposable
         return document;
     }
 
+    protected WorkflowTransition SeedTransition(
+        long transitionId = 600,
+        long fromStatusId = 30,
+        long toStatusId = 31,
+        long projectId = 100,
+        long phaseId = 20,
+        bool requireComment = false,
+        string? commentHint = null,
+        string? condition = null,
+        params long[] allowedRoleIds)
+    {
+        var transition = new WorkflowTransition
+        {
+            Id = transitionId,
+            ProjectId = projectId,
+            PhaseId = phaseId,
+            FromStatusId = fromStatusId,
+            ToStatusId = toStatusId,
+            RequireComment = requireComment,
+            CommentHint = commentHint,
+            Condition = condition
+        };
+
+        foreach (var roleId in allowedRoleIds)
+        {
+            var role = Db.CompanyRoles.Find(roleId);
+            if (role == null)
+            {
+                role = new CompanyRole
+                {
+                    Id = roleId,
+                    CompanyId = 1,
+                    Code = $"ROLE_{roleId}",
+                    Name = $"Role {roleId}",
+                    Scope = RoleScopes.Project,
+                    IsActive = true
+                };
+                Db.CompanyRoles.Add(role);
+            }
+
+            transition.AllowedRoles.Add(new WorkflowTransitionRole
+            {
+                TransitionId = transitionId,
+                RoleId = roleId,
+                Role = role
+            });
+        }
+
+        Db.WorkflowTransitions.Add(transition);
+        Db.SaveChanges();
+        return transition;
+    }
+
+    protected ProjectMember SeedProjectMember(
+        long userId = 1,
+        long roleId = 51,
+        long projectId = 100,
+        long memberId = 700)
+    {
+        var role = Db.CompanyRoles.Find(roleId);
+        if (role == null)
+        {
+            role = new CompanyRole
+            {
+                Id = roleId,
+                CompanyId = 1,
+                Code = $"ROLE_{roleId}",
+                Name = $"Role {roleId}",
+                Scope = RoleScopes.Project,
+                IsActive = true
+            };
+            Db.CompanyRoles.Add(role);
+        }
+
+        var member = new ProjectMember
+        {
+            Id = memberId,
+            ProjectId = projectId,
+            UserId = userId,
+            RoleId = roleId,
+            Role = role,
+            IsActive = true
+        };
+        Db.ProjectMembers.Add(member);
+        Db.SaveChanges();
+        return member;
+    }
+
+    protected (Issue First, Issue Second, Issue Third) SeedColumnIssues(long statusId = 30, long? sprintId = null)
+    {
+        var first = SeedIssue(issueId: 201, statusId: statusId, title: "Issue 1");
+        first.SprintId = sprintId;
+        first.Rank = "00001000";
+
+        var second = SeedIssue(issueId: 202, statusId: statusId, title: "Issue 2");
+        second.SprintId = sprintId;
+        second.Rank = "00002000";
+
+        var third = SeedIssue(issueId: 203, statusId: statusId, title: "Issue 3");
+        third.SprintId = sprintId;
+        third.Rank = "00003000";
+
+        Db.SaveChanges();
+        return (first, second, third);
+    }
+
+    protected Department SeedDepartment(long departmentId = 50, long companyId = 1, string name = "Backend Team")
+    {
+        var dept = new Department
+        {
+            Id = departmentId,
+            CompanyId = companyId,
+            Name = name,
+            Code = "BE",
+            IsActive = true,
+            CreatedAt = Clock.GetUtcNow().UtcDateTime,
+            UpdatedAt = Clock.GetUtcNow().UtcDateTime
+        };
+        Db.Departments.Add(dept);
+        Db.SaveChanges();
+        return dept;
+    }
+
+    protected (Account Account, User User) SeedUser(long userId = 2, string fullName = "Assignee User", string email = "assignee@example.com")
+    {
+        var account = new Account
+        {
+            Id = userId,
+            Email = email,
+            EmailVerified = true,
+            IsActive = true,
+            CreatedAt = Clock.GetUtcNow().UtcDateTime,
+            UpdatedAt = Clock.GetUtcNow().UtcDateTime
+        };
+        var user = new User
+        {
+            Id = userId,
+            AccountId = userId,
+            Account = account,
+            FullName = fullName,
+            Email = email,
+            IsActive = true,
+            CreatedAt = Clock.GetUtcNow().UtcDateTime,
+            UpdatedAt = Clock.GetUtcNow().UtcDateTime
+        };
+        Db.Accounts.Add(account);
+        Db.Users.Add(user);
+        Db.SaveChanges();
+        return (account, user);
+    }
+
     public void Dispose()
     {
         Db.Dispose();
         if (Directory.Exists(UploadRoot))
             Directory.Delete(UploadRoot, recursive: true);
     }
+
 }

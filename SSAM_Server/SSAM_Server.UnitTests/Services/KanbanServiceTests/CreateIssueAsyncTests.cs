@@ -268,6 +268,118 @@ public class CreateIssueAsyncTests : KanbanServiceTestBase
         Assert.Contains("points", result.Errors!.Keys);
     }
 
+    // UTC020: Creating an issue in a column with existing issues assigns tail rank and persists assignee and department.
+    [Fact]
+    public async Task CreateIssueAsync_WithExistingIssuesAssigneeAndDepartment_ComputesTailRankAndPersistsFields()
+    {
+        var (_, _, todo, _) = SeedWorkflow();
+        var sprint = SeedSprint();
+        var existing = SeedIssue(issueId: 200, statusId: todo.Id);
+        existing.SprintId = sprint.Id;
+        existing.Rank = "00001000";
+
+        var assigneeAccount = new Account
+        {
+            Id = 2,
+            Email = "assignee@example.com",
+            EmailVerified = true,
+            IsActive = true
+        };
+        var assignee = new User
+        {
+            Id = 2,
+            AccountId = 2,
+            Account = assigneeAccount,
+            FullName = "Assignee User",
+            Email = "assignee@example.com",
+            IsActive = true
+        };
+        var department = new Department
+        {
+            Id = 50,
+            CompanyId = 1,
+            Name = "Backend Team",
+            Code = "BE",
+            IsActive = true
+        };
+        Db.Accounts.Add(assigneeAccount);
+        Db.Users.Add(assignee);
+        Db.Departments.Add(department);
+        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await KanbanService.CreateIssueAsync(100, new CreateIssueRequest
+        {
+            Title = "Second issue in sprint",
+            StatusId = todo.Id,
+            SprintId = sprint.Id,
+            AssigneeId = assignee.Id,
+            DepartmentId = department.Id
+        }, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status201Created, result.StatusCode);
+        var created = Assert.Single(Db.Issues.Where(i => i.Title == "Second issue in sprint"));
+        Assert.Equal("00002000", created.Rank);
+        Assert.Equal(assignee.Id, created.AssigneeId);
+        Assert.Equal(department.Id, created.DepartmentId);
+    }
+
+    // UTC021: Creating an issue without StatusId when the project has no active statuses returns NotFound.
+    [Fact]
+    public async Task CreateIssueAsync_WhenProjectHasNoActiveStatuses_ReturnsNotFound()
+    {
+        SeedProject();
+
+        var result = await KanbanService.CreateIssueAsync(100, new CreateIssueRequest
+        {
+            Title = "Issue without status"
+        }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status404NotFound, result.StatusCode);
+        Assert.Equal("STATUS_NOT_FOUND", result.ErrorCode);
+        Assert.Empty(Db.Issues);
+    }
+
+    // UTC022: An inactive workflow status cannot be assigned during issue creation.
+    [Fact]
+    public async Task CreateIssueAsync_WhenStatusIsInactive_ReturnsNotFound()
+    {
+        var (_, _, todo, _) = SeedWorkflow();
+        todo.IsActive = false;
+        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await KanbanService.CreateIssueAsync(100, new CreateIssueRequest
+        {
+            Title = "Issue with inactive status",
+            StatusId = todo.Id
+        }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status404NotFound, result.StatusCode);
+        Assert.Equal("STATUS_NOT_FOUND", result.ErrorCode);
+    }
+
+    // UTC023: A soft-deleted parent issue cannot be referenced.
+    [Fact]
+    public async Task CreateIssueAsync_WhenParentIsDeleted_ReturnsNotFound()
+    {
+        SeedWorkflow();
+        var deletedParent = SeedIssue(issueId: 200);
+        deletedParent.IsDeleted = true;
+        await Db.SaveChangesAsync(TestContext.Current.CancellationToken);
+
+        var result = await KanbanService.CreateIssueAsync(100, new CreateIssueRequest
+        {
+            Title = "Subtask of deleted parent",
+            ParentId = deletedParent.Id
+        }, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status404NotFound, result.StatusCode);
+        Assert.Equal("ISSUE_NOT_FOUND", result.ErrorCode);
+    }
+
     // =========================================================================
     // 3. BOUNDARY CASES
     // =========================================================================
@@ -366,5 +478,39 @@ public class CreateIssueAsyncTests : KanbanServiceTestBase
 
         Assert.True(result.IsSuccess);
         Assert.Equal(new DateOnly(1, 1, 1), Assert.Single(Db.Issues).DueDate);
+    }
+
+    // UTC024: A title of exactly 1 non-whitespace character (lower boundary) is accepted.
+    [Fact]
+    public async Task CreateIssueAsync_WithTitleAtMinimumLength_ReturnsCreatedIssue()
+    {
+        SeedWorkflow();
+
+        var result = await KanbanService.CreateIssueAsync(100, new CreateIssueRequest
+        {
+            Title = "  A  "
+        }, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(StatusCodes.Status201Created, result.StatusCode);
+        var issue = Assert.Single(Db.Issues);
+        Assert.Equal("A", issue.Title);
+        Assert.Equal(1, issue.Title.Length);
+    }
+
+    // UTC025: A valid ISO date at the upper parsing boundary is accepted.
+    [Fact]
+    public async Task CreateIssueAsync_WithMaximumDateValue_ReturnsCreatedIssue()
+    {
+        SeedWorkflow();
+
+        var result = await KanbanService.CreateIssueAsync(100, new CreateIssueRequest
+        {
+            Title = "Issue with max due date",
+            DueDate = "9999-12-31"
+        }, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(new DateOnly(9999, 12, 31), Assert.Single(Db.Issues).DueDate);
     }
 }
