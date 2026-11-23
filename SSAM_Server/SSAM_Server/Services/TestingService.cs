@@ -27,6 +27,8 @@ public class TestingService : ITestingService
     private readonly IFigmaWatchService _figmaWatchService;
 
     private const string RepositoryPlanName = "__REPOSITORY__";
+    private const int MaxDesignsPerGeneration = 20;
+    private const int AiTestCaseBatchSize = 8;
     private static readonly JsonSerializerOptions JsonOptions = ServiceMappingExtensions.DefaultJsonOptions;
     private static readonly Regex HexColorRegex = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
 
@@ -2321,11 +2323,11 @@ public class TestingService : ITestingService
         if (refs.Count == 0)
             return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>());
 
-        if (request.Designs is { Count: > 5 })
+        if (request.Designs is { Count: > MaxDesignsPerGeneration })
         {
             return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.ValidationFailure(new Dictionary<string, string[]>
             {
-                ["designs"] = new[] { "Tối đa 5 thiết kế mỗi lượt." }
+                ["designs"] = new[] { $"Tối đa {MaxDesignsPerGeneration} thiết kế mỗi lượt." }
             });
         }
 
@@ -2403,6 +2405,7 @@ public class TestingService : ITestingService
                 .AsNoTracking()
                 .Where(tc => tc.PlanId == request.PlanId.Value && tc.Status != TestCaseStatuses.Deleted)
                 .Select(tc => tc.Title)
+                .OrderBy(title => title)
                 .Take(100)
                 .ToListAsync(ct)
             : new List<string>();
@@ -2462,8 +2465,51 @@ public class TestingService : ITestingService
             })
             .ToList();
 
-        var designInputs = resolvedDesigns.Select(rd => rd.Input).ToList();
-        var drafts = await _aiService.GenerateTestCaseDraftsAsync(generationContexts, designInputs, ct);
+        var drafts = new List<AiGeneratedTestCaseDraftDto>();
+        for (var start = 0; start < generationContexts.Count; start += AiTestCaseBatchSize)
+        {
+            var batchContexts = generationContexts
+                .Skip(start)
+                .Take(AiTestCaseBatchSize)
+                .Select((context, index) => new TestCaseGenerationContextDto
+                {
+                    RequirementIndex = index,
+                    RequirementUid = context.RequirementUid,
+                    Title = context.Title,
+                    Description = context.Description,
+                    Actor = context.Actor,
+                    Preconditions = context.Preconditions,
+                    Constraints = context.Constraints,
+                    AcceptanceCriteria = context.AcceptanceCriteria,
+                    ExistingTestCaseTitles = context.ExistingTestCaseTitles,
+                    DesignNames = context.DesignNames
+                })
+                .ToList();
+
+            var batchDesigns = resolvedDesigns
+                .Select((design, globalIndex) => (Design: design, GlobalIndex: globalIndex))
+                .Where(x => x.Design.Input.RequirementIndex >= start &&
+                            x.Design.Input.RequirementIndex < start + batchContexts.Count)
+                .ToList();
+            var batchDesignInputs = batchDesigns
+                .Select((x, localIndex) => new TestCaseDesignInput(
+                    localIndex,
+                    x.Design.Input.RequirementIndex - start,
+                    x.Design.Input.Name,
+                    x.Design.Input.ImageBytes,
+                    x.Design.Input.MimeType))
+                .ToList();
+
+            var batchDrafts = await _aiService.GenerateTestCaseDraftsAsync(batchContexts, batchDesignInputs, ct);
+            foreach (var draft in batchDrafts)
+            {
+                draft.RequirementIndex += start;
+                if (draft.DesignIndex is int localDesignIndex)
+                    draft.DesignIndex = batchDesigns[localDesignIndex].GlobalIndex;
+                drafts.Add(draft);
+            }
+        }
+
         var suggestions = drafts
             .Where(draft => draft.RequirementIndex >= 0 && draft.RequirementIndex < selectedRequirements.Count)
             .Select((draft, index) =>
@@ -2570,10 +2616,44 @@ public class TestingService : ITestingService
         if (items.Count == 0)
             return ServiceResult<ItemsDto<TestCaseDto>>.Success(new ItemsDto<TestCaseDto>());
 
-        var createdIds = new List<long>();
-
-        foreach (var item in items)
+        var normalizedCategories = new List<string>(items.Count);
+        var categoryErrors = new Dictionary<string, string[]>();
+        for (var i = 0; i < items.Count; i++)
         {
+            var category = items[i].Category ?? items[i].Placement?.Category ?? "Functional";
+            if (TryNormalizeAiTestCaseCategory(category, out var normalizedCategory))
+            {
+                normalizedCategories.Add(normalizedCategory);
+            }
+            else
+            {
+                categoryErrors[$"items[{i}].category"] = new[]
+                {
+                    "Category must be FUNCTIONAL, BOUNDARY, NEGATIVE, UI, SECURITY, or PERFORMANCE."
+                };
+                normalizedCategories.Add(string.Empty);
+            }
+        }
+
+        if (categoryErrors.Count > 0)
+            return ServiceResult<ItemsDto<TestCaseDto>>.ValidationFailure(categoryErrors);
+
+        return await _db.ExecuteInTransactionAsync(
+            innerCt => ApplyAiTestCaseItemsAsync(planId, plan.ProjectId, items, normalizedCategories, innerCt),
+            ct);
+    }
+
+    private async Task<ServiceResult<ItemsDto<TestCaseDto>>> ApplyAiTestCaseItemsAsync(
+        long planId,
+        long projectId,
+        IReadOnlyList<AiApplyItemDto> items,
+        IReadOnlyList<string> normalizedCategories,
+        CancellationToken ct)
+    {
+        var createdIds = new List<long>();
+        for (var itemIndex = 0; itemIndex < items.Count; itemIndex++)
+        {
+            var item = items[itemIndex];
             var p = item.Placement ?? new TestPlacementDto
             {
                 DocumentId = item.RequirementRef?.DocumentId ?? 0,
@@ -2600,7 +2680,9 @@ public class TestingService : ITestingService
                         DocumentId = p.DocumentId > 0 ? p.DocumentId : null,
                         AnchorIds = !string.IsNullOrWhiteSpace(p.AnchorId) ? new List<string> { p.AnchorId! } : null
                     }, ct);
-                    moduleId = modRes.Data!.ModuleId;
+                    if (!modRes.IsSuccess || modRes.Data == null)
+                        return ServiceResult<ItemsDto<TestCaseDto>>.FromError(modRes);
+                    moduleId = modRes.Data.ModuleId;
                 }
             }
 
@@ -2629,7 +2711,9 @@ public class TestingService : ITestingService
                         Title = !string.IsNullOrWhiteSpace(p.SectionTitle) ? p.SectionTitle : "Test Section",
                         AnchorId = p.AnchorId
                     }, ct);
-                    sectionId = secRes.Data!.SectionId;
+                    if (!secRes.IsSuccess || secRes.Data == null)
+                        return ServiceResult<ItemsDto<TestCaseDto>>.FromError(secRes);
+                    sectionId = secRes.Data.SectionId;
                 }
             }
 
@@ -2656,7 +2740,9 @@ public class TestingService : ITestingService
                         ParentId = sectionId.Value,
                         Title = groupCategory
                     }, ct);
-                    groupId = grpRes.Data!.SectionId;
+                    if (!grpRes.IsSuccess || grpRes.Data == null)
+                        return ServiceResult<ItemsDto<TestCaseDto>>.FromError(grpRes);
+                    groupId = grpRes.Data.SectionId;
                 }
             }
 
@@ -2670,16 +2756,15 @@ public class TestingService : ITestingService
                 Title = item.Title,
                 Preconditions = item.Preconditions,
                 Priority = item.Priority,
-                Category = item.Category ?? groupCategory,
+                Category = normalizedCategories[itemIndex],
                 Steps = item.Steps,
                 RequirementRefs = reqRefs,
                 AiSuggestedReqs = true
             }, ct);
 
-            if (tcRes.IsSuccess && tcRes.Data != null)
-            {
-                createdIds.Add(tcRes.Data.TestCaseId);
-            }
+            if (!tcRes.IsSuccess || tcRes.Data == null)
+                return ServiceResult<ItemsDto<TestCaseDto>>.FromError(tcRes);
+            createdIds.Add(tcRes.Data.TestCaseId);
         }
 
         if (createdIds.Count > 0)
@@ -2695,8 +2780,23 @@ public class TestingService : ITestingService
             await _db.SaveChangesAsync(ct);
         }
 
-        var dtos = await LoadAndMapTestCasesAsync(plan.ProjectId, createdIds, ct);
+        var dtos = await LoadAndMapTestCasesAsync(projectId, createdIds, ct);
         return ServiceResult<ItemsDto<TestCaseDto>>.Created(new ItemsDto<TestCaseDto>(dtos));
+    }
+
+    private static bool TryNormalizeAiTestCaseCategory(string? category, out string normalized)
+    {
+        normalized = (category?.Trim().ToUpperInvariant()) switch
+        {
+            "FUNCTIONAL" or "FLOW" or "CHỨC NĂNG" => TestCaseCategories.Functional,
+            "BOUNDARY" or "VALIDATE" => TestCaseCategories.Boundary,
+            "NEGATIVE" => TestCaseCategories.Negative,
+            "UI" or "GIAO DIỆN" => TestCaseCategories.Ui,
+            "SECURITY" or "PHÂN QUYỀN" => TestCaseCategories.Security,
+            "PERFORMANCE" => TestCaseCategories.Performance,
+            _ => string.Empty
+        };
+        return normalized.Length > 0;
     }
 
     // =========================================================================

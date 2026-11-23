@@ -362,6 +362,7 @@ public class TestingController : ControllerBase
     }
 
     [HttpPost("projects/{projectId:long}/testcases/suggest")]
+    [RequestSizeLimit(64 * 1024 * 1024)]
     public async Task<IActionResult> SuggestTestCases(
         long projectId,
         [FromBody] SuggestTestCasesRequest request,
