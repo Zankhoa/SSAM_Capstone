@@ -184,3 +184,12 @@ public class ResetPasswordRequestDto
     [JsonPropertyName("newPassword")]
     public string NewPassword { get; set; } = string.Empty;
 }
+
+public class ChangePasswordRequestDto
+{
+    [JsonPropertyName("currentPassword")]
+    public string CurrentPassword { get; set; } = string.Empty;
+
+    [JsonPropertyName("newPassword")]
+    public string NewPassword { get; set; } = string.Empty;
+}

@@ -112,4 +112,39 @@ public class CompaniesController : ControllerBase
         var result = await _companyService.UpdateUserRoleAsync(companyId, userId, request, cancellationToken);
         return result.ToActionResult(this);
     }
+
+    [HttpPatch("{companyId:long}/users/{userId:long}/status")]
+    [ProducesResponseType(typeof(CompanyUserDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> UpdateUserStatus(
+        long companyId,
+        long userId,
+        [FromBody] UpdateCompanyUserStatusRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _companyService.UpdateUserStatusAsync(companyId, userId, request, cancellationToken);
+        return result.ToActionResult(this);
+    }
+
+    [HttpPost("{companyId:long}/users")]
+    [ProducesResponseType(typeof(CompanyUserDto), StatusCodes.Status201Created)]
+    public async Task<IActionResult> CreateUser(
+        long companyId,
+        [FromBody] CreateCompanyUserRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _companyService.CreateUserAsync(companyId, request, cancellationToken);
+        return result.ToActionResult(this);
+    }
+
+    [HttpPatch("{companyId:long}/users/{userId:long}")]
+    [ProducesResponseType(typeof(CompanyUserDto), StatusCodes.Status200OK)]
+    public async Task<IActionResult> UpdateUser(
+        long companyId,
+        long userId,
+        [FromBody] UpdateCompanyUserRequestDto request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _companyService.UpdateUserAsync(companyId, userId, request, cancellationToken);
+        return result.ToActionResult(this);
+    }
 }

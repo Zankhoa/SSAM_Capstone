@@ -1,5 +1,7 @@
 using System.Text.RegularExpressions;
+using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
+using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Companies;
 using SSAM_Server.Models;
@@ -22,6 +24,8 @@ public class CompanyService : ICompanyService
     private readonly ICompanyRepository _companyRepository;
     private readonly IAuthRepository _authRepository;
     private readonly IPermissionService _permissionService;
+    private readonly IPasswordHasher _passwordHasher;
+    private readonly AppDbContext _db;
     private readonly ICurrentUser _currentUser;
     private readonly TimeProvider _clock;
 
@@ -29,12 +33,16 @@ public class CompanyService : ICompanyService
         ICompanyRepository companyRepository,
         IAuthRepository authRepository,
         IPermissionService permissionService,
+        IPasswordHasher passwordHasher,
+        AppDbContext db,
         ICurrentUser currentUser,
         TimeProvider clock)
     {
         _companyRepository = companyRepository;
         _authRepository = authRepository;
         _permissionService = permissionService;
+        _passwordHasher = passwordHasher;
+        _db = db;
         _currentUser = currentUser;
         _clock = clock;
     }
@@ -351,6 +359,205 @@ public class CompanyService : ICompanyService
         }
 
         member.RoleId = targetRole.Id;
+        await _companyRepository.SaveChangesAsync(cancellationToken);
+
+        var dto = await _companyRepository.GetCompanyUserDtoAsync(companyId, targetUserId, cancellationToken);
+        return ServiceResult<CompanyUserDto>.Ok(dto!);
+    }
+
+    public async Task<ServiceResult<CompanyUserDto>> UpdateUserStatusAsync(
+        long companyId,
+        long targetUserId,
+        UpdateCompanyUserStatusRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+            return ServiceResult<CompanyUserDto>.Unauthorized("Your session is invalid or has expired.");
+
+        var auth = await _permissionService.RequireTenantAsync(userId.Value, companyId, PermissionKeys.UserDeactivate, cancellationToken);
+        if (!auth.IsSuccess)
+            return ServiceResult<CompanyUserDto>.FromError(auth);
+
+        var normalized = (request.Status ?? string.Empty).Trim().ToUpperInvariant();
+        if (normalized is not ("ACTIVE" or "DEACTIVATED"))
+            return ServiceResult<CompanyUserDto>.BadRequest("INVALID_STATUS", "Trạng thái phải là ACTIVE hoặc DEACTIVATED.");
+
+        var targetActive = normalized == "ACTIVE";
+        if (targetUserId == userId.Value && !targetActive)
+            return ServiceResult<CompanyUserDto>.Conflict("CANNOT_DEACTIVATE_SELF", "Không thể tự vô hiệu hoá tài khoản của chính mình.");
+
+        var member = await _companyRepository.GetMemberAsync(companyId, targetUserId, cancellationToken);
+        if (member == null)
+            return ServiceResult<CompanyUserDto>.NotFound("Không tìm thấy thành viên trong công ty.");
+
+        if (!targetActive && member.Role.Code == CompanyRoleCodes.TenantAdmin)
+        {
+            var adminCount = await _companyRepository.CountActiveTenantAdminsAsync(companyId, cancellationToken);
+            if (adminCount <= 1)
+                return ServiceResult<CompanyUserDto>.Conflict("LAST_TENANT_ADMIN", "Công ty phải còn ít nhất 1 Tenant Admin đang hoạt động.");
+        }
+
+        if (member.IsActive != targetActive)
+        {
+            member.IsActive = targetActive;
+            await _companyRepository.SaveChangesAsync(cancellationToken);
+        }
+
+        var dto = await _companyRepository.GetCompanyUserDtoAsync(companyId, targetUserId, cancellationToken);
+        return ServiceResult<CompanyUserDto>.Ok(dto!);
+    }
+
+    public async Task<ServiceResult<CompanyUserDto>> CreateUserAsync(
+        long companyId,
+        CreateCompanyUserRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+            return ServiceResult<CompanyUserDto>.Unauthorized("Your session is invalid or has expired.");
+
+        var auth = await _permissionService.RequireTenantAsync(userId.Value, companyId, PermissionKeys.UserInvite, cancellationToken);
+        if (!auth.IsSuccess)
+            return ServiceResult<CompanyUserDto>.FromError(auth);
+
+        var errors = new Dictionary<string, string[]>();
+        var fullName = (request.FullName ?? string.Empty).Trim();
+        var email = (request.Email ?? string.Empty).Trim().ToLowerInvariant();
+        if (string.IsNullOrWhiteSpace(fullName))
+            errors["fullName"] = new[] { "Họ và tên không được để trống." };
+        if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
+            errors["email"] = new[] { "Email không hợp lệ." };
+        AuthService.ValidatePasswordRules(request.Password ?? string.Empty, errors);
+        if (errors.Count > 0)
+            return ServiceResult<CompanyUserDto>.ValidationFailure(errors);
+
+        var company = await _companyRepository.GetByIdAsync(companyId, cancellationToken);
+        if (company == null || !company.IsActive)
+            return ServiceResult<CompanyUserDto>.NotFound("Không tìm thấy công ty.");
+
+        if (!string.IsNullOrWhiteSpace(company.EmailDomain))
+        {
+            var atIdx = email.IndexOf('@');
+            var domain = atIdx >= 0 ? email[(atIdx + 1)..].Trim().ToLowerInvariant() : string.Empty;
+            if (!string.Equals(domain, company.EmailDomain.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return ServiceResult<CompanyUserDto>.ValidationFailure(new Dictionary<string, string[]>
+                {
+                    ["email"] = new[] { $"Email nhân viên phải thuộc tên miền công ty (@{company.EmailDomain})." }
+                });
+            }
+        }
+
+        if (await _companyRepository.IsEmailMemberAsync(companyId, email, cancellationToken))
+            return ServiceResult<CompanyUserDto>.Conflict("ALREADY_MEMBER", "Email này đã thuộc công ty.");
+
+        long roleId;
+        if (request.RoleId.HasValue)
+        {
+            var role = await _companyRepository.GetRoleByIdAsync(companyId, request.RoleId.Value, cancellationToken);
+            if (role == null || role.Scope != RoleScopes.Tenant || !role.IsActive)
+                return ServiceResult<CompanyUserDto>.BadRequest("INVALID_ROLE", "Vai trò công ty không hợp lệ.");
+            roleId = role.Id;
+        }
+        else
+        {
+            roleId = await _companyRepository.ResolveRoleIdAsync(companyId, null, RoleScopes.Tenant, CompanyRoleCodes.Member, cancellationToken);
+        }
+
+        if (request.DepartmentId.HasValue)
+        {
+            var deptExists = await _db.Departments.AsNoTracking()
+                .AnyAsync(d => d.Id == request.DepartmentId.Value && d.CompanyId == companyId && d.IsActive, cancellationToken);
+            if (!deptExists)
+                return ServiceResult<CompanyUserDto>.BadRequest("INVALID_DEPARTMENT", "Phòng ban không thuộc công ty này.");
+        }
+
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var existingAccount = await _authRepository.GetAccountByEmailAsync(email, cancellationToken);
+        if (existingAccount != null)
+            return ServiceResult<CompanyUserDto>.Conflict("EMAIL_EXISTS", "Email này đã có tài khoản trong hệ thống.");
+
+        var createdUser = await _companyRepository.ExecuteInTransactionAsync(async ct =>
+        {
+            var account = new Account
+            {
+                Email = email,
+                Password = _passwordHasher.HashPassword(request.Password ?? string.Empty),
+                EmailVerified = false,
+                IsActive = true,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            await _authRepository.AddAccountAsync(account, ct);
+            await _authRepository.SaveChangesAsync(ct);
+
+            var user = new User
+            {
+                AccountId = account.Id,
+                Email = email,
+                FullName = fullName,
+                Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim(),
+                IsActive = true,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            await _authRepository.AddUserAsync(user, ct);
+            await _authRepository.SaveChangesAsync(ct);
+
+            var member = new CompanyMember
+            {
+                CompanyId = companyId,
+                UserId = user.Id,
+                RoleId = roleId,
+                DepartmentId = request.DepartmentId,
+                IsActive = true,
+                JoinedAt = now
+            };
+            await _companyRepository.AddMemberAsync(member, ct);
+            await _companyRepository.SaveChangesAsync(ct);
+            return user;
+        }, cancellationToken);
+
+        var dto = await _companyRepository.GetCompanyUserDtoAsync(companyId, createdUser.Id, cancellationToken);
+        return ServiceResult<CompanyUserDto>.Created(dto!);
+    }
+
+    public async Task<ServiceResult<CompanyUserDto>> UpdateUserAsync(
+        long companyId,
+        long targetUserId,
+        UpdateCompanyUserRequestDto request,
+        CancellationToken cancellationToken = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+            return ServiceResult<CompanyUserDto>.Unauthorized("Your session is invalid or has expired.");
+
+        var auth = await _permissionService.RequireTenantAsync(userId.Value, companyId, PermissionKeys.UserUpdate, cancellationToken);
+        if (!auth.IsSuccess)
+            return ServiceResult<CompanyUserDto>.FromError(auth);
+
+        var fullName = (request.FullName ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(fullName))
+            return ServiceResult<CompanyUserDto>.ValidationFailure(new Dictionary<string, string[]> { ["fullName"] = new[] { "Họ và tên không được để trống." } });
+
+        if (request.DepartmentId.HasValue)
+        {
+            var deptExists = await _db.Departments.AsNoTracking()
+                .AnyAsync(d => d.Id == request.DepartmentId.Value && d.CompanyId == companyId && d.IsActive, cancellationToken);
+            if (!deptExists)
+                return ServiceResult<CompanyUserDto>.BadRequest("INVALID_DEPARTMENT", "Phòng ban không thuộc công ty này.");
+        }
+
+        var member = await _companyRepository.GetMemberAsync(companyId, targetUserId, cancellationToken);
+        if (member == null)
+            return ServiceResult<CompanyUserDto>.NotFound("Không tìm thấy thành viên trong công ty.");
+
+        member.User.FullName = fullName;
+        member.User.Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
+        member.User.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        member.DepartmentId = request.DepartmentId;
+
         await _companyRepository.SaveChangesAsync(cancellationToken);
 
         var dto = await _companyRepository.GetCompanyUserDtoAsync(companyId, targetUserId, cancellationToken);

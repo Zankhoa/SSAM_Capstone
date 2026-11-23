@@ -11,6 +11,7 @@ namespace SSAM_Server.Services;
 public class AuthService : IAuthService
 {
     private readonly IAuthRepository _authRepository;
+    private readonly ICompanyRepository _companyRepository;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
     private readonly IEmailService _emailService;
@@ -20,6 +21,7 @@ public class AuthService : IAuthService
 
     public AuthService(
         IAuthRepository authRepository,
+        ICompanyRepository companyRepository,
         IPasswordHasher passwordHasher,
         IJwtTokenGenerator jwtTokenGenerator,
         IEmailService emailService,
@@ -28,12 +30,31 @@ public class AuthService : IAuthService
         TimeProvider clock)
     {
         _authRepository = authRepository;
+        _companyRepository = companyRepository;
         _passwordHasher = passwordHasher;
         _jwtTokenGenerator = jwtTokenGenerator;
         _emailService = emailService;
         _googleTokenValidator = googleTokenValidator;
         _currentUser = currentUser;
         _clock = clock;
+    }
+
+    private async Task<bool> IsAllowedCompanyEmailAsync(string email, long? existingUserId, CancellationToken ct)
+    {
+        var atIdx = email.IndexOf('@');
+        if (atIdx < 0 || atIdx == email.Length - 1) return false;
+        var domain = email[(atIdx + 1)..].Trim().ToLowerInvariant();
+
+        if (!await _companyRepository.AnyActiveCompanyExistsAsync(ct))
+            return true;
+
+        if (await _companyRepository.GetActiveByDomainAsync(domain, ct) != null)
+            return true;
+
+        if (existingUserId.HasValue && await _companyRepository.HasAnyActiveCompanyAsync(existingUserId.Value, null, ct))
+            return true;
+
+        return false;
     }
 
     public async Task<ServiceResult<RegisterResponseDto>> RegisterAsync(RegisterRequestDto request, CancellationToken cancellationToken = default)
@@ -52,6 +73,12 @@ public class AuthService : IAuthService
         }
 
         var email = request.Email.Trim();
+        if (!await IsAllowedCompanyEmailAsync(email, null, cancellationToken))
+        {
+            return ServiceResult<RegisterResponseDto>.Forbidden(
+                "COMPANY_DOMAIN_REQUIRED",
+                "Email không thuộc tên miền công ty. Vui lòng sử dụng email công ty để đăng ký.");
+        }
         if (await _authRepository.EmailExistsAsync(email, cancellationToken))
         {
             return ServiceResult<RegisterResponseDto>.Conflict("EMAIL_ALREADY_EXISTS", "Email already exists.");
@@ -126,12 +153,34 @@ public class AuthService : IAuthService
             return ServiceResult<AuthSessionDto>.Forbidden("ACCOUNT_DISABLED", "Your account has been disabled.");
         }
 
-        if (!account.EmailVerified)
+        var user = await _authRepository.GetUserByAccountIdAsync(account.Id, cancellationToken);
+        if (!await IsAllowedCompanyEmailAsync(account.Email, user?.Id, cancellationToken))
         {
-            return ServiceResult<AuthSessionDto>.Forbidden("EMAIL_NOT_VERIFIED", "Your email address has not been verified.");
+            return ServiceResult<AuthSessionDto>.Forbidden(
+                "COMPANY_DOMAIN_REQUIRED",
+                "Email không thuộc tên miền công ty, không thể đăng nhập.");
         }
 
-        var user = await _authRepository.GetUserByAccountIdAsync(account.Id, cancellationToken);
+        if (!account.EmailVerified)
+        {
+            var now = _clock.GetUtcNow().UtcDateTime;
+            var rawToken = GenerateSecureToken();
+            var emailVerificationToken = new EmailVerificationToken
+            {
+                AccountId = account.Id,
+                Token = rawToken,
+                ExpiresAt = now.AddMinutes(15),
+                CreatedAt = now
+            };
+            await _authRepository.AddEmailVerificationTokenAsync(emailVerificationToken, cancellationToken);
+            await _authRepository.SaveChangesAsync(cancellationToken);
+            await _emailService.SendVerificationEmailAsync(account.Email, user?.FullName ?? account.Email, rawToken, cancellationToken);
+
+            return ServiceResult<AuthSessionDto>.Forbidden(
+                "EMAIL_NOT_VERIFIED",
+                "Tài khoản chưa xác thực email. Hệ thống đã gửi email xác thực tới hộp thư của bạn — vui lòng kiểm tra email để kích hoạt.");
+        }
+
         if (user == null)
         {
             return ServiceResult<AuthSessionDto>.NotFound("User information could not be found.");
@@ -168,6 +217,13 @@ public class AuthService : IAuthService
             var isNewAccount = false;
 
             var account = await _authRepository.GetAccountByEmailAsync(email, ct);
+            var existingUser = account != null ? await _authRepository.GetUserByAccountIdAsync(account.Id, ct) : null;
+            if (!await IsAllowedCompanyEmailAsync(email, existingUser?.Id, ct))
+            {
+                return ServiceResult<AuthSessionDto>.Forbidden(
+                    "COMPANY_DOMAIN_REQUIRED",
+                    "Email không thuộc tên miền công ty, không thể đăng nhập.");
+            }
             if (account == null)
             {
                 isNewAccount = true;
@@ -452,6 +508,44 @@ public class AuthService : IAuthService
             _authRepository.UpdateAccount(account);
         }
 
+        await _authRepository.SaveChangesAsync(cancellationToken);
+        return ServiceResult<object>.Ok(new { success = true });
+    }
+
+    public async Task<ServiceResult<object>> ChangePasswordAsync(ChangePasswordRequestDto request, CancellationToken cancellationToken = default)
+    {
+        var userId = _currentUser.UserIdOrNull;
+        if (userId == null)
+            return ServiceResult<object>.Unauthorized("Phiên đăng nhập không hợp lệ hoặc đã hết hạn.");
+
+        var errors = new Dictionary<string, string[]>();
+        ValidatePasswordRules(request.NewPassword, errors);
+        if (errors.Count > 0)
+            return ServiceResult<object>.ValidationFailure(errors);
+
+        var user = await _authRepository.GetUserByIdAsync(userId.Value, cancellationToken);
+        if (user == null)
+            return ServiceResult<object>.NotFound("Không tìm thấy tài khoản.");
+
+        var account = await _authRepository.GetAccountByIdAsync(user.AccountId, cancellationToken);
+        if (account == null)
+            return ServiceResult<object>.NotFound("Không tìm thấy tài khoản.");
+
+        if (!string.IsNullOrEmpty(account.Password))
+        {
+            if (string.IsNullOrEmpty(request.CurrentPassword) ||
+                !_passwordHasher.VerifyPassword(request.CurrentPassword, account.Password))
+            {
+                return ServiceResult<object>.ValidationFailure(new Dictionary<string, string[]>
+                {
+                    ["currentPassword"] = new[] { "Mật khẩu hiện tại không đúng." }
+                });
+            }
+        }
+
+        account.Password = _passwordHasher.HashPassword(request.NewPassword);
+        account.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
+        _authRepository.UpdateAccount(account);
         await _authRepository.SaveChangesAsync(cancellationToken);
         return ServiceResult<object>.Ok(new { success = true });
     }

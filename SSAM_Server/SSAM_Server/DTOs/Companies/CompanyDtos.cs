@@ -130,6 +130,45 @@ public class UpdateCompanyUserRoleRequestDto
     public long RoleId { get; set; }
 }
 
+public class UpdateCompanyUserStatusRequestDto
+{
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+}
+
+public class CreateCompanyUserRequestDto
+{
+    [JsonPropertyName("fullName")]
+    public string FullName { get; set; } = string.Empty;
+
+    [JsonPropertyName("email")]
+    public string Email { get; set; } = string.Empty;
+
+    [JsonPropertyName("password")]
+    public string Password { get; set; } = string.Empty;
+
+    [JsonPropertyName("phone")]
+    public string? Phone { get; set; }
+
+    [JsonPropertyName("roleId")]
+    public long? RoleId { get; set; }
+
+    [JsonPropertyName("departmentId")]
+    public long? DepartmentId { get; set; }
+}
+
+public class UpdateCompanyUserRequestDto
+{
+    [JsonPropertyName("fullName")]
+    public string FullName { get; set; } = string.Empty;
+
+    [JsonPropertyName("phone")]
+    public string? Phone { get; set; }
+
+    [JsonPropertyName("departmentId")]
+    public long? DepartmentId { get; set; }
+}
+
 public class UpdateCompanyRequestDto
 {
     [JsonPropertyName("name")]

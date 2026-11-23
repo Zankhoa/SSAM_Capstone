@@ -15,4 +15,7 @@ public interface ICompanyService
     Task<ServiceResult<JoinRequestStatusResponseDto>> GetJoinRequestStatusAsync(long companyId, long requestId, CancellationToken cancellationToken = default);
     Task<ServiceResult<PageDto<CompanyUserDto>>> ListUsersAsync(long companyId, string? search, long? roleId, string? status, int page, int pageSize, CancellationToken cancellationToken = default);
     Task<ServiceResult<CompanyUserDto>> UpdateUserRoleAsync(long companyId, long targetUserId, UpdateCompanyUserRoleRequestDto request, CancellationToken cancellationToken = default);
+    Task<ServiceResult<CompanyUserDto>> UpdateUserStatusAsync(long companyId, long targetUserId, UpdateCompanyUserStatusRequestDto request, CancellationToken cancellationToken = default);
+    Task<ServiceResult<CompanyUserDto>> CreateUserAsync(long companyId, CreateCompanyUserRequestDto request, CancellationToken cancellationToken = default);
+    Task<ServiceResult<CompanyUserDto>> UpdateUserAsync(long companyId, long targetUserId, UpdateCompanyUserRequestDto request, CancellationToken cancellationToken = default);
 }

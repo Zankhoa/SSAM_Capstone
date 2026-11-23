@@ -103,6 +103,15 @@ public class AuthController : ControllerBase
         return result.ToActionResult(this);
     }
 
+    [Authorize]
+    [HttpPost("password/change")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequestDto request, CancellationToken cancellationToken)
+    {
+        var result = await _authService.ChangePasswordAsync(request, cancellationToken);
+        return result.ToActionResult(this);
+    }
+
     private string? ClientIp => HttpContext.Connection.RemoteIpAddress?.ToString();
     private string UserAgent => Request.Headers.UserAgent.ToString();
 }
