@@ -28,7 +28,7 @@ public class TestingService : ITestingService
 
     private const string RepositoryPlanName = "__REPOSITORY__";
     private const int MaxDesignsPerGeneration = 20;
-    private const int AiTestCaseBatchSize = 8;
+    private const int AiTestCaseBatchSize = 3;
     private static readonly JsonSerializerOptions JsonOptions = ServiceMappingExtensions.DefaultJsonOptions;
     private static readonly Regex HexColorRegex = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
 
@@ -2500,13 +2500,34 @@ public class TestingService : ITestingService
                     x.Design.Input.MimeType))
                 .ToList();
 
-            var batchDrafts = await _aiService.GenerateTestCaseDraftsAsync(batchContexts, batchDesignInputs, ct);
-            foreach (var draft in batchDrafts)
+            try
             {
-                draft.RequirementIndex += start;
-                if (draft.DesignIndex is int localDesignIndex)
-                    draft.DesignIndex = batchDesigns[localDesignIndex].GlobalIndex;
-                drafts.Add(draft);
+                var batchDrafts = await _aiService.GenerateTestCaseDraftsAsync(batchContexts, batchDesignInputs, ct);
+                foreach (var draft in batchDrafts)
+                {
+                    draft.RequirementIndex += start;
+                    if (draft.DesignIndex is int localDesignIndex &&
+                        localDesignIndex >= 0 &&
+                        localDesignIndex < batchDesigns.Count)
+                        draft.DesignIndex = batchDesigns[localDesignIndex].GlobalIndex;
+                    else
+                        draft.DesignIndex = null;
+                    drafts.Add(draft);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                if (drafts.Count == 0)
+                {
+                    return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Failure(
+                        StatusCodes.Status502BadGateway,
+                        "AI_GENERATION_FAILED",
+                        $"Không thể sinh test case từ AI: {ex.Message}");
+                }
             }
         }
 

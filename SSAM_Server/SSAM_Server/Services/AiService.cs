@@ -16,7 +16,7 @@ namespace SSAM_Server.Services;
 
 public class AiService : IAiService
 {
-    private const int DraftMaxOutputTokens = 8192;
+    private const int DraftMaxOutputTokens = 32768;
     private static readonly JsonSerializerOptions AiResponseJsonOptions = CreateAiResponseJsonOptions();
 
     private readonly IChatClient _chatClient;
@@ -307,53 +307,86 @@ public class AiService : IAiService
             throw new InvalidOperationException("The AI provider returned an invalid number of test-case drafts.");
         }
 
+        var validDrafts = new List<AiGeneratedTestCaseDraftDto>();
         var coveredRequirements = new HashSet<int>();
         foreach (var draft in drafts)
         {
             if (draft is null ||
                 draft.RequirementIndex < 0 ||
                 draft.RequirementIndex >= requirements.Count ||
-                draft.AcceptanceCriterionIndex is int criterionIndex &&
-                    (criterionIndex < 0 ||
-                     criterionIndex >= requirements[draft.RequirementIndex].AcceptanceCriteria.Count) ||
-                (draft.DesignIndex is int designIdx &&
-                    (designIdx < 0 || designIdx >= designs.Count)) ||
                 string.IsNullOrWhiteSpace(draft.Title) ||
-                draft.Title.Length > 500 ||
-                string.IsNullOrWhiteSpace(draft.Preconditions) ||
-                string.IsNullOrWhiteSpace(draft.Priority) ||
-                draft.Priority is not ("P0" or "P1" or "P2" or "P3") ||
-                draft.Category is not ("FUNCTIONAL" or "BOUNDARY" or "NEGATIVE" or "UI" or "SECURITY" or "PERFORMANCE") ||
-                draft.Steps is null ||
-                draft.Steps.Count == 0 ||
-                draft.Steps.Count > 30 ||
-                draft.Steps.Any(step =>
-                    step is null ||
-                    string.IsNullOrWhiteSpace(step.Action) ||
-                    string.IsNullOrWhiteSpace(step.Expected) ||
-                    step.Action.Length > 2000 ||
-                    step.Expected.Length > 2000))
+                draft.Steps is null)
             {
-                throw new InvalidOperationException("The AI provider returned an incomplete or invalid test-case draft.");
+                continue;
             }
 
-            draft.Title = draft.Title.Trim();
-            draft.Preconditions = draft.Preconditions.Trim();
-            foreach (var step in draft.Steps)
+            if (draft.AcceptanceCriterionIndex is int criterionIndex &&
+                (criterionIndex < 0 || criterionIndex >= requirements[draft.RequirementIndex].AcceptanceCriteria.Count))
             {
-                step.Action = step.Action.Trim();
-                step.Expected = step.Expected.Trim();
+                draft.AcceptanceCriterionIndex = null;
             }
 
+            if (draft.DesignIndex is int designIdx && (designIdx < 0 || designIdx >= designs.Count))
+            {
+                draft.DesignIndex = null;
+            }
+
+            var cleanedSteps = draft.Steps
+                .Where(step => step is not null &&
+                               !string.IsNullOrWhiteSpace(step.Action) &&
+                               !string.IsNullOrWhiteSpace(step.Expected))
+                .Take(30)
+                .ToList();
+
+            foreach (var step in cleanedSteps)
+            {
+                var action = step.Action.Trim();
+                var expected = step.Expected.Trim();
+                step.Action = action.Length > 2000 ? action[..2000] : action;
+                step.Expected = expected.Length > 2000 ? expected[..2000] : expected;
+            }
+
+            if (cleanedSteps.Count == 0)
+            {
+                continue;
+            }
+
+            var trimmedTitle = draft.Title.Trim();
+            draft.Title = trimmedTitle.Length > 500 ? trimmedTitle[..500] : trimmedTitle;
+            draft.Preconditions = string.IsNullOrWhiteSpace(draft.Preconditions)
+                ? "Không có"
+                : draft.Preconditions.Trim();
+
+            var priority = (draft.Priority ?? string.Empty).Trim().ToUpperInvariant();
+            draft.Priority = priority is "P0" or "P1" or "P2" or "P3" ? priority : "P2";
+
+            var category = (draft.Category ?? string.Empty).Trim().ToUpperInvariant();
+            draft.Category = category switch
+            {
+                "FUNCTIONAL" or "BOUNDARY" or "NEGATIVE" or "UI" or "SECURITY" or "PERFORMANCE" => category,
+                "GIAO DIỆN" or "GIAO DIEN" => "UI",
+                _ => "FUNCTIONAL"
+            };
+
+            draft.Steps = cleanedSteps;
+            validDrafts.Add(draft);
             coveredRequirements.Add(draft.RequirementIndex);
+        }
+
+        if (validDrafts.Count == 0)
+        {
+            throw new InvalidOperationException("The AI provider returned an incomplete or invalid test-case draft.");
         }
 
         if (coveredRequirements.Count != requirements.Count)
         {
-            throw new InvalidOperationException("The AI provider did not generate test cases for every requested requirement.");
+            _logger.LogWarning(
+                "AI provider generated test cases for {CoveredCount}/{TotalCount} requirements in batch.",
+                coveredRequirements.Count,
+                requirements.Count);
         }
 
-        return drafts;
+        return validDrafts;
     }
 
     private static string NormalizeJsonResponse(string responseText)
