@@ -615,44 +615,227 @@ public class AiChatService : IAiChatService
         string responseText,
         IReadOnlyList<AiRetrievedSourceDto> sources)
     {
+        if (TryParseChatResponsePayload(responseText, out var reply, out var references))
+        {
+            var citations = AiCitationMapper.Resolve(references, sources);
+            var distinctReferenceCount = references
+                .Where(reference => !string.IsNullOrWhiteSpace(reference))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            if (citations.Count < distinctReferenceCount)
+            {
+                _logger.LogWarning(
+                    "Discarded {Count} unknown or excess citations from project chat response.",
+                    distinctReferenceCount - citations.Count);
+            }
+
+            return (reply, citations);
+        }
+
+        if (TryExtractPartialChatReply(responseText, out reply, out var replyWasTruncated))
+        {
+            _logger.LogWarning("AI project chat response could not be parsed completely; returning the recovered reply without citations.");
+            return (replyWasTruncated ? AddTruncationEllipsis(reply) : reply, new List<AiCitationDto>());
+        }
+
+        _logger.LogWarning("AI project chat response did not follow the structured citation format.");
+        return (responseText, new List<AiCitationDto>());
+    }
+
+    private static bool TryExtractPartialChatReply(
+        string responseText,
+        out string reply,
+        out bool replyWasTruncated)
+    {
+        const string replyProperty = "\"reply\"";
+
+        for (var propertyStart = responseText.IndexOf(replyProperty, StringComparison.Ordinal);
+             propertyStart >= 0;
+             propertyStart = responseText.IndexOf(replyProperty, propertyStart + replyProperty.Length, StringComparison.Ordinal))
+        {
+            var precedingIndex = propertyStart - 1;
+            while (precedingIndex >= 0 && char.IsWhiteSpace(responseText[precedingIndex])) precedingIndex--;
+            if (precedingIndex < 0 || (responseText[precedingIndex] != '{' && responseText[precedingIndex] != ','))
+            {
+                continue;
+            }
+
+            var valueStart = propertyStart + replyProperty.Length;
+            while (valueStart < responseText.Length && char.IsWhiteSpace(responseText[valueStart])) valueStart++;
+            if (valueStart >= responseText.Length || responseText[valueStart++] != ':') continue;
+            while (valueStart < responseText.Length && char.IsWhiteSpace(responseText[valueStart])) valueStart++;
+            if (valueStart >= responseText.Length || responseText[valueStart++] != '"') continue;
+
+            var builder = new System.Text.StringBuilder();
+            for (var index = valueStart; index < responseText.Length; index++)
+            {
+                var character = responseText[index];
+                if (character == '"')
+                {
+                    reply = builder.ToString();
+                    replyWasTruncated = false;
+                    return !string.IsNullOrWhiteSpace(reply);
+                }
+
+                if (character != '\\')
+                {
+                    builder.Append(character);
+                    continue;
+                }
+
+                if (++index >= responseText.Length)
+                {
+                    break;
+                }
+
+                switch (responseText[index])
+                {
+                    case '"': builder.Append('"'); break;
+                    case '\\': builder.Append('\\'); break;
+                    case '/': builder.Append('/'); break;
+                    case 'b': builder.Append('\b'); break;
+                    case 'f': builder.Append('\f'); break;
+                    case 'n': builder.Append('\n'); break;
+                    case 'r': builder.Append('\r'); break;
+                    case 't': builder.Append('\t'); break;
+                    case 'u':
+                        if (index + 4 >= responseText.Length ||
+                            !ushort.TryParse(
+                                responseText.AsSpan(index + 1, 4),
+                                System.Globalization.NumberStyles.HexNumber,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                out var unicodeCharacter))
+                        {
+                            reply = builder.ToString();
+                            replyWasTruncated = true;
+                            return !string.IsNullOrWhiteSpace(reply);
+                        }
+
+                        builder.Append((char)unicodeCharacter);
+                        index += 4;
+                        break;
+                    default:
+                        reply = string.Empty;
+                        replyWasTruncated = false;
+                        return false;
+                }
+            }
+
+            reply = builder.ToString();
+            replyWasTruncated = true;
+            return !string.IsNullOrWhiteSpace(reply);
+        }
+
+        reply = string.Empty;
+        replyWasTruncated = false;
+        return false;
+    }
+
+    private static string AddTruncationEllipsis(string reply) =>
+        reply.TrimEnd().EndsWith('…') ? reply : reply.TrimEnd() + "…";
+
+    private static bool TryParseChatResponsePayload(
+        string responseText,
+        out string reply,
+        out List<string> references)
+    {
+        if (TryParseChatResponsePayloadCandidate(responseText, out reply, out references))
+        {
+            return true;
+        }
+
+        for (var start = responseText.IndexOf('{'); start >= 0; start = responseText.IndexOf('{', start + 1))
+        {
+            var end = FindJsonObjectEnd(responseText, start);
+            if (end < 0) continue;
+
+            var candidate = responseText.Substring(start, end - start + 1);
+            if (TryParseChatResponsePayloadCandidate(candidate, out reply, out references))
+            {
+                return true;
+            }
+        }
+
+        reply = string.Empty;
+        references = new List<string>();
+        return false;
+    }
+
+    private static int FindJsonObjectEnd(string text, int start)
+    {
+        var depth = 0;
+        var inString = false;
+        var escaped = false;
+
+        for (var index = start; index < text.Length; index++)
+        {
+            var character = text[index];
+            if (inString)
+            {
+                if (escaped)
+                {
+                    escaped = false;
+                }
+                else if (character == '\\')
+                {
+                    escaped = true;
+                }
+                else if (character == '"')
+                {
+                    inString = false;
+                }
+
+                continue;
+            }
+
+            if (character == '"')
+            {
+                inString = true;
+            }
+            else if (character == '{')
+            {
+                depth++;
+            }
+            else if (character == '}' && --depth == 0)
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    private static bool TryParseChatResponsePayloadCandidate(
+        string candidate,
+        out string reply,
+        out List<string> references)
+    {
         try
         {
-            using var document = JsonDocument.Parse(responseText);
+            using var document = JsonDocument.Parse(candidate);
             if (document.RootElement.ValueKind == JsonValueKind.Object &&
-                document.RootElement.TryGetProperty("reply", out var reply) &&
-                reply.ValueKind == JsonValueKind.String &&
-                !string.IsNullOrWhiteSpace(reply.GetString()))
+                document.RootElement.TryGetProperty("reply", out var replyElement) &&
+                replyElement.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(replyElement.GetString()))
             {
-                var references = document.RootElement.TryGetProperty("references", out var referenceArray) &&
-                                 referenceArray.ValueKind == JsonValueKind.Array
+                references = document.RootElement.TryGetProperty("references", out var referenceArray) &&
+                             referenceArray.ValueKind == JsonValueKind.Array
                     ? referenceArray.EnumerateArray()
                         .Where(item => item.ValueKind == JsonValueKind.String)
                         .Select(item => item.GetString()!)
                         .ToList()
                     : new List<string>();
-                var citations = AiCitationMapper.Resolve(references, sources);
-                var distinctReferenceCount = references
-                    .Where(reference => !string.IsNullOrWhiteSpace(reference))
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .Count();
-                if (citations.Count < distinctReferenceCount)
-                {
-                    _logger.LogWarning(
-                        "Discarded {Count} unknown or excess citations from project chat response.",
-                        distinctReferenceCount - citations.Count);
-                }
-
-                return (reply.GetString()!, citations);
+                reply = replyElement.GetString()!;
+                return true;
             }
         }
         catch (JsonException)
         {
-            _logger.LogWarning("AI project chat response did not follow the structured citation format.");
-            return (responseText, new List<AiCitationDto>());
         }
 
-        _logger.LogWarning("AI project chat response did not contain a valid reply field.");
-        return (responseText, new List<AiCitationDto>());
+        reply = string.Empty;
+        references = new List<string>();
+        return false;
     }
 
     private static string BuildFallbackReply(
