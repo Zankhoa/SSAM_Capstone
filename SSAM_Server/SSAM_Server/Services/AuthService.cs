@@ -61,9 +61,14 @@ public class AuthService : IAuthService
     {
         var validationErrors = new Dictionary<string, string[]>();
         if (string.IsNullOrWhiteSpace(request.FullName))
-            validationErrors["fullName"] = new[] { "Field fullname is required." };
+            validationErrors["fullName"] = new[] { "Họ và tên không được để trống." };
+        else if (request.FullName.Trim().Length > 255)
+            validationErrors["fullName"] = new[] { "Họ và tên không được vượt quá 255 ký tự." };
+
         if (string.IsNullOrWhiteSpace(request.Email) || !request.Email.Contains('@'))
-            validationErrors["email"] = new[] { "Email format is invalid." };
+            validationErrors["email"] = new[] { "Email không đúng định dạng." };
+        else if (request.Email.Trim().Length > 255)
+            validationErrors["email"] = new[] { "Email không được vượt quá 255 ký tự." };
 
         ValidatePasswordRules(request.Password, validationErrors);
 

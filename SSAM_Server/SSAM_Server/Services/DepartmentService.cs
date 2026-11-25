@@ -77,6 +77,7 @@ public class DepartmentService : IDepartmentService
 
         var name = request.Name?.Trim() ?? string.Empty;
         var code = string.IsNullOrWhiteSpace(request.Code) ? null : request.Code.Trim().ToUpperInvariant();
+        var description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
         var errors = new Dictionary<string, string[]>();
 
         if (string.IsNullOrWhiteSpace(name))
@@ -86,6 +87,9 @@ public class DepartmentService : IDepartmentService
 
         if (code != null && code.Length > 50)
             errors["code"] = new[] { "Mã phòng ban tối đa 50 ký tự." };
+
+        if (description != null && description.Length > 500)
+            errors["description"] = new[] { "Mô tả phòng ban tối đa 500 ký tự." };
 
         if (errors.Count > 0)
             return ServiceResult<DepartmentDto>.Validation(errors);
@@ -148,7 +152,12 @@ public class DepartmentService : IDepartmentService
         }
 
         if (request.Description != null)
-            department.Description = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+        {
+            var desc = string.IsNullOrWhiteSpace(request.Description) ? null : request.Description.Trim();
+            if (desc != null && desc.Length > 500)
+                return ServiceResult<DepartmentDto>.Validation(new Dictionary<string, string[]> { ["description"] = new[] { "Mô tả phòng ban tối đa 500 ký tự." } });
+            department.Description = desc;
+        }
 
         if (request.IsActive.HasValue)
             department.IsActive = request.IsActive.Value;

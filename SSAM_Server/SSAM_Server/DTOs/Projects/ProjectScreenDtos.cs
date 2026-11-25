@@ -76,6 +76,14 @@ public class GenerateLayoutRequestDto
 {
     public long DocumentId { get; set; }
 
+    public List<long>? DocumentIds { get; set; }
+
+    public string? DocumentIdsJson { get; set; }
+
+    public bool? GenerateFlow { get; set; }
+
+    public int? MaxScreens { get; set; }
+
     public List<string>? ReqUids { get; set; }
 
     public string? ReqUidsJson { get; set; }
@@ -85,6 +93,24 @@ public class GenerateLayoutRequestDto
     public string? Notes { get; set; }
 
     public IFormFile? ReferenceImage { get; set; }
+}
+
+public class GenerateLayoutItemDto
+{
+    [JsonPropertyName("screen")]
+    public ProjectScreenDto Screen { get; set; } = new();
+
+    [JsonPropertyName("svgContent")]
+    public string SvgContent { get; set; } = string.Empty;
+
+    [JsonPropertyName("usedAi")]
+    public bool UsedAi { get; set; }
+
+    [JsonPropertyName("stepOrder")]
+    public int StepOrder { get; set; } = 1;
+
+    [JsonPropertyName("workflowStep")]
+    public string? WorkflowStep { get; set; }
 }
 
 public class GenerateLayoutResponseDto
@@ -97,4 +123,7 @@ public class GenerateLayoutResponseDto
 
     [JsonPropertyName("usedAi")]
     public bool UsedAi { get; set; }
+
+    [JsonPropertyName("items")]
+    public List<GenerateLayoutItemDto> Items { get; set; } = new();
 }

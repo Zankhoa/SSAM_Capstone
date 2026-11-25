@@ -84,7 +84,27 @@ public class InvitationService : IInvitationService
             });
         }
 
+        if (request.Email.Trim().Length > 255)
+        {
+            return ServiceResult<CreateInvitationResponseDto>.Validation(new Dictionary<string, string[]>
+            {
+                ["email"] = new[] { "Email không được vượt quá 255 ký tự." }
+            });
+        }
+
         var email = request.Email.Trim();
+        if (!string.IsNullOrWhiteSpace(company.EmailDomain))
+        {
+            var atIdx = email.IndexOf('@');
+            var domain = atIdx >= 0 ? email[(atIdx + 1)..].Trim().ToLowerInvariant() : string.Empty;
+            if (!string.Equals(domain, company.EmailDomain.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                return ServiceResult<CreateInvitationResponseDto>.Validation(new Dictionary<string, string[]>
+                {
+                    ["email"] = new[] { $"Email được mời phải thuộc tên miền công ty (@{company.EmailDomain})." }
+                });
+            }
+        }
         if (await _companyRepository.IsEmailMemberAsync(companyId, email, cancellationToken))
         {
             return ServiceResult<CreateInvitationResponseDto>.Conflict("ALREADY_MEMBER", "Email này đã là thành viên công ty.");

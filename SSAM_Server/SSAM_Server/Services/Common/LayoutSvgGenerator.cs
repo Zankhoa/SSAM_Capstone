@@ -151,6 +151,222 @@ Return JSON matching this structure:
 """;
     }
 
+    public sealed class FlowScreenBlueprint
+    {
+        public int StepOrder { get; set; } = 1;
+        public string WorkflowStep { get; set; } = "";
+        public List<string> ReqUids { get; set; } = new();
+        public string Shell { get; set; } = "SIDEBAR_TOPBAR";
+        public string HeaderStyle { get; set; } = "STANDARD";
+        public string AppName { get; set; } = "Workspace";
+        public string ScreenTitle { get; set; } = "Main Screen";
+        public string Subtitle { get; set; } = "";
+        public List<string> NavItems { get; set; } = new();
+        public List<string> HeaderItems { get; set; } = new();
+        public string PrimaryButton { get; set; } = "Confirm";
+        public string SecondaryButton { get; set; } = "Cancel";
+        public List<LayoutRow> Rows { get; set; } = new();
+
+        public UiBlueprint ToUiBlueprint() => new()
+        {
+            Shell = Shell,
+            HeaderStyle = HeaderStyle,
+            AppName = AppName,
+            ScreenTitle = ScreenTitle,
+            Subtitle = Subtitle,
+            NavItems = NavItems,
+            HeaderItems = HeaderItems,
+            PrimaryButton = PrimaryButton,
+            SecondaryButton = SecondaryButton,
+            Rows = Rows
+        };
+    }
+
+    public sealed class FlowBlueprintResponse
+    {
+        public List<FlowScreenBlueprint> Screens { get; set; } = new();
+    }
+
+    public static string BuildFlowPrompt(
+        List<DocumentNode> docs,
+        List<(DocumentNode Doc, RequirementItem Req)> targetReqs,
+        string? titlePrefix,
+        string? userNotes = null,
+        bool hasReferenceImage = false,
+        int maxScreens = 4)
+    {
+        var docSummary = string.Join("\n", docs.Select((d, i) => $"{i + 1}. [{d.DocType}] {d.Title}"));
+        var reqList = string.Join("\n", targetReqs.Select(x =>
+            $"- [{x.Req.ReqUid}] (Doc: {x.Doc.Title}) {x.Req.Title}: {Trunc(x.Req.BodyPreview, 180)}"));
+        var notesSection = string.IsNullOrWhiteSpace(userNotes)
+            ? ""
+            : $"\nUser Design Notes / Workflow Instructions (HIGHEST PRIORITY):\n{userNotes.Trim()}\n";
+        var refImageSection = hasReferenceImage
+            ? "\nReference Layout Image Attached: YES.\nFollow the visual style and structural proportions of the attached reference image across all screens in the flow.\n"
+            : "";
+        var prefixHint = string.IsNullOrWhiteSpace(titlePrefix) ? "" : $"\nFlow/Feature Prefix: {titlePrefix.Trim()}\n";
+
+        return $$"""
+You are a Senior Product Designer. Analyze ALL combined Documents and Requirements below, understand the end-to-end user/business workflow across them, and design a cohesive sequence of 2 to {{maxScreens}} UI screens in workflow order using our flexible 12-column block system.
+Return ONLY valid JSON (no markdown, no explanation) matching:
+{
+  "screens": [
+    {
+      "stepOrder": 1,
+      "workflowStep": "Short workflow step name (e.g. Step 1: Input / Onboarding)",
+      "reqUids": ["REQ-UID-1"],
+      "shell": "SIDEBAR_TOPBAR | TOPBAR_ONLY | SPLIT_DARK_LEFT | CENTERED_MINIMAL",
+      "headerStyle": "STANDARD | SEARCH_FILTERS | TABS_BAR | STEPPER | BREADCRUMB_ACTIONS | HERO_BANNER",
+      "appName": "Consistent App Name",
+      "screenTitle": "Specific Screen Title",
+      "subtitle": "1-line screen summary",
+      "navItems": ["Nav 1", "Nav 2", "Nav 3", "Nav 4"],
+      "headerItems": ["Step 1", "Step 2", "Step 3"],
+      "primaryButton": "Primary CTA",
+      "secondaryButton": "Secondary",
+      "rows": [
+        {
+          "blocks": [
+            {
+              "type": "KPI_ROW | FORM | TABLE | CATALOG_GRID | CART_SUMMARY | KANBAN | CHAT_THREAD | CALENDAR_SCHEDULE | CHARTS_ANALYTICS | TIMELINE_FEED | SETTINGS_TOGGLES | DETAIL_KEY_VALUE | ALERT_CHECKLIST | MAP_TRACKING | PRICING_PLANS | LANDING_HERO | PROFILE_HEADER | MEDIA_GALLERY | FILE_UPLOADER | NOTIFICATIONS_INBOX | INVOICE_RECEIPT | DONUT_BREAKDOWN | COMPARISON_MATRIX | EMPTY_OR_CONFIRM_MODAL",
+              "colSpan": 12,
+              "title": "Block Title",
+              "badge": "Optional",
+              "columns": [],
+              "tableRows": [],
+              "items": [{ "label": "Label", "value": "Value", "sub": "Sub", "tag": "Tag", "active": true }],
+              "note": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+- Keep `appName` and `navItems` consistent across all screens in the flow.
+- Each screen must represent a distinct step in the workflow (e.g. Step 1 Entry/List -> Step 2 Action/Form -> Step 3 Review/Approval -> Step 4 Result/Audit), NOT duplicate screens.
+- Each row's `colSpan` values must sum to 12. Use real domain labels from the combined documents.
+- Reference the matching `reqUids` on each screen.{{prefixHint}}{{notesSection}}{{refImageSection}}
+Combined Documents:
+{{docSummary}}
+
+Requirements across these Documents:
+{{reqList}}
+""";
+    }
+
+    public static List<FlowScreenBlueprint>? TryParseFlowBlueprints(string rawResponse, int maxScreens = 6)
+    {
+        if (string.IsNullOrWhiteSpace(rawResponse)) return null;
+        var clean = rawResponse.Trim();
+        var firstBrace = clean.IndexOf('{');
+        var lastBrace = clean.LastIndexOf('}');
+        if (firstBrace >= 0 && lastBrace > firstBrace)
+            clean = clean.Substring(firstBrace, lastBrace - firstBrace + 1);
+
+        try
+        {
+            var flow = JsonSerializer.Deserialize<FlowBlueprintResponse>(clean, JsonOpts);
+            if (flow?.Screens != null)
+            {
+                var valid = flow.Screens
+                    .Where(s => s != null && !string.IsNullOrWhiteSpace(s.ScreenTitle) && s.Rows.Count > 0)
+                    .OrderBy(s => s.StepOrder)
+                    .Take(maxScreens)
+                    .ToList();
+                if (valid.Count > 0) return valid;
+            }
+        }
+        catch
+        {
+            // fall through to single-screen fallback
+        }
+
+        var single = TryParseBlueprint(rawResponse);
+        if (single == null) return null;
+        return new List<FlowScreenBlueprint>
+        {
+            new()
+            {
+                StepOrder = 1,
+                WorkflowStep = "Main Screen",
+                Shell = single.Shell,
+                HeaderStyle = single.HeaderStyle,
+                AppName = single.AppName,
+                ScreenTitle = single.ScreenTitle,
+                Subtitle = single.Subtitle,
+                NavItems = single.NavItems,
+                HeaderItems = single.HeaderItems,
+                PrimaryButton = single.PrimaryButton,
+                SecondaryButton = single.SecondaryButton,
+                Rows = single.Rows
+            }
+        };
+    }
+
+    public static List<FlowScreenBlueprint> BuildFlowFallbackBlueprints(
+        List<DocumentNode> docs,
+        List<(DocumentNode Doc, RequirementItem Req)> targetReqs,
+        string? titlePrefix,
+        string? userNotes = null,
+        int maxScreens = 4)
+    {
+        var list = new List<FlowScreenBlueprint>();
+        var groups = targetReqs.Count > 0
+            ? targetReqs.Take(maxScreens).ToList()
+            : new List<(DocumentNode Doc, RequirementItem Req)>();
+
+        if (groups.Count == 0)
+        {
+            foreach (var doc in docs.Take(maxScreens))
+            {
+                var bp = BuildFallbackBlueprint(string.IsNullOrWhiteSpace(titlePrefix) ? doc.Title : $"{titlePrefix} · {doc.Title}", doc, new List<RequirementItem>(), userNotes);
+                list.Add(new FlowScreenBlueprint
+                {
+                    StepOrder = list.Count + 1,
+                    WorkflowStep = doc.Title,
+                    Shell = bp.Shell,
+                    HeaderStyle = bp.HeaderStyle,
+                    AppName = bp.AppName,
+                    ScreenTitle = bp.ScreenTitle,
+                    Subtitle = bp.Subtitle,
+                    NavItems = bp.NavItems,
+                    HeaderItems = bp.HeaderItems,
+                    PrimaryButton = bp.PrimaryButton,
+                    SecondaryButton = bp.SecondaryButton,
+                    Rows = bp.Rows
+                });
+            }
+            return list;
+        }
+
+        for (var i = 0; i < groups.Count; i++)
+        {
+            var (doc, req) = groups[i];
+            var screenTitle = string.IsNullOrWhiteSpace(titlePrefix) ? req.Title : $"{titlePrefix} · {req.Title}";
+            var bp = BuildFallbackBlueprint(screenTitle, doc, new List<RequirementItem> { req }, userNotes);
+            list.Add(new FlowScreenBlueprint
+            {
+                StepOrder = i + 1,
+                WorkflowStep = req.Title,
+                ReqUids = new List<string> { req.ReqUid },
+                Shell = bp.Shell,
+                HeaderStyle = bp.HeaderStyle,
+                AppName = bp.AppName,
+                ScreenTitle = bp.ScreenTitle,
+                Subtitle = bp.Subtitle,
+                NavItems = bp.NavItems,
+                HeaderItems = bp.HeaderItems,
+                PrimaryButton = bp.PrimaryButton,
+                SecondaryButton = bp.SecondaryButton,
+                Rows = bp.Rows
+            });
+        }
+        return list;
+    }
+
     public static UiBlueprint? TryParseBlueprint(string rawResponse)
     {
         if (string.IsNullOrWhiteSpace(rawResponse)) return null;

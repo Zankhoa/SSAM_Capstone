@@ -351,17 +351,40 @@ public class ProjectScreensController : ControllerBase
         var auth = await _accessGuard.EnsureProjectPermissionAsync(projectId, PermissionKeys.ProjectView, ct);
         if (!auth.IsSuccess) return auth.ToActionResult(this);
 
-        var doc = await _db.DocumentNodes
+        var requestedDocIds = new List<long>();
+        if (request.DocumentId > 0) requestedDocIds.Add(request.DocumentId);
+        if (request.DocumentIds != null) requestedDocIds.AddRange(request.DocumentIds.Where(id => id > 0));
+        requestedDocIds.AddRange(ParseDocIds(request.DocumentIdsJson));
+        var docIds = requestedDocIds.Distinct().ToList();
+
+        if (docIds.Count == 0)
+            return BadRequest(new ErrorResponseDto("VALIDATION_ERROR", "Vui lòng chọn ít nhất một tài liệu.", null, HttpContext.TraceIdentifier));
+
+        var docs = await _db.DocumentNodes
             .AsNoTracking()
-            .FirstOrDefaultAsync(d => d.Id == request.DocumentId && d.ProjectId == projectId && !d.IsDeleted, ct);
-        if (doc == null)
+            .Where(d => d.ProjectId == projectId && docIds.Contains(d.Id) && !d.IsDeleted)
+            .ToListAsync(ct);
+        if (docs.Count == 0)
             return NotFound(new ErrorResponseDto("DOCUMENT_NOT_FOUND", "Không tìm thấy tài liệu trong dự án này.", null, HttpContext.TraceIdentifier));
 
-        var versionId = doc.BaselineVersionId ?? doc.CurrentVersionId;
-        var reqs = versionId.HasValue
+        // Giữ thứ tự tài liệu theo lựa chọn của người dùng
+        docs = docIds
+            .Select(id => docs.FirstOrDefault(d => d.Id == id))
+            .Where(d => d != null)
+            .Cast<DocumentNode>()
+            .ToList();
+
+        var versionIds = docs
+            .Select(d => d.BaselineVersionId ?? d.CurrentVersionId)
+            .Where(v => v.HasValue)
+            .Select(v => v!.Value)
+            .Distinct()
+            .ToList();
+
+        var allReqs = versionIds.Count > 0
             ? await _db.RequirementItems
                 .AsNoTracking()
-                .Where(r => r.VersionId == versionId.Value)
+                .Where(r => versionIds.Contains(r.VersionId))
                 .OrderBy(r => r.Id)
                 .ToListAsync(ct)
             : new List<RequirementItem>();
@@ -373,14 +396,17 @@ public class ProjectScreensController : ControllerBase
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        var targetReqs = selectedUids.Count > 0
-            ? reqs.Where(r => selectedUids.Contains(r.ReqUid, StringComparer.OrdinalIgnoreCase)).ToList()
-            : reqs;
-
-        var layoutTitle = !string.IsNullOrWhiteSpace(request.Title)
-            ? request.Title.Trim()
-            : $"{doc.Title} · Layout";
-        if (layoutTitle.Length > 200) layoutTitle = layoutTitle[..200];
+        var pairedReqs = new List<(DocumentNode Doc, RequirementItem Req)>();
+        foreach (var d in docs)
+        {
+            var vid = d.BaselineVersionId ?? d.CurrentVersionId;
+            if (!vid.HasValue) continue;
+            var docReqs = allReqs.Where(r => r.VersionId == vid.Value);
+            if (selectedUids.Count > 0)
+                docReqs = docReqs.Where(r => selectedUids.Contains(r.ReqUid, StringComparer.OrdinalIgnoreCase));
+            foreach (var r in docReqs)
+                pairedReqs.Add((d, r));
+        }
 
         byte[]? refImageBytes = null;
         string? refImageMime = null;
@@ -395,17 +421,140 @@ public class ProjectScreensController : ControllerBase
         }
 
         var hasRefImage = refImageBytes != null && refImageBytes.Length > 0;
-        var prompt = LayoutSvgGenerator.BuildPrompt(layoutTitle, doc, targetReqs, request.Notes, hasRefImage);
+        var isFlow = request.GenerateFlow == true || docs.Count > 1;
+        var maxScreens = Math.Clamp(request.MaxScreens ?? 4, 2, 6);
+        var userId = _currentUser.UserIdOrNull!.Value;
+        var now = DateTime.UtcNow;
+        var dir = Path.Combine(_uploadRoot, "screens", projectId.ToString(CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(dir);
 
+        if (isFlow)
+        {
+            var prompt = LayoutSvgGenerator.BuildFlowPrompt(docs, pairedReqs, request.Title, request.Notes, hasRefImage, maxScreens);
+            List<LayoutSvgGenerator.FlowScreenBlueprint>? flowBps = null;
+            var usedAi = false;
+            try
+            {
+                var raw = hasRefImage
+                    ? await _aiService.GenerateTextWithImageAsync(prompt, refImageBytes, refImageMime, ct)
+                    : await _aiService.GenerateTextAsync(prompt, ct);
+                flowBps = LayoutSvgGenerator.TryParseFlowBlueprints(raw, maxScreens);
+                if (flowBps != null && flowBps.Count > 0) usedAi = true;
+                else _logger.LogWarning("AI returned unparseable flow layout JSON for project {ProjectId}. Raw length: {Len}", projectId, raw?.Length ?? 0);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "AI flow layout generation failed for project {ProjectId}, using structured fallback.", projectId);
+            }
+
+            flowBps ??= LayoutSvgGenerator.BuildFlowFallbackBlueprints(docs, pairedReqs, request.Title, request.Notes, maxScreens);
+
+            var primaryDoc = docs[0];
+            var createdEntities = new List<(ProjectScreen Entity, string Svg, int StepOrder, string? WorkflowStep)>();
+
+            for (var idx = 0; idx < flowBps.Count; idx++)
+            {
+                var stepBp = flowBps[idx];
+                var stepOrder = stepBp.StepOrder > 0 ? stepBp.StepOrder : idx + 1;
+                var rawTitle = string.IsNullOrWhiteSpace(stepBp.ScreenTitle)
+                    ? $"{primaryDoc.Title} · Step {stepOrder}"
+                    : stepBp.ScreenTitle.Trim();
+                var screenTitle = $"{stepOrder}. {rawTitle}";
+                if (screenTitle.Length > 200) screenTitle = screenTitle[..200];
+
+                var svg = LayoutSvgGenerator.RenderSvg(stepBp.ToUiBlueprint());
+                var safeSlug = string.Concat(screenTitle.Select(ch => char.IsLetterOrDigit(ch) ? ch : '_')).Trim('_');
+                if (string.IsNullOrWhiteSpace(safeSlug)) safeSlug = $"layout_{stepOrder}";
+                if (safeSlug.Length > 60) safeSlug = safeSlug[..60];
+                var originalFileName = $"{safeSlug}.svg";
+                var storedName = $"{Guid.NewGuid():N}_{originalFileName}";
+                await System.IO.File.WriteAllTextAsync(Path.Combine(dir, storedName), svg, Encoding.UTF8, ct);
+
+                var stepReqUids = stepBp.ReqUids
+                    .Where(u => !string.IsNullOrWhiteSpace(u))
+                    .Select(u => u.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var matchedPair = stepReqUids.Count > 0
+                    ? pairedReqs.FirstOrDefault(p => stepReqUids.Contains(p.Req.ReqUid, StringComparer.OrdinalIgnoreCase))
+                    : default;
+                var linkedDocId = matchedPair.Doc?.Id ?? primaryDoc.Id;
+                var notePrefix = string.IsNullOrWhiteSpace(stepBp.WorkflowStep) ? $"Step {stepOrder}" : stepBp.WorkflowStep.Trim();
+                var combinedNotes = string.IsNullOrWhiteSpace(request.Notes)
+                    ? $"{notePrefix} · {(usedAi ? "AI workflow layout (SVG)" : "Auto-generated workflow layout (SVG)")}"
+                    : $"{notePrefix} · {request.Notes.Trim()}";
+
+                var entity = new ProjectScreen
+                {
+                    ProjectId = projectId,
+                    Title = screenTitle,
+                    Kind = "LAYOUT",
+                    DocumentId = linkedDocId,
+                    ReqUidsJson = stepReqUids.Count > 0 ? JsonSerializer.Serialize(stepReqUids) : (selectedUids.Count > 0 ? JsonSerializer.Serialize(selectedUids) : null),
+                    Notes = combinedNotes,
+                    ImageFileName = originalFileName,
+                    ImageStoredName = storedName,
+                    ImageContentType = "image/svg+xml",
+                    CreatedById = userId,
+                    CreatedAt = now,
+                    UpdatedAt = now
+                };
+
+                _db.ProjectScreens.Add(entity);
+                createdEntities.Add((entity, svg, stepOrder, stepBp.WorkflowStep));
+            }
+
+            await _db.SaveChangesAsync(ct);
+
+            var ids = createdEntities.Select(x => x.Entity.Id).ToList();
+            var loadedList = await _db.ProjectScreens
+                .AsNoTracking()
+                .Include(s => s.Document)
+                .Include(s => s.CreatedBy)
+                .Where(s => ids.Contains(s.Id))
+                .ToListAsync(ct);
+
+            var itemsDto = createdEntities.Select(x =>
+            {
+                var loaded = loadedList.First(s => s.Id == x.Entity.Id);
+                return new GenerateLayoutItemDto
+                {
+                    Screen = MapDto(loaded),
+                    SvgContent = x.Svg,
+                    UsedAi = usedAi,
+                    StepOrder = x.StepOrder,
+                    WorkflowStep = x.WorkflowStep
+                };
+            }).ToList();
+
+            var first = itemsDto[0];
+            return Ok(new GenerateLayoutResponseDto
+            {
+                Screen = first.Screen,
+                SvgContent = first.SvgContent,
+                UsedAi = usedAi,
+                Items = itemsDto
+            });
+        }
+
+        // Single-screen generation (backward compatible)
+        var doc = docs[0];
+        var targetReqs = pairedReqs.Select(p => p.Req).ToList();
+        var layoutTitle = !string.IsNullOrWhiteSpace(request.Title)
+            ? request.Title.Trim()
+            : $"{doc.Title} · Layout";
+        if (layoutTitle.Length > 200) layoutTitle = layoutTitle[..200];
+
+        var singlePrompt = LayoutSvgGenerator.BuildPrompt(layoutTitle, doc, targetReqs, request.Notes, hasRefImage);
         LayoutSvgGenerator.UiBlueprint? blueprint = null;
-        var usedAi = false;
+        var singleUsedAi = false;
         try
         {
             var raw = hasRefImage
-                ? await _aiService.GenerateTextWithImageAsync(prompt, refImageBytes, refImageMime, ct)
-                : await _aiService.GenerateTextAsync(prompt, ct);
+                ? await _aiService.GenerateTextWithImageAsync(singlePrompt, refImageBytes, refImageMime, ct)
+                : await _aiService.GenerateTextAsync(singlePrompt, ct);
             blueprint = LayoutSvgGenerator.TryParseBlueprint(raw);
-            if (blueprint != null) usedAi = true;
+            if (blueprint != null) singleUsedAi = true;
             else _logger.LogWarning("AI returned unparseable layout JSON for document {DocumentId}. Raw length: {Len}", doc.Id, raw?.Length ?? 0);
         }
         catch (Exception ex)
@@ -414,22 +563,16 @@ public class ProjectScreensController : ControllerBase
         }
 
         blueprint ??= LayoutSvgGenerator.BuildFallbackBlueprint(layoutTitle, doc, targetReqs, request.Notes);
-        var svg = LayoutSvgGenerator.RenderSvg(blueprint);
+        var singleSvg = LayoutSvgGenerator.RenderSvg(blueprint);
 
-        var safeSlug = string.Concat(layoutTitle.Select(ch => char.IsLetterOrDigit(ch) ? ch : '_')).Trim('_');
-        if (string.IsNullOrWhiteSpace(safeSlug)) safeSlug = "layout";
-        if (safeSlug.Length > 60) safeSlug = safeSlug[..60];
-        var originalFileName = $"{safeSlug}.svg";
-        var storedName = $"{Guid.NewGuid():N}_{originalFileName}";
+        var singleSlug = string.Concat(layoutTitle.Select(ch => char.IsLetterOrDigit(ch) ? ch : '_')).Trim('_');
+        if (string.IsNullOrWhiteSpace(singleSlug)) singleSlug = "layout";
+        if (singleSlug.Length > 60) singleSlug = singleSlug[..60];
+        var singleFileName = $"{singleSlug}.svg";
+        var singleStoredName = $"{Guid.NewGuid():N}_{singleFileName}";
+        await System.IO.File.WriteAllTextAsync(Path.Combine(dir, singleStoredName), singleSvg, Encoding.UTF8, ct);
 
-        var dir = Path.Combine(_uploadRoot, "screens", projectId.ToString(CultureInfo.InvariantCulture));
-        Directory.CreateDirectory(dir);
-        var fullPath = Path.Combine(dir, storedName);
-        await System.IO.File.WriteAllTextAsync(fullPath, svg, Encoding.UTF8, ct);
-
-        var userId = _currentUser.UserIdOrNull!.Value;
-        var now = DateTime.UtcNow;
-        var entity = new ProjectScreen
+        var singleEntity = new ProjectScreen
         {
             ProjectId = projectId,
             Title = layoutTitle,
@@ -437,30 +580,41 @@ public class ProjectScreensController : ControllerBase
             DocumentId = doc.Id,
             ReqUidsJson = selectedUids.Count > 0 ? JsonSerializer.Serialize(selectedUids) : null,
             Notes = string.IsNullOrWhiteSpace(request.Notes)
-                ? (usedAi ? "AI generated wireframe (SVG)" : "Auto-generated wireframe (SVG)")
+                ? (singleUsedAi ? "AI generated wireframe (SVG)" : "Auto-generated wireframe (SVG)")
                 : request.Notes.Trim(),
-            ImageFileName = originalFileName,
-            ImageStoredName = storedName,
+            ImageFileName = singleFileName,
+            ImageStoredName = singleStoredName,
             ImageContentType = "image/svg+xml",
             CreatedById = userId,
             CreatedAt = now,
             UpdatedAt = now
         };
 
-        _db.ProjectScreens.Add(entity);
+        _db.ProjectScreens.Add(singleEntity);
         await _db.SaveChangesAsync(ct);
 
-        var loaded = await _db.ProjectScreens
+        var singleLoaded = await _db.ProjectScreens
             .AsNoTracking()
             .Include(s => s.Document)
             .Include(s => s.CreatedBy)
-            .FirstAsync(s => s.Id == entity.Id, ct);
+            .FirstAsync(s => s.Id == singleEntity.Id, ct);
 
+        var singleDto = MapDto(singleLoaded);
         return Ok(new GenerateLayoutResponseDto
         {
-            Screen = MapDto(loaded),
-            SvgContent = svg,
-            UsedAi = usedAi
+            Screen = singleDto,
+            SvgContent = singleSvg,
+            UsedAi = singleUsedAi,
+            Items = new List<GenerateLayoutItemDto>
+            {
+                new()
+                {
+                    Screen = singleDto,
+                    SvgContent = singleSvg,
+                    UsedAi = singleUsedAi,
+                    StepOrder = 1
+                }
+            }
         });
     }
 
@@ -513,6 +667,22 @@ public class ProjectScreensController : ControllerBase
     {
         var list = ParseReqUids(raw);
         return list.Count == 0 ? null : JsonSerializer.Serialize(list);
+    }
+
+    private static List<long> ParseDocIds(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return new List<long>();
+        try
+        {
+            return (JsonSerializer.Deserialize<List<long>>(raw) ?? new List<long>())
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+        }
+        catch
+        {
+            return new List<long>();
+        }
     }
 
     private static List<string> ParseReqUids(string? raw)

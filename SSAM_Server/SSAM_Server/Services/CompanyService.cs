@@ -100,6 +100,10 @@ public class CompanyService : ICompanyService
         {
             validationErrors["taxCode"] = new[] { "Mã số thuế là bắt buộc." };
         }
+        else if (taxCode.Length > 100)
+        {
+            validationErrors["taxCode"] = new[] { "Mã số thuế không được vượt quá 100 ký tự." };
+        }
 
         var address = request.Address?.Trim() ?? string.Empty;
         if (string.IsNullOrWhiteSpace(address))
@@ -111,7 +115,11 @@ public class CompanyService : ICompanyService
         if (!string.IsNullOrWhiteSpace(request.EmailDomain))
         {
             normalizedDomain = request.EmailDomain.Trim().ToLowerInvariant();
-            if (!EmailDomainRegex.IsMatch(normalizedDomain))
+            if (normalizedDomain.Length > 255)
+            {
+                validationErrors["emailDomain"] = new[] { "Tên miền email không được vượt quá 255 ký tự." };
+            }
+            else if (!EmailDomainRegex.IsMatch(normalizedDomain))
             {
                 validationErrors["emailDomain"] = new[] { "Tên miền email không đúng định dạng." };
             }
@@ -179,8 +187,13 @@ public class CompanyService : ICompanyService
         var normalizedDomain = string.IsNullOrWhiteSpace(request.EmailDomain)
             ? null
             : request.EmailDomain.Trim().ToLowerInvariant();
-        if (normalizedDomain != null && PublicEmailDomains.Contains(normalizedDomain))
+        if (normalizedDomain != null && normalizedDomain.Length > 255)
+            validationErrors["emailDomain"] = new[] { "Tên miền email không được vượt quá 255 ký tự." };
+        else if (normalizedDomain != null && PublicEmailDomains.Contains(normalizedDomain))
             validationErrors["emailDomain"] = new[] { "Không dùng tên miền email công cộng (gmail.com, yahoo.com…)." };
+
+        if (!string.IsNullOrWhiteSpace(request.TaxCode) && request.TaxCode.Trim().Length > 100)
+            validationErrors["taxCode"] = new[] { "Mã số thuế không được vượt quá 100 ký tự." };
 
         string? cleanPhone = null;
         if (!string.IsNullOrWhiteSpace(request.AdminPhone))
@@ -426,8 +439,13 @@ public class CompanyService : ICompanyService
         var email = (request.Email ?? string.Empty).Trim().ToLowerInvariant();
         if (string.IsNullOrWhiteSpace(fullName))
             errors["fullName"] = new[] { "Họ và tên không được để trống." };
+        else if (fullName.Length > 255)
+            errors["fullName"] = new[] { "Họ và tên không được vượt quá 255 ký tự." };
+
         if (string.IsNullOrWhiteSpace(email) || !email.Contains('@'))
             errors["email"] = new[] { "Email không hợp lệ." };
+        else if (email.Length > 255)
+            errors["email"] = new[] { "Email không được vượt quá 255 ký tự." };
         AuthService.ValidatePasswordRules(request.Password ?? string.Empty, errors);
         if (errors.Count > 0)
             return ServiceResult<CompanyUserDto>.ValidationFailure(errors);
@@ -540,6 +558,8 @@ public class CompanyService : ICompanyService
         var fullName = (request.FullName ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(fullName))
             return ServiceResult<CompanyUserDto>.ValidationFailure(new Dictionary<string, string[]> { ["fullName"] = new[] { "Họ và tên không được để trống." } });
+        if (fullName.Length > 255)
+            return ServiceResult<CompanyUserDto>.ValidationFailure(new Dictionary<string, string[]> { ["fullName"] = new[] { "Họ và tên không được vượt quá 255 ký tự." } });
 
         if (request.DepartmentId.HasValue)
         {

@@ -332,27 +332,10 @@ public class KanbanService : IKanbanService
         }
         else
         {
-            var initialStatus = await _db.WorkflowStatuses
-                .AsNoTracking()
-                .Include(s => s.Phase)
-                .Where(s => s.ProjectId == projectId && s.IsActive)
-                .OrderByDescending(s => s.IsInitial)
-                .ThenBy(s => s.Phase.Position)
-                .ThenBy(s => s.Position)
-                .FirstOrDefaultAsync(ct);
-
+            var initialStatus = await ResolveInitialStatusAsync(projectId, request.SprintId, ct);
             if (initialStatus == null)
                 return ServiceResult<IssueDetailDto>.NotFound("STATUS_NOT_FOUND", "Project has no active workflow statuses.");
             statusId = initialStatus.Id;
-        }
-
-        if (request.SprintId.HasValue)
-        {
-            var sprintExists = await _db.Sprints
-                .AsNoTracking()
-                .AnyAsync(s => s.Id == request.SprintId.Value && s.ProjectId == projectId, ct);
-            if (!sprintExists)
-                return ServiceResult<IssueDetailDto>.NotFound("SPRINT_NOT_FOUND", "Sprint not found in project.");
         }
 
         if (request.ParentId.HasValue)
@@ -364,7 +347,23 @@ public class KanbanService : IKanbanService
                 return ServiceResult<IssueDetailDto>.NotFound("ISSUE_NOT_FOUND", "Parent issue not found.");
             if (parent.ParentId.HasValue)
                 return ServiceResult<IssueDetailDto>.BadRequest("SUBTASK_DEPTH_EXCEEDED", "Subtasks cannot have nested subtasks.");
+            if (!request.SprintId.HasValue && parent.SprintId.HasValue)
+                request.SprintId = parent.SprintId;
         }
+
+        if (!request.SprintId.HasValue)
+        {
+            return ServiceResult<IssueDetailDto>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["sprintId"] = new[] { "Mỗi issue phải thuộc một Sprint theo quy trình Agile Scrum." }
+            });
+        }
+
+        var sprintExists = await _db.Sprints
+            .AsNoTracking()
+            .AnyAsync(s => s.Id == request.SprintId.Value && s.ProjectId == projectId, ct);
+        if (!sprintExists)
+            return ServiceResult<IssueDetailDto>.NotFound("SPRINT_NOT_FOUND", "Sprint not found in project.");
 
         var userId = _currentUser.UserId;
         var now = _clock.GetUtcNow().UtcDateTime;
@@ -773,6 +772,13 @@ public class KanbanService : IKanbanService
             }
             else
             {
+                if (issue.ParentId == null)
+                {
+                    return ServiceResult<IssueDetailDto>.ValidationFailure(new Dictionary<string, string[]>
+                    {
+                        ["sprintId"] = new[] { "Không thể bỏ Sprint: mỗi issue phải thuộc một Sprint." }
+                    });
+                }
                 sprintNote = "Chuyển về Backlog";
             }
 
@@ -856,6 +862,13 @@ public class KanbanService : IKanbanService
 
         var auth = await _accessGuard.EnsureProjectPermissionAsync(issue.ProjectId, PermissionKeys.IssueTransition, ct);
         if (!auth.IsSuccess) return auth.Cast<IssueDetailDto>();
+
+        if (!issue.SprintId.HasValue)
+        {
+            return ServiceResult<IssueDetailDto>.Conflict(
+                "SPRINT_REQUIRED",
+                "Issue phải thuộc một Sprint trước khi chuyển trạng thái.");
+        }
 
         var targetStatus = await _db.WorkflowStatuses
             .AsNoTracking()
@@ -1086,15 +1099,16 @@ public class KanbanService : IKanbanService
             });
         }
 
+        if (request.Items.Any(i => !i.SprintId.HasValue))
+        {
+            return ServiceResult<ItemsDto<IssueDetailDto>>.ValidationFailure(new Dictionary<string, string[]>
+            {
+                ["sprintId"] = new[] { "Vui lòng chọn Sprint cho các issue được tạo." }
+            });
+        }
+
         var project = await _db.Projects.AsNoTracking().FirstAsync(p => p.Id == projectId, ct);
-        var initialStatus = await _db.WorkflowStatuses
-            .AsNoTracking()
-            .Include(s => s.Phase)
-            .Where(s => s.ProjectId == projectId && s.IsActive)
-            .OrderByDescending(s => s.IsInitial)
-            .ThenBy(s => s.Phase.Position)
-            .ThenBy(s => s.Position)
-            .FirstOrDefaultAsync(ct);
+        var initialStatus = await ResolveInitialStatusAsync(projectId, request.Items.First().SprintId, ct);
 
         if (initialStatus == null)
             return ServiceResult<ItemsDto<IssueDetailDto>>.NotFound("STATUS_NOT_FOUND", "Project has no active workflow statuses.");
@@ -2032,6 +2046,35 @@ public class KanbanService : IKanbanService
             TotalPoints = issues.Sum(i => i.Points ?? 0),
             DonePoints = issues.Where(i => i.IsDone).Sum(i => i.Points ?? 0)
         };
+    }
+
+    private async Task<WorkflowStatus?> ResolveInitialStatusAsync(long projectId, long? sprintId, CancellationToken ct)
+    {
+        var activeStatuses = _db.WorkflowStatuses
+            .AsNoTracking()
+            .Include(s => s.Phase)
+            .Where(s => s.ProjectId == projectId && s.IsActive);
+
+        if (sprintId.HasValue)
+        {
+            var executionStatus = await activeStatuses
+                .Where(s => s.Phase.IsActive &&
+                            (s.Phase.Name.ToLower().Contains("sprint execution") ||
+                             s.Phase.Name.ToLower().Contains("execution")))
+                .OrderByDescending(s => s.IsInitial)
+                .ThenBy(s => s.Phase.Position)
+                .ThenBy(s => s.Position)
+                .FirstOrDefaultAsync(ct);
+
+            if (executionStatus != null)
+                return executionStatus;
+        }
+
+        return await activeStatuses
+            .OrderByDescending(s => s.IsInitial)
+            .ThenBy(s => s.Phase.Position)
+            .ThenBy(s => s.Position)
+            .FirstOrDefaultAsync(ct);
     }
 
     private async Task<string> ComputeTailRankAsync(long projectId, long? sprintId, long statusId, CancellationToken ct)
