@@ -48,6 +48,14 @@ public static class WorkflowValidator
                 Push("STATUS_NAME_REQUIRED", "Có trạng thái chưa đặt tên.", statusKey: s.EffectiveKey);
                 continue;
             }
+            if (trimmed.Length > 100)
+            {
+                Push("STATUS_NAME_TOO_LONG", "Tên trạng thái tối đa 100 ký tự.", statusKey: s.EffectiveKey);
+            }
+            if (!string.IsNullOrWhiteSpace(s.Description) && s.Description.Trim().Length > 500)
+            {
+                Push("STATUS_DESCRIPTION_TOO_LONG", $"Mô tả trạng thái \"{trimmed}\" tối đa 500 ký tự.", statusKey: s.EffectiveKey);
+            }
 
             if (seenNames.ContainsKey(trimmed))
             {

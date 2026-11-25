@@ -643,7 +643,7 @@ public class WorkspaceService : IWorkspaceService
         if (userId == null)
             return ServiceResult<WorkspaceMemberDto>.Unauthorized("Your session is invalid or has expired.");
 
-        var auth = await _permissionService.RequireWorkspaceAsync(userId.Value, workspaceId, PermissionKeys.WorkspaceMemberManage, cancellationToken);
+        var auth = await _permissionService.RequireWorkspaceAsync(userId.Value, workspaceId, PermissionKeys.WorkspaceMemberAssignRole, cancellationToken);
         if (!auth.IsSuccess)
             return ServiceResult<WorkspaceMemberDto>.FromError(auth);
 

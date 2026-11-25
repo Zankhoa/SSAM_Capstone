@@ -173,6 +173,10 @@ public class ProjectService : IProjectService
             errors["phases"] = new[] { "Dự án cần 1–10 phase" };
         else if (phases.Any(ph => string.IsNullOrWhiteSpace(ph.Name)))
             errors["phases"] = new[] { "Phase phải có tên" };
+        else if (phases.Any(ph => ph.Name.Trim().Length > 100))
+            errors["phases"] = new[] { "Tên giai đoạn tối đa 100 ký tự." };
+        else if (phases.Any(ph => !string.IsNullOrWhiteSpace(ph.Description) && ph.Description.Trim().Length > 1000))
+            errors["phases"] = new[] { "Mô tả giai đoạn tối đa 1000 ký tự." };
         else if (phases.Select(ph => ph.Name.Trim().ToLowerInvariant()).Distinct().Count() != phases.Count)
             errors["phases"] = new[] { "Tên phase bị trùng" };
 
