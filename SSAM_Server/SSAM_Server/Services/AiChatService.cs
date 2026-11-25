@@ -16,6 +16,7 @@ namespace SSAM_Server.Services;
 public class AiChatService : IAiChatService
 {
     private const string FallbackModelName = "SSAM-AI-Assistant";
+    private const int ChatMaxOutputTokens = 8192;
 
     private readonly AppDbContext _db;
     private readonly IChatClient _chatClient;
@@ -234,7 +235,18 @@ public class AiChatService : IAiChatService
             try
             {
                 var messages = BuildChatMessages(message, history, snapshot, retrievedSources);
-                var response = await _chatClient.GetResponseAsync(messages, cancellationToken: ct);
+                var response = await _chatClient.GetResponseAsync(
+                    messages,
+                    new ChatOptions { MaxOutputTokens = ChatMaxOutputTokens },
+                    cancellationToken: ct);
+                if (response.FinishReason == ChatFinishReason.Length)
+                {
+                    _logger.LogWarning(
+                        "AI project chat response reached the {MaxOutputTokens}-token output limit. Model: {Model}.",
+                        ChatMaxOutputTokens,
+                        response.ModelId ?? _options.DefaultModel);
+                }
+
                 var responseText = response.Text?.Trim();
                 if (!string.IsNullOrEmpty(responseText))
                 {
