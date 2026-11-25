@@ -96,20 +96,12 @@ public class CompanyService : ICompanyService
         }
 
         var taxCode = request.TaxCode?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(taxCode))
-        {
-            validationErrors["taxCode"] = new[] { "Mã số thuế là bắt buộc." };
-        }
-        else if (taxCode.Length > 100)
+        if (taxCode.Length > 100)
         {
             validationErrors["taxCode"] = new[] { "Mã số thuế không được vượt quá 100 ký tự." };
         }
 
         var address = request.Address?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(address))
-        {
-            validationErrors["address"] = new[] { "Địa chỉ công ty là bắt buộc." };
-        }
 
         string? normalizedDomain = null;
         if (!string.IsNullOrWhiteSpace(request.EmailDomain))
@@ -122,6 +114,10 @@ public class CompanyService : ICompanyService
             else if (!EmailDomainRegex.IsMatch(normalizedDomain))
             {
                 validationErrors["emailDomain"] = new[] { "Tên miền email không đúng định dạng." };
+            }
+            else if (PublicEmailDomains.Contains(normalizedDomain))
+            {
+                validationErrors["emailDomain"] = new[] { "Không thể sử dụng tên miền email công cộng (gmail.com, outlook.com, ...)." };
             }
         }
 
@@ -224,8 +220,8 @@ public class CompanyService : ICompanyService
                 Code = slug,
                 EmailDomain = normalizedDomain,
                 DomainAutoJoinEnabled = request.DomainAutoJoinEnabled,
-                TaxCode = request.TaxCode,
-                Address = request.Address,
+                TaxCode = request.TaxCode?.Trim() ?? string.Empty,
+                Address = request.Address?.Trim() ?? string.Empty,
                 Industry = "Software",
                 CompanySize = "10-50",
                 IsActive = true,

@@ -27,6 +27,14 @@ public class DepartmentsController : ControllerBase
         return result.ToActionResult(this);
     }
 
+    [HttpGet("assignable-users")]
+    [ProducesResponseType(typeof(ItemsDto<UserRefDto>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> ListAssignableUsers(long companyId, CancellationToken ct)
+    {
+        var result = await _departmentService.ListAssignableUsersAsync(companyId, ct);
+        return result.ToActionResult(this);
+    }
+
     [HttpPost]
     [ProducesResponseType(typeof(DepartmentDto), StatusCodes.Status201Created)]
     public async Task<IActionResult> Create(long companyId, [FromBody] CreateDepartmentRequestDto request, CancellationToken ct)

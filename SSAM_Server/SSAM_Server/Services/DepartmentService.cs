@@ -14,17 +14,20 @@ public class DepartmentService : IDepartmentService
 {
     private readonly AppDbContext _db;
     private readonly ICompanyRepository _companyRepository;
+    private readonly IPermissionService _permissionService;
     private readonly ICurrentUser _currentUser;
     private readonly TimeProvider _clock;
 
     public DepartmentService(
         AppDbContext db,
         ICompanyRepository companyRepository,
+        IPermissionService permissionService,
         ICurrentUser currentUser,
         TimeProvider clock)
     {
         _db = db;
         _companyRepository = companyRepository;
+        _permissionService = permissionService;
         _currentUser = currentUser;
         _clock = clock;
     }
@@ -68,6 +71,27 @@ public class DepartmentService : IDepartmentService
             .ToListAsync(ct);
 
         return ServiceResult<ItemsDto<DepartmentDto>>.Ok(new ItemsDto<DepartmentDto>(departments));
+    }
+
+    public async Task<ServiceResult<ItemsDto<UserRefDto>>> ListAssignableUsersAsync(long companyId, CancellationToken ct = default)
+    {
+        var guard = await RequireAdminAsync<ItemsDto<UserRefDto>>(companyId, ct);
+        if (guard != null) return guard;
+
+        var users = await _db.CompanyMembers
+            .AsNoTracking()
+            .Where(m => m.CompanyId == companyId && m.IsActive && m.User.IsActive)
+            .OrderBy(m => m.User.FullName)
+            .Select(m => new UserRefDto
+            {
+                UserId = m.UserId,
+                FullName = m.User.FullName,
+                Email = m.User.Email,
+                AvatarUrl = m.User.AvatarUrl
+            })
+            .ToListAsync(ct);
+
+        return ServiceResult<ItemsDto<UserRefDto>>.Ok(new ItemsDto<UserRefDto>(users));
     }
 
     public async Task<ServiceResult<DepartmentDto>> CreateAsync(long companyId, CreateDepartmentRequestDto request, CancellationToken ct = default)
@@ -174,8 +198,9 @@ public class DepartmentService : IDepartmentService
         if (userId == null)
             return ServiceResult.Unauthorized("Your session is invalid or has expired.");
 
-        if (!await _companyRepository.IsAdminAsync(companyId, userId.Value, ct))
-            return ServiceResult.Forbidden("ADMIN_ONLY", "Chỉ quản trị viên (Admin) mới có quyền quản lý phòng ban.");
+        var auth = await _permissionService.RequireTenantAsync(userId.Value, companyId, PermissionKeys.CompanyUpdate, ct);
+        if (!auth.IsSuccess)
+            return auth;
 
         var department = await _db.Departments.FirstOrDefaultAsync(d => d.Id == departmentId && d.CompanyId == companyId, ct);
         if (department == null)
@@ -234,8 +259,9 @@ public class DepartmentService : IDepartmentService
         if (userId == null)
             return ServiceResult<T>.Unauthorized("Your session is invalid or has expired.");
 
-        if (!await _companyRepository.IsAdminAsync(companyId, userId.Value, ct))
-            return ServiceResult<T>.Forbidden("ADMIN_ONLY", "Chỉ quản trị viên (Admin) mới có quyền quản lý phòng ban.");
+        var auth = await _permissionService.RequireTenantAsync(userId.Value, companyId, PermissionKeys.CompanyUpdate, ct);
+        if (!auth.IsSuccess)
+            return ServiceResult<T>.FromError(auth);
 
         return null;
     }
