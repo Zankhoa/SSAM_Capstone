@@ -443,6 +443,7 @@ public class CompanyService : ICompanyService
         else if (email.Length > 255)
             errors["email"] = new[] { "Email không được vượt quá 255 ký tự." };
         AuthService.ValidatePasswordRules(request.Password ?? string.Empty, errors);
+        var cleanPhone = ValidateOptionalPhone(request.Phone, errors);
         if (errors.Count > 0)
             return ServiceResult<CompanyUserDto>.ValidationFailure(errors);
 
@@ -511,7 +512,7 @@ public class CompanyService : ICompanyService
                 AccountId = account.Id,
                 Email = email,
                 FullName = fullName,
-                Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim(),
+                Phone = cleanPhone,
                 IsActive = true,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -551,11 +552,15 @@ public class CompanyService : ICompanyService
         if (!auth.IsSuccess)
             return ServiceResult<CompanyUserDto>.FromError(auth);
 
+        var errors = new Dictionary<string, string[]>();
         var fullName = (request.FullName ?? string.Empty).Trim();
         if (string.IsNullOrWhiteSpace(fullName))
-            return ServiceResult<CompanyUserDto>.ValidationFailure(new Dictionary<string, string[]> { ["fullName"] = new[] { "Họ và tên không được để trống." } });
-        if (fullName.Length > 255)
-            return ServiceResult<CompanyUserDto>.ValidationFailure(new Dictionary<string, string[]> { ["fullName"] = new[] { "Họ và tên không được vượt quá 255 ký tự." } });
+            errors["fullName"] = new[] { "Họ và tên không được để trống." };
+        else if (fullName.Length > 255)
+            errors["fullName"] = new[] { "Họ và tên không được vượt quá 255 ký tự." };
+        var cleanPhone = ValidateOptionalPhone(request.Phone, errors);
+        if (errors.Count > 0)
+            return ServiceResult<CompanyUserDto>.ValidationFailure(errors);
 
         if (request.DepartmentId.HasValue)
         {
@@ -570,7 +575,7 @@ public class CompanyService : ICompanyService
             return ServiceResult<CompanyUserDto>.NotFound("Không tìm thấy thành viên trong công ty.");
 
         member.User.FullName = fullName;
-        member.User.Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
+        member.User.Phone = cleanPhone;
         member.User.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
         member.DepartmentId = request.DepartmentId;
 
@@ -578,6 +583,26 @@ public class CompanyService : ICompanyService
 
         var dto = await _companyRepository.GetCompanyUserDtoAsync(companyId, targetUserId, cancellationToken);
         return ServiceResult<CompanyUserDto>.Ok(dto!);
+    }
+
+    private static string? ValidateOptionalPhone(string? rawPhone, Dictionary<string, string[]> errors, string fieldName = "phone")
+    {
+        if (string.IsNullOrWhiteSpace(rawPhone))
+            return null;
+
+        var trimmed = rawPhone.Trim();
+        var cleanPhone = Regex.Replace(trimmed, @"[\s\-]", "");
+        if (trimmed.Length > 50 || cleanPhone.Length > 50)
+        {
+            errors[fieldName] = new[] { "Số điện thoại không được vượt quá 50 ký tự." };
+            return null;
+        }
+        if (!Regex.IsMatch(cleanPhone, @"^(\+84|0)\d{9,10}$"))
+        {
+            errors[fieldName] = new[] { "Số điện thoại không hợp lệ (ví dụ: 0901234567 hoặc +84901234567)." };
+            return null;
+        }
+        return cleanPhone;
     }
 
     private static CompanyDto MapToDto(Company c)
