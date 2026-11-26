@@ -29,6 +29,7 @@ public class TestingService : ITestingService
     private const string RepositoryPlanName = "__REPOSITORY__";
     private const int MaxDesignsPerGeneration = 20;
     private const int AiTestCaseBatchSize = 3;
+    private const int MaxConcurrentAiTestCaseBatches = 3;
     private static readonly JsonSerializerOptions JsonOptions = ServiceMappingExtensions.DefaultJsonOptions;
     private static readonly Regex HexColorRegex = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
 
@@ -2465,70 +2466,41 @@ public class TestingService : ITestingService
             })
             .ToList();
 
-        var drafts = new List<AiGeneratedTestCaseDraftDto>();
-        for (var start = 0; start < generationContexts.Count; start += AiTestCaseBatchSize)
+        var batchCount = (generationContexts.Count + AiTestCaseBatchSize - 1) / AiTestCaseBatchSize;
+        using var batchLimiter = new SemaphoreSlim(MaxConcurrentAiTestCaseBatches);
+        List<AiGeneratedTestCaseDraftDto> drafts;
+        try
         {
-            var batchContexts = generationContexts
-                .Skip(start)
-                .Take(AiTestCaseBatchSize)
-                .Select((context, index) => new TestCaseGenerationContextDto
-                {
-                    RequirementIndex = index,
-                    RequirementUid = context.RequirementUid,
-                    Title = context.Title,
-                    Description = context.Description,
-                    Actor = context.Actor,
-                    Preconditions = context.Preconditions,
-                    Constraints = context.Constraints,
-                    AcceptanceCriteria = context.AcceptanceCriteria,
-                    ExistingTestCaseTitles = context.ExistingTestCaseTitles,
-                    DesignNames = context.DesignNames
-                })
-                .ToList();
-
-            var batchDesigns = resolvedDesigns
-                .Select((design, globalIndex) => (Design: design, GlobalIndex: globalIndex))
-                .Where(x => x.Design.Input.RequirementIndex >= start &&
-                            x.Design.Input.RequirementIndex < start + batchContexts.Count)
-                .ToList();
-            var batchDesignInputs = batchDesigns
-                .Select((x, localIndex) => new TestCaseDesignInput(
-                    localIndex,
-                    x.Design.Input.RequirementIndex - start,
-                    x.Design.Input.Name,
-                    x.Design.Input.ImageBytes,
-                    x.Design.Input.MimeType))
-                .ToList();
-
-            try
+            var batchTasks = Enumerable.Range(0, batchCount).Select(async batchNumber =>
             {
-                var batchDrafts = await _aiService.GenerateTestCaseDraftsAsync(batchContexts, batchDesignInputs, ct);
-                foreach (var draft in batchDrafts)
+                await batchLimiter.WaitAsync(ct);
+                try
                 {
-                    draft.RequirementIndex += start;
-                    if (draft.DesignIndex is int localDesignIndex &&
-                        localDesignIndex >= 0 &&
-                        localDesignIndex < batchDesigns.Count)
-                        draft.DesignIndex = batchDesigns[localDesignIndex].GlobalIndex;
-                    else
-                        draft.DesignIndex = null;
-                    drafts.Add(draft);
+                    return await GenerateTestCaseBatchAsync(
+                        batchNumber * AiTestCaseBatchSize,
+                        generationContexts,
+                        resolvedDesigns,
+                        ct);
                 }
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                if (drafts.Count == 0)
+                finally
                 {
-                    return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Failure(
-                        StatusCodes.Status502BadGateway,
-                        "AI_GENERATION_FAILED",
-                        $"Không thể sinh test case từ AI: {ex.Message}");
+                    batchLimiter.Release();
                 }
-            }
+            }).ToArray();
+
+            var batchResults = await Task.WhenAll(batchTasks);
+            drafts = batchResults.SelectMany(result => result).ToList();
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Failure(
+                StatusCodes.Status502BadGateway,
+                "AI_GENERATION_FAILED",
+                $"Không thể hoàn thành tất cả các lô sinh test case bằng AI: {ex.Message}");
         }
 
         var suggestions = drafts
@@ -2580,6 +2552,59 @@ public class TestingService : ITestingService
         }).ToList();
 
         return ServiceResult<ItemsDto<SuggestedTestCaseDto>>.Success(new ItemsDto<SuggestedTestCaseDto>(suggestions));
+    }
+
+    private async Task<List<AiGeneratedTestCaseDraftDto>> GenerateTestCaseBatchAsync(
+        int start,
+        IReadOnlyList<TestCaseGenerationContextDto> generationContexts,
+        IReadOnlyList<(TestCaseDesignInput Input, string? ThumbnailUrl)> resolvedDesigns,
+        CancellationToken ct)
+    {
+        var batchContexts = generationContexts
+            .Skip(start)
+            .Take(AiTestCaseBatchSize)
+            .Select((context, index) => new TestCaseGenerationContextDto
+            {
+                RequirementIndex = index,
+                RequirementUid = context.RequirementUid,
+                Title = context.Title,
+                Description = context.Description,
+                Actor = context.Actor,
+                Preconditions = context.Preconditions,
+                Constraints = context.Constraints,
+                AcceptanceCriteria = context.AcceptanceCriteria,
+                ExistingTestCaseTitles = context.ExistingTestCaseTitles,
+                DesignNames = context.DesignNames
+            })
+            .ToList();
+
+        var batchDesigns = resolvedDesigns
+            .Select((design, globalIndex) => (Design: design, GlobalIndex: globalIndex))
+            .Where(x => x.Design.Input.RequirementIndex >= start &&
+                        x.Design.Input.RequirementIndex < start + batchContexts.Count)
+            .ToList();
+        var batchDesignInputs = batchDesigns
+            .Select((x, localIndex) => new TestCaseDesignInput(
+                localIndex,
+                x.Design.Input.RequirementIndex - start,
+                x.Design.Input.Name,
+                x.Design.Input.ImageBytes,
+                x.Design.Input.MimeType))
+            .ToList();
+
+        var drafts = await _aiService.GenerateTestCaseDraftsAsync(batchContexts, batchDesignInputs, ct);
+        foreach (var draft in drafts)
+        {
+            draft.RequirementIndex += start;
+            if (draft.DesignIndex is int localDesignIndex &&
+                localDesignIndex >= 0 &&
+                localDesignIndex < batchDesigns.Count)
+                draft.DesignIndex = batchDesigns[localDesignIndex].GlobalIndex;
+            else
+                draft.DesignIndex = null;
+        }
+
+        return drafts;
     }
 
     private static bool TryDecodeDataUrlImage(string? dataUrl, out byte[] bytes, out string mimeType)
