@@ -109,6 +109,15 @@ public static partial class DocumentGeneratorHelper
             .ToList();
     }
 
+    private static JsonObject MakeRequirementSummaryTable(IReadOnlyList<GeneratedItemDto> generatedItems)
+    {
+        return DocumentContentHelper.MakeTable(
+            new[] { "Requirement ID", "Requirement", "Priority", "Description" },
+            generatedItems
+                .Select(item => new[] { item.ReqUid, item.Title, item.Priority, item.Description })
+                .ToList());
+    }
+
     public static List<ExtractedRequirementDto> ExtractRequirementsFromFields(NormalizedFieldsDto fields)
     {
         var items = new List<ExtractedRequirementDto>();
@@ -279,6 +288,11 @@ public static partial class DocumentGeneratorHelper
         content.Add(DocumentContentHelper.MakeHeading(2, "2. Next Feature Name"));
 
         content.Add(DocumentContentHelper.MakeHeading(1, "III. Functional Requirements"));
+        if (generatedItems.Count > 0)
+        {
+            content.Add(MakeRequirementSummaryTable(generatedItems));
+        }
+
         for (var i = 0; i < generatedItems.Count; i++)
         {
             var item = generatedItems[i];
@@ -372,6 +386,11 @@ public static partial class DocumentGeneratorHelper
         }
 
         content.Add(DocumentContentHelper.MakeHeading(2, "5. Business Requirements"));
+        if (generatedItems.Count > 0)
+        {
+            content.Add(MakeRequirementSummaryTable(generatedItems));
+        }
+
         foreach (var item in generatedItems)
         {
             content.Add(DocumentContentHelper.MakeReqHeading(
@@ -462,6 +481,11 @@ public static partial class DocumentGeneratorHelper
 
         content.Add(DocumentContentHelper.MakeHeading(2, "4. User Requirements"));
         content.Add(DocumentContentHelper.MakeHeading(3, "4.1 Functional Requirements"));
+        if (generatedItems.Count > 0)
+        {
+            content.Add(MakeRequirementSummaryTable(generatedItems));
+        }
+
         foreach (var item in generatedItems)
         {
             content.Add(DocumentContentHelper.MakeReqHeading(
