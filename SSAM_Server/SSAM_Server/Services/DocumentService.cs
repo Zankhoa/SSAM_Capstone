@@ -2,7 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Documents;
 using SSAM_Server.Interfaces.Services;
@@ -13,7 +13,7 @@ namespace SSAM_Server.Services;
 
 public class DocumentService : IDocumentService
 {
-    private readonly AppDbContext _db;
+    private readonly IDocumentRepository _db;
     private readonly ICurrentUser _currentUser;
     private readonly IPermissionService _permissions;
     private readonly TimeProvider _clock;
@@ -24,7 +24,7 @@ public class DocumentService : IDocumentService
     private readonly INotificationService _notifications;
 
     public DocumentService(
-        AppDbContext db,
+        IDocumentRepository db,
         ICurrentUser currentUser,
         IPermissionService permissions,
         TimeProvider clock,
@@ -188,7 +188,7 @@ public class DocumentService : IDocumentService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.DocumentNodes.Add(folder);
+            _db.Add(folder);
             await _db.SaveChangesAsync(ct);
 
             return ServiceResult<object>.Created(MapNodeDto(folder, 0));
@@ -231,7 +231,7 @@ public class DocumentService : IDocumentService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.DocumentNodes.Add(node);
+            _db.Add(node);
             await _db.SaveChangesAsync(innerCt);
 
             var version = new DocumentVersion
@@ -248,14 +248,14 @@ public class DocumentService : IDocumentService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.DocumentVersions.Add(version);
+            _db.Add(version);
             await _db.SaveChangesAsync(innerCt);
 
             node.CurrentVersionId = version.Id;
 
             foreach (var r in extractedReqs)
             {
-                _db.RequirementItems.Add(new RequirementItem
+                _db.Add(new RequirementItem
                 {
                     DocumentId = node.Id,
                     VersionId = version.Id,
@@ -276,7 +276,7 @@ public class DocumentService : IDocumentService
                 });
             }
 
-            _db.DocumentActivities.Add(new DocumentActivity
+            _db.Add(new DocumentActivity
             {
                 DocumentId = node.Id,
                 VersionId = version.Id,
@@ -327,7 +327,7 @@ public class DocumentService : IDocumentService
                 node.Title = newTitle;
                 if (node.Kind == DocumentNodeKinds.Page)
                 {
-                    _db.DocumentActivities.Add(new DocumentActivity
+                    _db.Add(new DocumentActivity
                     {
                         DocumentId = node.Id,
                         VersionId = node.CurrentVersionId,
@@ -370,7 +370,7 @@ public class DocumentService : IDocumentService
             node.ParentId = request.ParentId;
             if (node.Kind == DocumentNodeKinds.Page)
             {
-                _db.DocumentActivities.Add(new DocumentActivity
+                _db.Add(new DocumentActivity
                 {
                     DocumentId = node.Id,
                     VersionId = node.CurrentVersionId,
@@ -431,7 +431,7 @@ public class DocumentService : IDocumentService
             n.UpdatedAt = now;
             if (n.Kind == DocumentNodeKinds.Page)
             {
-                _db.DocumentActivities.Add(new DocumentActivity
+                _db.Add(new DocumentActivity
                 {
                     DocumentId = n.Id,
                     VersionId = n.CurrentVersionId,
@@ -581,7 +581,7 @@ public class DocumentService : IDocumentService
                 .OrderBy(r => r.SortOrder)
                 .ToListAsync(innerCt);
 
-            _db.RequirementItems.RemoveRange(oldReqs);
+            _db.RemoveRange(oldReqs);
 
             var newReqEntities = extractedReqs.Select(r => new RequirementItem
             {
@@ -600,7 +600,7 @@ public class DocumentService : IDocumentService
                 SortOrder = r.SortOrder
             }).ToList();
 
-            _db.RequirementItems.AddRange(newReqEntities);
+            _db.AddRange(newReqEntities);
 
             version.Content = normalizedJson;
             version.ContentText = plainText;
@@ -612,13 +612,13 @@ public class DocumentService : IDocumentService
             version.UpdatedById = userId;
             version.UpdatedAt = now;
             node.UpdatedAt = now;
-            _db.DocumentVersions.Update(version);
-            _db.DocumentNodes.Update(node);
+            _db.Update(version);
+            _db.Update(node);
 
             var summary = DocumentContentHelper.SummarizeReqChanges(oldReqs, newReqEntities);
             if (summary.Added.Count > 0 || summary.Modified.Count > 0 || summary.Removed.Count > 0)
             {
-                _db.DocumentActivities.Add(new DocumentActivity
+                _db.Add(new DocumentActivity
                 {
                     DocumentId = documentId,
                     VersionId = versionId,
@@ -764,7 +764,7 @@ public class DocumentService : IDocumentService
             .ToListAsync(ct);
         if (existingReqChanges.Count > 0)
         {
-            _db.DocumentVersionReqChanges.RemoveRange(existingReqChanges);
+            _db.RemoveRange(existingReqChanges);
         }
 
         var minorSet = (request?.MinorReqUids ?? new List<string>())
@@ -774,7 +774,7 @@ public class DocumentService : IDocumentService
 
         foreach (var reqUid in reqUids.Distinct(StringComparer.OrdinalIgnoreCase))
         {
-            _db.DocumentVersionReqChanges.Add(new DocumentVersionReqChange
+            _db.Add(new DocumentVersionReqChange
             {
                 VersionId = versionId,
                 ReqUid = reqUid,
@@ -793,7 +793,7 @@ public class DocumentService : IDocumentService
         version.RowVersion += 1;
         node.UpdatedAt = now;
 
-        _db.DocumentActivities.Add(new DocumentActivity
+        _db.Add(new DocumentActivity
         {
             DocumentId = documentId,
             VersionId = versionId,
@@ -921,8 +921,8 @@ public class DocumentService : IDocumentService
             node.BaselineVersionId = version.Id;
             node.CurrentVersionId = version.Id;
             node.UpdatedAt = now;
-            _db.DocumentVersions.Update(version);
-            _db.DocumentNodes.Update(node);
+            _db.Update(version);
+            _db.Update(node);
 
             // Cross-module propagation for changed/removed requirements
             await _requirementSync.PropagateBaselineChangesAsync(node, version, newReqs, userId, now, innerCt);
@@ -934,7 +934,7 @@ public class DocumentService : IDocumentService
                 activityNote = DocumentContentHelper.FormatReqSummary(diffSummary);
             }
 
-            _db.DocumentActivities.Add(new DocumentActivity
+            _db.Add(new DocumentActivity
             {
                 DocumentId = documentId,
                 VersionId = version.Id,
@@ -1008,7 +1008,7 @@ public class DocumentService : IDocumentService
         version.RowVersion += 1;
         node.UpdatedAt = now;
 
-        _db.DocumentActivities.Add(new DocumentActivity
+        _db.Add(new DocumentActivity
         {
             DocumentId = documentId,
             VersionId = version.Id,
@@ -1081,7 +1081,7 @@ public class DocumentService : IDocumentService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.DocumentVersions.Add(newVersion);
+            _db.Add(newVersion);
             await _db.SaveChangesAsync(innerCt);
 
             var currentReqs = await _db.RequirementItems
@@ -1092,7 +1092,7 @@ public class DocumentService : IDocumentService
 
             foreach (var r in currentReqs)
             {
-                _db.RequirementItems.Add(new RequirementItem
+                _db.Add(new RequirementItem
                 {
                     DocumentId = documentId,
                     VersionId = newVersion.Id,
@@ -1115,9 +1115,9 @@ public class DocumentService : IDocumentService
 
             node.CurrentVersionId = newVersion.Id;
             node.UpdatedAt = now;
-            _db.DocumentNodes.Update(node);
+            _db.Update(node);
 
-            _db.DocumentActivities.Add(new DocumentActivity
+            _db.Add(new DocumentActivity
             {
                 DocumentId = documentId,
                 VersionId = newVersion.Id,
@@ -1299,7 +1299,7 @@ public class DocumentService : IDocumentService
                     }
                 }
                 req.Version.Content = root.ToJsonString();
-                _db.DocumentVersions.Update(req.Version);
+                _db.Update(req.Version);
                 await _db.SaveChangesAsync(ct);
             }
         }
@@ -1357,7 +1357,7 @@ public class DocumentService : IDocumentService
 
         await _requirementSync.ConfirmRequirementFreshAsync(documentId, normalizedUid, req.ContentHash, now, ct);
 
-        _db.DocumentActivities.Add(new DocumentActivity
+        _db.Add(new DocumentActivity
         {
             DocumentId = documentId,
             VersionId = targetVersionId.Value,
@@ -1606,7 +1606,7 @@ public class DocumentService : IDocumentService
             CreatedAt = now
         };
 
-        _db.DocumentComments.Add(comment);
+        _db.Add(comment);
         await _db.SaveChangesAsync(ct);
 
         if (request.MentionUserIds != null && request.MentionUserIds.Count > 0)
@@ -1619,7 +1619,7 @@ public class DocumentService : IDocumentService
 
             foreach (var uid in validUserIds)
             {
-                _db.DocumentCommentMentions.Add(new DocumentCommentMention
+                _db.Add(new DocumentCommentMention
                 {
                     CommentId = comment.Id,
                     UserId = uid
@@ -1627,7 +1627,7 @@ public class DocumentService : IDocumentService
             }
         }
 
-        _db.DocumentActivities.Add(new DocumentActivity
+        _db.Add(new DocumentActivity
         {
             DocumentId = documentId,
             VersionId = request.VersionId,
@@ -1895,7 +1895,7 @@ public class DocumentService : IDocumentService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.DocumentNodes.Add(node);
+            _db.Add(node);
             await _db.SaveChangesAsync(innerCt);
 
             var version = new DocumentVersion
@@ -1912,14 +1912,14 @@ public class DocumentService : IDocumentService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.DocumentVersions.Add(version);
+            _db.Add(version);
             await _db.SaveChangesAsync(innerCt);
 
             node.CurrentVersionId = version.Id;
 
             foreach (var r in extractedReqs)
             {
-                _db.RequirementItems.Add(new RequirementItem
+                _db.Add(new RequirementItem
                 {
                     DocumentId = node.Id,
                     VersionId = version.Id,
@@ -1940,7 +1940,7 @@ public class DocumentService : IDocumentService
                 });
             }
 
-            _db.DocumentGenerations.Add(new DocumentGeneration
+            _db.Add(new DocumentGeneration
             {
                 ProjectId = projectId,
                 DocumentId = node.Id,
@@ -1951,7 +1951,7 @@ public class DocumentService : IDocumentService
                 CreatedAt = now
             });
 
-            _db.DocumentActivities.Add(new DocumentActivity
+            _db.Add(new DocumentActivity
             {
                 DocumentId = node.Id,
                 VersionId = version.Id,

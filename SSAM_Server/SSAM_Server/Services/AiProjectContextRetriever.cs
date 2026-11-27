@@ -1,7 +1,7 @@
 using System.Linq.Expressions;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Ai;
 using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
@@ -31,9 +31,9 @@ public class AiProjectContextRetriever : IAiProjectContextRetriever
         "các", "của", "đã", "đang", "được", "gì", "là", "nào", "những", "trong", "và", "về"
     };
 
-    private readonly AppDbContext _db;
+    private readonly IAiRepository _db;
 
-    public AiProjectContextRetriever(AppDbContext db)
+    public AiProjectContextRetriever(IAiRepository db)
     {
         _db = db;
     }

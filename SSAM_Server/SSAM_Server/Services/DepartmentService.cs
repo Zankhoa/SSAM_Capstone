@@ -1,6 +1,7 @@
+using System.Globalization;
+using System.Text;
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
-using SSAM_Server.Data;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Companies;
 using SSAM_Server.Interfaces.Repositories;
@@ -12,14 +13,14 @@ namespace SSAM_Server.Services;
 
 public class DepartmentService : IDepartmentService
 {
-    private readonly AppDbContext _db;
+    private readonly IDepartmentRepository _db;
     private readonly ICompanyRepository _companyRepository;
     private readonly IPermissionService _permissionService;
     private readonly ICurrentUser _currentUser;
     private readonly TimeProvider _clock;
 
     public DepartmentService(
-        AppDbContext db,
+        IDepartmentRepository db,
         ICompanyRepository companyRepository,
         IPermissionService permissionService,
         ICurrentUser currentUser,
@@ -124,6 +125,8 @@ public class DepartmentService : IDepartmentService
         if (code != null && await _db.Departments.AsNoTracking().AnyAsync(d => d.CompanyId == companyId && d.Code == code, ct))
             return ServiceResult<DepartmentDto>.Conflict("DEPARTMENT_CODE_EXISTS", "Mã phòng ban đã tồn tại trong công ty.");
 
+        code ??= await GenerateDepartmentCodeAsync(companyId, name, null, ct);
+
         var now = _clock.GetUtcNow().UtcDateTime;
         var department = new Department
         {
@@ -136,7 +139,7 @@ public class DepartmentService : IDepartmentService
             UpdatedAt = now
         };
 
-        _db.Departments.Add(department);
+        _db.Add(department);
         await _db.SaveChangesAsync(ct);
 
         return ServiceResult<DepartmentDto>.Created(await GetDtoAsync(department.Id, ct));
@@ -172,7 +175,7 @@ public class DepartmentService : IDepartmentService
             if (code != null && await _db.Departments.AsNoTracking().AnyAsync(d => d.CompanyId == companyId && d.Id != departmentId && d.Code == code, ct))
                 return ServiceResult<DepartmentDto>.Conflict("DEPARTMENT_CODE_EXISTS", "Mã phòng ban đã tồn tại trong công ty.");
 
-            department.Code = code;
+            department.Code = code ?? await GenerateDepartmentCodeAsync(companyId, department.Name, departmentId, ct);
         }
 
         if (request.Description != null)
@@ -212,7 +215,7 @@ public class DepartmentService : IDepartmentService
         foreach (var m in members)
             m.DepartmentId = null;
 
-        _db.Departments.Remove(department);
+        _db.Remove(department);
         await _db.SaveChangesAsync(ct);
         return ServiceResult.NoContent();
     }
@@ -251,6 +254,56 @@ public class DepartmentService : IDepartmentService
         await _db.SaveChangesAsync(ct);
 
         return ServiceResult<DepartmentDto>.Ok(await GetDtoAsync(departmentId, ct));
+    }
+
+    private async Task<string> GenerateDepartmentCodeAsync(long companyId, string name, long? excludeDepartmentId, CancellationToken ct)
+    {
+        var prefix = BuildDepartmentPrefix(name);
+        var existingCodes = await _db.Departments.AsNoTracking()
+            .Where(d => d.CompanyId == companyId
+                && (excludeDepartmentId == null || d.Id != excludeDepartmentId.Value)
+                && d.Code != null
+                && d.Code.StartsWith(prefix + "-"))
+            .Select(d => d.Code!)
+            .ToListAsync(ct);
+
+        var existingSet = new HashSet<string>(existingCodes, StringComparer.OrdinalIgnoreCase);
+        var seq = 1;
+        string candidate;
+        do
+        {
+            candidate = $"{prefix}-{seq:D2}";
+            seq++;
+        } while (existingSet.Contains(candidate));
+
+        return candidate;
+    }
+
+    private static string BuildDepartmentPrefix(string name)
+    {
+        var normalized = name.Replace('Đ', 'D').Replace('đ', 'd').Normalize(NormalizationForm.FormD);
+        var stripped = new StringBuilder(normalized.Length);
+        foreach (var ch in normalized)
+        {
+            if (CharUnicodeInfo.GetUnicodeCategory(ch) != UnicodeCategory.NonSpacingMark)
+                stripped.Append(ch);
+        }
+
+        var initials = new StringBuilder();
+        foreach (var word in stripped.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+        {
+            foreach (var ch in word)
+            {
+                if (char.IsLetterOrDigit(ch))
+                {
+                    initials.Append(char.ToUpperInvariant(ch));
+                    break;
+                }
+            }
+        }
+
+        var prefix = initials.Length > 0 ? initials.ToString() : "DEPT";
+        return prefix.Length > 40 ? prefix[..40] : prefix;
     }
 
     private async Task<ServiceResult<T>?> RequireAdminAsync<T>(long companyId, CancellationToken ct)

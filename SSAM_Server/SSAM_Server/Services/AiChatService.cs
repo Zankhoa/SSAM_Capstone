@@ -4,7 +4,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using SSAM_Server.Common;
 using SSAM_Server.Configurations;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Ai;
 using SSAM_Server.Interfaces.Security;
 using SSAM_Server.Interfaces.Services;
@@ -18,7 +18,7 @@ public class AiChatService : IAiChatService
     private const string FallbackModelName = "SSAM-AI-Assistant";
     private const int ChatMaxOutputTokens = 8192;
 
-    private readonly AppDbContext _db;
+    private readonly IAiRepository _db;
     private readonly IChatClient _chatClient;
     private readonly ICurrentUser _currentUser;
     private readonly IProjectAccessGuard _accessGuard;
@@ -28,7 +28,7 @@ public class AiChatService : IAiChatService
     private readonly ILogger<AiChatService> _logger;
 
     public AiChatService(
-        AppDbContext db,
+        IAiRepository db,
         IChatClient chatClient,
         ICurrentUser currentUser,
         IProjectAccessGuard accessGuard,
@@ -153,7 +153,7 @@ public class AiChatService : IAiChatService
                 CanViewDocuments = canViewDocuments,
                 CanViewTests = canViewTests
             };
-            _db.AiConversations.Add(conversation);
+            _db.Add(conversation);
         }
 
         var userEntry = new AiConversationMessage

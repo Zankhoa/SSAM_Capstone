@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Documents;
 using SSAM_Server.DTOs.Kanban;
@@ -17,7 +17,7 @@ namespace SSAM_Server.Services;
 
 public class TestingService : ITestingService
 {
-    private readonly AppDbContext _db;
+    private readonly ITestingRepository _db;
     private readonly ICurrentUser _currentUser;
     private readonly IProjectAccessGuard _accessGuard;
     private readonly IKanbanService _kanbanService;
@@ -34,7 +34,7 @@ public class TestingService : ITestingService
     private static readonly Regex HexColorRegex = new(@"^#[0-9a-fA-F]{6}$", RegexOptions.Compiled);
 
     public TestingService(
-        AppDbContext db,
+        ITestingRepository db,
         ICurrentUser currentUser,
         IProjectAccessGuard accessGuard,
         IKanbanService kanbanService,
@@ -107,7 +107,7 @@ public class TestingService : ITestingService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.TestPlans.Add(repo);
+            _db.Add(repo);
             await _db.SaveChangesAsync(ct);
         }
 
@@ -183,7 +183,7 @@ public class TestingService : ITestingService
                     Position = ++nextModPos,
                     CaseSeq = 0
                 };
-                _db.TestModules.Add(mod);
+                _db.Add(mod);
                 await _db.SaveChangesAsync(ct);
                 targetModules.Add(mod);
             }
@@ -201,7 +201,7 @@ public class TestingService : ITestingService
                     AnchorId = src.Section.AnchorId,
                     Position = nextSecPos
                 };
-                _db.TestSections.Add(sec);
+                _db.Add(sec);
                 await _db.SaveChangesAsync(ct);
                 mod.Sections.Add(sec);
             }
@@ -231,12 +231,12 @@ public class TestingService : ITestingService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.TestCases.Add(clone);
+            _db.Add(clone);
             await _db.SaveChangesAsync(ct);
 
             foreach (var link in src.RequirementLinks)
             {
-                _db.TestCaseRequirementLinks.Add(new TestCaseRequirementLink
+                _db.Add(new TestCaseRequirementLink
                 {
                     TestCaseId = clone.Id,
                     DocumentId = link.DocumentId,
@@ -250,7 +250,7 @@ public class TestingService : ITestingService
             createdIds.Add(clone.Id);
         }
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = planId,
             Type = TestActivityTypes.TestCase,
@@ -300,7 +300,7 @@ public class TestingService : ITestingService
                 CreatedAt = now,
                 UpdatedAt = now
             };
-            _db.TestPlans.Add(plan);
+            _db.Add(plan);
             await _db.SaveChangesAsync(innerCt);
 
             var envNames = (request.Environments ?? new List<string>())
@@ -316,7 +316,7 @@ public class TestingService : ITestingService
 
             for (var i = 0; i < envNames.Count; i++)
             {
-                _db.TestEnvironments.Add(new TestEnvironment
+                _db.Add(new TestEnvironment
                 {
                     PlanId = plan.Id,
                     Name = envNames[i],
@@ -328,7 +328,7 @@ public class TestingService : ITestingService
                 });
             }
 
-            _db.TestActivities.Add(new TestActivity
+            _db.Add(new TestActivity
             {
                 PlanId = plan.Id,
                 Type = TestActivityTypes.Setup,
@@ -435,7 +435,7 @@ public class TestingService : ITestingService
                 await _db.TestEnvironments.Where(e => e.PlanId == planId).ExecuteDeleteAsync(innerCt);
             }
 
-            _db.TestPlans.Remove(plan);
+            _db.Remove(plan);
             await _db.SaveChangesAsync(innerCt);
             return ServiceResult.NoContent();
         }, ct);
@@ -482,9 +482,9 @@ public class TestingService : ITestingService
             IsDeleted = false,
             CreatedAt = now
         };
-        _db.TestEnvironments.Add(env);
+        _db.Add(env);
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = planId,
             Type = TestActivityTypes.Setup,
@@ -563,12 +563,12 @@ public class TestingService : ITestingService
         env.Plan.UpdatedAt = now;
 
         var assignments = await _db.TestAssignments.Where(a => a.EnvId == envId).ToListAsync(ct);
-        if (assignments.Count > 0) _db.TestAssignments.RemoveRange(assignments);
+        if (assignments.Count > 0) _db.RemoveRange(assignments);
 
         var flags = await _db.TestRetestFlags.Where(f => f.EnvId == envId).ToListAsync(ct);
-        if (flags.Count > 0) _db.TestRetestFlags.RemoveRange(flags);
+        if (flags.Count > 0) _db.RemoveRange(flags);
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = env.PlanId,
             Type = TestActivityTypes.Setup,
@@ -623,7 +623,7 @@ public class TestingService : ITestingService
             DeployedById = userId,
             FixedIssueIds = JsonSerializer.Serialize(fixedIssueIds)
         };
-        _db.TestBuilds.Add(build);
+        _db.Add(build);
 
         int retestCount = 0;
         if (fixedIssueIds.Count > 0)
@@ -665,7 +665,7 @@ public class TestingService : ITestingService
                 }
                 else
                 {
-                    _db.TestRetestFlags.Add(new TestRetestFlag
+                    _db.Add(new TestRetestFlag
                     {
                         TestCaseId = tc.Id,
                         EnvId = envId,
@@ -689,7 +689,7 @@ public class TestingService : ITestingService
             ? $" (fixed {string.Join(", ", fixedKeysText)} → {retestCount} case(s) need retest)"
             : string.Empty;
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = env.PlanId,
             Type = TestActivityTypes.Build,
@@ -786,7 +786,7 @@ public class TestingService : ITestingService
             }
             else
             {
-                _db.TestRetestFlags.Add(new TestRetestFlag
+                _db.Add(new TestRetestFlag
                 {
                     TestCaseId = tc.Id,
                     EnvId = envId,
@@ -800,7 +800,7 @@ public class TestingService : ITestingService
             retestCount++;
         }
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = env.PlanId,
             Type = TestActivityTypes.Build,
@@ -869,7 +869,7 @@ public class TestingService : ITestingService
             Position = maxPos + 1,
             CaseSeq = 0
         };
-        _db.TestModules.Add(module);
+        _db.Add(module);
         await _db.SaveChangesAsync(ct);
 
         // Auto-create top-level sections from document headings if available
@@ -903,7 +903,7 @@ public class TestingService : ITestingService
             for (var i = 0; i < docSections.Count; i++)
             {
                 var ds = docSections[i];
-                _db.TestSections.Add(new TestSection
+                _db.Add(new TestSection
                 {
                     ModuleId = module.Id,
                     ParentId = null,
@@ -916,7 +916,7 @@ public class TestingService : ITestingService
         }
         else
         {
-            _db.TestSections.Add(new TestSection
+            _db.Add(new TestSection
             {
                 ModuleId = module.Id,
                 ParentId = null,
@@ -927,7 +927,7 @@ public class TestingService : ITestingService
             });
         }
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = planId,
             Type = TestActivityTypes.Setup,
@@ -1009,7 +1009,7 @@ public class TestingService : ITestingService
             await _db.TestSections.Where(s => s.ModuleId == moduleId && s.ParentId != null).ExecuteDeleteAsync(innerCt);
             await _db.TestSections.Where(s => s.ModuleId == moduleId).ExecuteDeleteAsync(innerCt);
 
-            _db.TestModules.Remove(module);
+            _db.Remove(module);
             module.Plan.UpdatedAt = now;
             await _db.SaveChangesAsync(innerCt);
 
@@ -1065,7 +1065,7 @@ public class TestingService : ITestingService
             AnchorId = string.IsNullOrWhiteSpace(request.AnchorId) ? null : request.AnchorId.Trim(),
             Position = maxPos + 1
         };
-        _db.TestSections.Add(section);
+        _db.Add(section);
         module.Plan.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
         await _db.SaveChangesAsync(ct);
 
@@ -1232,9 +1232,9 @@ public class TestingService : ITestingService
             {
                 if (existing != null)
                 {
-                    _db.TestAssignments.Remove(existing);
+                    _db.Remove(existing);
                     existingList.Remove(existing);
-                    _db.TestActivities.Add(new TestActivity
+                    _db.Add(new TestActivity
                     {
                         PlanId = planId,
                         Type = TestActivityTypes.Assign,
@@ -1257,7 +1257,7 @@ public class TestingService : ITestingService
                         EnvId = item.EnvId,
                         AssigneeId = item.AssigneeId.Value
                     };
-                    _db.TestAssignments.Add(created);
+                    _db.Add(created);
                     existingList.Add(created);
                 }
                 else
@@ -1268,7 +1268,7 @@ public class TestingService : ITestingService
                 if (changed)
                 {
                     var assigneeUser = await GetUserRefAsync(item.AssigneeId.Value, ct);
-                    _db.TestActivities.Add(new TestActivity
+                    _db.Add(new TestActivity
                     {
                         PlanId = planId,
                         Type = TestActivityTypes.Assign,
@@ -1511,7 +1511,7 @@ public class TestingService : ITestingService
             CreatedAt = now,
             UpdatedAt = now
         };
-        _db.TestCases.Add(tc);
+        _db.Add(tc);
         await _db.SaveChangesAsync(ct);
 
         if (request.RequirementRefs != null && request.RequirementRefs.Count > 0)
@@ -1531,7 +1531,7 @@ public class TestingService : ITestingService
             }
         }
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = planId,
             Type = TestActivityTypes.TestCase,
@@ -1636,7 +1636,7 @@ public class TestingService : ITestingService
         tc.UpdatedAt = now;
         tc.Plan.UpdatedAt = now;
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = tc.PlanId,
             Type = TestActivityTypes.TestCase,
@@ -1744,7 +1744,7 @@ public class TestingService : ITestingService
             // Clear retest flags on this environment
             if (tc.RetestFlags.Count > 0)
             {
-                _db.TestRetestFlags.RemoveRange(tc.RetestFlags);
+                _db.RemoveRange(tc.RetestFlags);
             }
 
             long? behalfOfId = null;
@@ -1757,12 +1757,12 @@ public class TestingService : ITestingService
             {
                 if (tc.Results.Count > 0)
                 {
-                    _db.TestResults.RemoveRange(tc.Results);
+                    _db.RemoveRange(tc.Results);
                 }
             }
             else
             {
-                _db.TestResults.Add(new TestResult
+                _db.Add(new TestResult
                 {
                     TestCaseId = tc.Id,
                     EnvId = request.EnvId,
@@ -1776,7 +1776,7 @@ public class TestingService : ITestingService
 
             tc.UpdatedAt = now;
 
-            _db.TestActivities.Add(new TestActivity
+            _db.Add(new TestActivity
             {
                 PlanId = planId,
                 Type = TestActivityTypes.Result,
@@ -1818,7 +1818,7 @@ public class TestingService : ITestingService
                         tc.BugIssue.ResolvedAt = null;
                         tc.BugIssue.UpdatedAt = now;
 
-                        _db.IssueActivities.Add(new IssueActivity
+                        _db.Add(new IssueActivity
                         {
                             IssueId = tc.BugIssue.Id,
                             Action = IssueActivityActions.Transitioned,
@@ -1837,7 +1837,7 @@ public class TestingService : ITestingService
                         });
                     }
 
-                    _db.TestActivities.Add(new TestActivity
+                    _db.Add(new TestActivity
                     {
                         PlanId = planId,
                         Type = TestActivityTypes.Bug,
@@ -1937,7 +1937,7 @@ public class TestingService : ITestingService
             tc.BugIssueId = createdIssue.IssueId;
             tc.UpdatedAt = now;
 
-            _db.TestActivities.Add(new TestActivity
+            _db.Add(new TestActivity
             {
                 PlanId = planId,
                 Type = TestActivityTypes.Bug,
@@ -1997,7 +1997,7 @@ public class TestingService : ITestingService
             tc.BugIssueId = issue.Id;
             tc.UpdatedAt = now;
 
-            _db.TestActivities.Add(new TestActivity
+            _db.Add(new TestActivity
             {
                 PlanId = planId,
                 Type = TestActivityTypes.Bug,
@@ -2042,7 +2042,7 @@ public class TestingService : ITestingService
         plan.HandoverNote = note;
         plan.UpdatedAt = now;
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = planId,
             Type = TestActivityTypes.Handover,
@@ -2075,7 +2075,7 @@ public class TestingService : ITestingService
         plan.HandoverNote = null;
         plan.UpdatedAt = now;
 
-        _db.TestActivities.Add(new TestActivity
+        _db.Add(new TestActivity
         {
             PlanId = planId,
             Type = TestActivityTypes.Handover,
@@ -2815,7 +2815,7 @@ public class TestingService : ITestingService
 
         if (createdIds.Count > 0)
         {
-            _db.TestActivities.Add(new TestActivity
+            _db.Add(new TestActivity
             {
                 PlanId = planId,
                 Type = TestActivityTypes.TestCase,
@@ -3477,7 +3477,7 @@ public class TestingService : ITestingService
 
         if (existing.Count > 0)
         {
-            _db.TestCaseRequirementLinks.RemoveRange(existing);
+            _db.RemoveRange(existing);
         }
 
         var normalizedRefs = refs
@@ -3516,7 +3516,7 @@ public class TestingService : ITestingService
                 ? reqItems.FirstOrDefault(r => r.VersionId == verId.Value && string.Equals(r.ReqUid, reqUid, StringComparison.OrdinalIgnoreCase))
                 : null;
 
-            _db.TestCaseRequirementLinks.Add(new TestCaseRequirementLink
+            _db.Add(new TestCaseRequirementLink
             {
                 TestCaseId = tc.Id,
                 DocumentId = docId,
@@ -3533,7 +3533,7 @@ public class TestingService : ITestingService
             .ToListAsync(ct);
         if (reqFlags.Count > 0)
         {
-            _db.TestRetestFlags.RemoveRange(reqFlags);
+            _db.RemoveRange(reqFlags);
         }
     }
 

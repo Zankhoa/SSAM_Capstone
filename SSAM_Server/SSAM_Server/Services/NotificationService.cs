@@ -1,7 +1,7 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Notifications;
 using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
@@ -11,11 +11,11 @@ namespace SSAM_Server.Services;
 
 public class NotificationService : INotificationService
 {
-    private readonly AppDbContext _db;
+    private readonly INotificationRepository _db;
     private readonly ICurrentUser _currentUser;
     private readonly NotificationBroadcaster _broadcaster;
 
-    public NotificationService(AppDbContext db, ICurrentUser currentUser, NotificationBroadcaster broadcaster)
+    public NotificationService(INotificationRepository db, ICurrentUser currentUser, NotificationBroadcaster broadcaster)
     {
         _db = db;
         _currentUser = currentUser;
@@ -107,7 +107,7 @@ public class NotificationService : INotificationService
             CreatedAt = now
         };
 
-        _db.Notifications.Add(entity);
+        _db.Add(entity);
         await _db.SaveChangesAsync(ct);
 
         _broadcaster.Publish(userId, new NotificationDto

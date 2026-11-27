@@ -246,17 +246,17 @@ namespace SSAM_Server.Data.Migrations
                         .HasColumnType("nvarchar(max)")
                         .HasColumnName("address");
 
+                    b.Property<bool>("BlockForeignEmailDomains")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(true)
+                        .HasColumnName("block_foreign_email_domains");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)")
                         .HasColumnName("code");
-
-                    b.Property<string>("CompanySize")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)")
-                        .HasColumnName("company_size");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
@@ -274,12 +274,6 @@ namespace SSAM_Server.Data.Migrations
                         .HasMaxLength(255)
                         .HasColumnType("nvarchar(255)")
                         .HasColumnName("email_domain");
-
-                    b.Property<string>("Industry")
-                        .IsRequired()
-                        .HasMaxLength(150)
-                        .HasColumnType("nvarchar(150)")
-                        .HasColumnName("industry");
 
                     b.Property<bool>("IsActive")
                         .ValueGeneratedOnAdd()

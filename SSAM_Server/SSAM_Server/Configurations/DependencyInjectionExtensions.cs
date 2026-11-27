@@ -52,6 +52,14 @@ public static class DependencyInjectionExtensions
         services.AddScoped<IWorkspaceRepository, WorkspaceRepository>();
         services.AddScoped<IRoleRepository, RoleRepository>();
         services.AddScoped<IProjectRepository, ProjectRepository>();
+        services.AddScoped<IDepartmentRepository, DepartmentRepository>();
+        services.AddScoped<INotificationRepository, NotificationRepository>();
+        services.AddScoped<IAiRepository, AiRepository>();
+        services.AddScoped<IWorkRepository, WorkRepository>();
+        services.AddScoped<IFigmaWatchRepository, FigmaWatchRepository>();
+        services.AddScoped<IDocumentRepository, DocumentRepository>();
+        services.AddScoped<IKanbanRepository, KanbanRepository>();
+        services.AddScoped<ITestingRepository, TestingRepository>();
         services.AddSingleton<IPromptRepository, PromptRepository>();
 
         // Security

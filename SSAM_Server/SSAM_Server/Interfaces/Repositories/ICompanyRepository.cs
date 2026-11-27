@@ -10,6 +10,7 @@ public interface ICompanyRepository
     Task<Company?> GetByIdAsync(long companyId, CancellationToken ct = default);
     Task<Company?> GetActiveByDomainAsync(string domain, CancellationToken ct = default);
     Task<bool> AnyActiveCompanyExistsAsync(CancellationToken ct = default);
+    Task<bool> AnyActiveCompanyAllowsForeignEmailsAsync(CancellationToken ct = default);
     Task<Company?> GetFirstActiveCompanyAsync(CancellationToken ct = default);
     Task<bool> CodeExistsAsync(string code, CancellationToken ct = default);
     Task AddCompanyAsync(Company company, CancellationToken ct = default);

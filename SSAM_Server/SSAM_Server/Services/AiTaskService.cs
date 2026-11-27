@@ -4,7 +4,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
 using SSAM_Server.Common;
 using SSAM_Server.Configurations;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Ai;
 using SSAM_Server.Interfaces.Security;
 using SSAM_Server.Interfaces.Services;
@@ -16,7 +16,7 @@ namespace SSAM_Server.Services;
 public class AiTaskService : IAiTaskService
 {
     private const int MaxInputLength = 40000;
-    private readonly AppDbContext _db;
+    private readonly IAiRepository _db;
     private readonly IChatClient _chatClient;
     private readonly IProjectAccessGuard _accessGuard;
     private readonly IAiProjectContextRetriever _contextRetriever;
@@ -25,7 +25,7 @@ public class AiTaskService : IAiTaskService
     private readonly ILogger<AiTaskService> _logger;
 
     public AiTaskService(
-        AppDbContext db,
+        IAiRepository db,
         IChatClient chatClient,
         IProjectAccessGuard accessGuard,
         IAiProjectContextRetriever contextRetriever,
@@ -202,7 +202,7 @@ public class AiTaskService : IAiTaskService
                     Title = title,
                     CanViewDocuments = true
                 };
-                _db.AiConversations.Add(documentChatConversation);
+                _db.Add(documentChatConversation);
             }
 
             documentChatConversation.Messages.Add(new AiConversationMessage

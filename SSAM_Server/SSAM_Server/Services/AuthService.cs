@@ -48,6 +48,9 @@ public class AuthService : IAuthService
         if (!await _companyRepository.AnyActiveCompanyExistsAsync(ct))
             return true;
 
+        if (await _companyRepository.AnyActiveCompanyAllowsForeignEmailsAsync(ct))
+            return true;
+
         if (await _companyRepository.GetActiveByDomainAsync(domain, ct) != null)
             return true;
 

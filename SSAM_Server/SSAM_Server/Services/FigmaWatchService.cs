@@ -5,7 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SSAM_Server.Common;
 using SSAM_Server.Common.Options;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Designs;
 using SSAM_Server.Interfaces.Services;
 using SSAM_Server.Models;
@@ -22,7 +22,7 @@ public class FigmaWatchService : IFigmaWatchService
         @"https?://(?:www\.)?figma\.com/(?:design|file|proto|board)/([A-Za-z0-9_-]+)(?:/branch/([A-Za-z0-9_-]+))?[^\s""'<>]*",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private readonly AppDbContext _db;
+    private readonly IFigmaWatchRepository _db;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly FigmaOptions _options;
     private readonly TimeProvider _clock;
@@ -30,7 +30,7 @@ public class FigmaWatchService : IFigmaWatchService
     private readonly ILogger<FigmaWatchService> _logger;
 
     public FigmaWatchService(
-        AppDbContext db,
+        IFigmaWatchRepository db,
         IHttpClientFactory httpClientFactory,
         IOptions<FigmaOptions> options,
         TimeProvider clock,
@@ -63,7 +63,7 @@ public class FigmaWatchService : IFigmaWatchService
         }
 
         var meta = await FetchFigmaFileMetaAsync(fileKey, ct);
-        _db.FigmaFileWatches.Add(new FigmaFileWatch
+        _db.Add(new FigmaFileWatch
         {
             FileKey = fileKey,
             FileName = !string.IsNullOrWhiteSpace(meta?.Name) ? meta.Name : (!string.IsNullOrWhiteSpace(fileName) ? fileName.Trim() : fileKey),
@@ -113,7 +113,7 @@ public class FigmaWatchService : IFigmaWatchService
 
         if (!exists)
         {
-            _db.TestCaseFigmaLinks.Add(new TestCaseFigmaLink
+            _db.Add(new TestCaseFigmaLink
             {
                 TestCaseId = testCaseId,
                 FileKey = fileKey,
@@ -204,7 +204,7 @@ public class FigmaWatchService : IFigmaWatchService
                 IsActive = true,
                 CreatedAt = now
             };
-            _db.FigmaFileWatches.Add(watch);
+            _db.Add(watch);
         }
 
         if (!string.IsNullOrWhiteSpace(payload.FileName))
@@ -317,14 +317,14 @@ public class FigmaWatchService : IFigmaWatchService
                             Build = null,
                             At = now
                         };
-                        _db.TestRetestFlags.Add(newFlag);
+                        _db.Add(newFlag);
                         flagMap[(tc.Id, envId)] = newFlag;
                     }
                 }
                 flaggedCount++;
             }
 
-            _db.TestActivities.Add(new TestActivity
+            _db.Add(new TestActivity
             {
                 PlanId = tc.PlanId,
                 Type = TestActivityTypes.Req,

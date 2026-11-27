@@ -25,6 +25,9 @@ public class CompanyRepository : ICompanyRepository
     public Task<bool> AnyActiveCompanyExistsAsync(CancellationToken ct = default)
         => _db.Companies.AsNoTracking().AnyAsync(c => c.IsActive, ct);
 
+    public Task<bool> AnyActiveCompanyAllowsForeignEmailsAsync(CancellationToken ct = default)
+        => _db.Companies.AsNoTracking().AnyAsync(c => c.IsActive && !c.BlockForeignEmailDomains, ct);
+
     public Task<Company?> GetFirstActiveCompanyAsync(CancellationToken ct = default)
         => _db.Companies.AsNoTracking().OrderBy(c => c.Id).FirstOrDefaultAsync(c => c.IsActive, ct);
 

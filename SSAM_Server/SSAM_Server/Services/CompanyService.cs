@@ -1,7 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Companies;
 using SSAM_Server.Models;
@@ -25,7 +25,7 @@ public class CompanyService : ICompanyService
     private readonly IAuthRepository _authRepository;
     private readonly IPermissionService _permissionService;
     private readonly IPasswordHasher _passwordHasher;
-    private readonly AppDbContext _db;
+    private readonly IDepartmentRepository _db;
     private readonly ICurrentUser _currentUser;
     private readonly TimeProvider _clock;
 
@@ -34,7 +34,7 @@ public class CompanyService : ICompanyService
         IAuthRepository authRepository,
         IPermissionService permissionService,
         IPasswordHasher passwordHasher,
-        AppDbContext db,
+        IDepartmentRepository db,
         ICurrentUser currentUser,
         TimeProvider clock)
     {
@@ -136,6 +136,8 @@ public class CompanyService : ICompanyService
         company.TaxCode = taxCode;
         company.Address = address;
         company.EmailDomain = normalizedDomain;
+        if (request.BlockForeignEmailDomains.HasValue)
+            company.BlockForeignEmailDomains = request.BlockForeignEmailDomains.Value;
         company.UpdatedAt = _clock.GetUtcNow().UtcDateTime;
 
         await _companyRepository.SaveChangesAsync(cancellationToken);
@@ -220,10 +222,9 @@ public class CompanyService : ICompanyService
                 Code = slug,
                 EmailDomain = normalizedDomain,
                 DomainAutoJoinEnabled = request.DomainAutoJoinEnabled,
+                BlockForeignEmailDomains = request.BlockForeignEmailDomains ?? true,
                 TaxCode = request.TaxCode?.Trim() ?? string.Empty,
                 Address = request.Address?.Trim() ?? string.Empty,
-                Industry = "Software",
-                CompanySize = "10-50",
                 IsActive = true,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -451,17 +452,12 @@ public class CompanyService : ICompanyService
         if (company == null || !company.IsActive)
             return ServiceResult<CompanyUserDto>.NotFound("Không tìm thấy công ty.");
 
-        if (!string.IsNullOrWhiteSpace(company.EmailDomain))
+        if (!company.IsEmailAllowed(email))
         {
-            var atIdx = email.IndexOf('@');
-            var domain = atIdx >= 0 ? email[(atIdx + 1)..].Trim().ToLowerInvariant() : string.Empty;
-            if (!string.Equals(domain, company.EmailDomain.Trim(), StringComparison.OrdinalIgnoreCase))
+            return ServiceResult<CompanyUserDto>.ValidationFailure(new Dictionary<string, string[]>
             {
-                return ServiceResult<CompanyUserDto>.ValidationFailure(new Dictionary<string, string[]>
-                {
-                    ["email"] = new[] { $"Email nhân viên phải thuộc tên miền công ty (@{company.EmailDomain})." }
-                });
-            }
+                ["email"] = new[] { $"Email nhân viên phải thuộc tên miền công ty (@{company.EmailDomain})." }
+            });
         }
 
         if (await _companyRepository.IsEmailMemberAsync(companyId, email, cancellationToken))
@@ -614,6 +610,7 @@ public class CompanyService : ICompanyService
             Code = c.Code,
             EmailDomain = c.EmailDomain,
             DomainAutoJoinEnabled = c.DomainAutoJoinEnabled,
+            BlockForeignEmailDomains = c.BlockForeignEmailDomains,
             TaxCode = c.TaxCode,
             Address = c.Address,
             LogoUrl = c.LogoUrl

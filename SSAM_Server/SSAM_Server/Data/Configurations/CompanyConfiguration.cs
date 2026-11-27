@@ -43,6 +43,11 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
             .HasDefaultValue(false)
             .IsRequired();
 
+        builder.Property(c => c.BlockForeignEmailDomains)
+            .HasColumnName("block_foreign_email_domains")
+            .HasDefaultValue(true)
+            .IsRequired();
+
         builder.Property(c => c.TaxCode)
             .HasColumnName("tax_code")
             .HasMaxLength(100)
@@ -50,16 +55,6 @@ public class CompanyConfiguration : IEntityTypeConfiguration<Company>
 
         builder.Property(c => c.Address)
             .HasColumnName("address")
-            .IsRequired();
-
-        builder.Property(c => c.Industry)
-            .HasColumnName("industry")
-            .HasMaxLength(150)
-            .IsRequired();
-
-        builder.Property(c => c.CompanySize)
-            .HasColumnName("company_size")
-            .HasMaxLength(50)
             .IsRequired();
 
         builder.Property(c => c.LogoUrl)

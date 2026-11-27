@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Workspaces;
 using SSAM_Server.Models;
@@ -13,7 +13,7 @@ public class WorkspaceService : IWorkspaceService
 {
     private readonly IWorkspaceRepository _workspaceRepository;
     private readonly ICompanyRepository _companyRepository;
-    private readonly AppDbContext _db;
+    private readonly IDepartmentRepository _db;
     private readonly IPermissionService _permissionService;
     private readonly ICurrentUser _currentUser;
     private readonly TimeProvider _clock;
@@ -21,7 +21,7 @@ public class WorkspaceService : IWorkspaceService
     public WorkspaceService(
         IWorkspaceRepository workspaceRepository,
         ICompanyRepository companyRepository,
-        AppDbContext db,
+        IDepartmentRepository db,
         IPermissionService permissionService,
         ICurrentUser currentUser,
         TimeProvider clock)
@@ -240,7 +240,7 @@ public class WorkspaceService : IWorkspaceService
                 {
                     foreach (var deptId in distinctDeptIds)
                     {
-                        _db.WorkspaceDepartments.Add(new WorkspaceDepartment
+                        _db.Add(new WorkspaceDepartment
                         {
                             WorkspaceId = workspace.Id,
                             DepartmentId = deptId,
@@ -369,13 +369,13 @@ public class WorkspaceService : IWorkspaceService
 
             var toRemove = existingLinks.Where(l => !nextDeptSet.Contains(l.DepartmentId)).ToList();
             if (toRemove.Count > 0)
-                _db.WorkspaceDepartments.RemoveRange(toRemove);
+                _db.RemoveRange(toRemove);
 
             var addedDeptIds = distinctDeptIds.Where(id => !existingDeptSet.Contains(id)).ToList();
             var now = _clock.GetUtcNow().UtcDateTime;
             foreach (var deptId in addedDeptIds)
             {
-                _db.WorkspaceDepartments.Add(new WorkspaceDepartment
+                _db.Add(new WorkspaceDepartment
                 {
                     WorkspaceId = workspaceId,
                     DepartmentId = deptId,

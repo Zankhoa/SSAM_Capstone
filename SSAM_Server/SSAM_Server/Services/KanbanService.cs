@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using SSAM_Server.Common;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Companies;
 using SSAM_Server.DTOs.Kanban;
@@ -17,7 +17,7 @@ namespace SSAM_Server.Services;
 
 public class KanbanService : IKanbanService
 {
-    private readonly AppDbContext _db;
+    private readonly IKanbanRepository _db;
     private readonly ICurrentUser _currentUser;
     private readonly IPermissionService _permissions;
     private readonly TimeProvider _clock;
@@ -26,7 +26,7 @@ public class KanbanService : IKanbanService
     private readonly string _uploadRoot;
 
     public KanbanService(
-        AppDbContext db,
+        IKanbanRepository db,
         ICurrentUser currentUser,
         IPermissionService permissions,
         TimeProvider clock,
@@ -138,7 +138,7 @@ public class KanbanService : IKanbanService
             {
                 if (existingLimits.TryGetValue(item.StatusId, out var existing))
                 {
-                    _db.BoardWipLimits.Remove(existing);
+                    _db.Remove(existing);
                 }
             }
             else
@@ -149,7 +149,7 @@ public class KanbanService : IKanbanService
                 }
                 else
                 {
-                    _db.BoardWipLimits.Add(new BoardWipLimit
+                    _db.Add(new BoardWipLimit
                     {
                         ProjectId = projectId,
                         StatusId = item.StatusId,
@@ -402,7 +402,7 @@ public class KanbanService : IKanbanService
                 UpdatedAt = now
             };
 
-            _db.Issues.Add(issue);
+            _db.Add(issue);
             await _db.SaveChangesAsync(innerCt);
 
             if (request.RequirementRefs != null && request.RequirementRefs.Count > 0)
@@ -410,7 +410,7 @@ public class KanbanService : IKanbanService
                 await AttachRequirementRefsAsync(issue, request.RequirementRefs, userId, now, innerCt);
             }
 
-            _db.IssueActivities.Add(new IssueActivity
+            _db.Add(new IssueActivity
             {
                 IssueId = issue.Id,
                 Action = IssueActivityActions.Created,
@@ -739,7 +739,7 @@ public class KanbanService : IKanbanService
             }
 
             issue.AssigneeId = request.AssigneeId;
-            _db.IssueActivities.Add(new IssueActivity
+            _db.Add(new IssueActivity
             {
                 IssueId = issue.Id,
                 Action = IssueActivityActions.Assigned,
@@ -783,7 +783,7 @@ public class KanbanService : IKanbanService
             }
 
             issue.SprintId = request.SprintId;
-            _db.IssueActivities.Add(new IssueActivity
+            _db.Add(new IssueActivity
             {
                 IssueId = issue.Id,
                 Action = IssueActivityActions.SprintChanged,
@@ -795,7 +795,7 @@ public class KanbanService : IKanbanService
 
         if (changedFields.Count > 0)
         {
-            _db.IssueActivities.Add(new IssueActivity
+            _db.Add(new IssueActivity
             {
                 IssueId = issue.Id,
                 Action = IssueActivityActions.Updated,
@@ -834,7 +834,7 @@ public class KanbanService : IKanbanService
             sub.UpdatedAt = now;
         }
 
-        _db.IssueActivities.Add(new IssueActivity
+        _db.Add(new IssueActivity
         {
             IssueId = issue.Id,
             Action = IssueActivityActions.Deleted,
@@ -980,7 +980,7 @@ public class KanbanService : IKanbanService
 
         if (!string.IsNullOrWhiteSpace(request.Comment))
         {
-            _db.IssueComments.Add(new IssueComment
+            _db.Add(new IssueComment
             {
                 IssueId = issue.Id,
                 Body = request.Comment.Trim(),
@@ -989,7 +989,7 @@ public class KanbanService : IKanbanService
             });
         }
 
-        _db.IssueActivities.Add(new IssueActivity
+        _db.Add(new IssueActivity
         {
             IssueId = issue.Id,
             Action = IssueActivityActions.Transitioned,
@@ -1033,7 +1033,7 @@ public class KanbanService : IKanbanService
                 var sprint = await _db.Sprints.AsNoTracking().FirstOrDefaultAsync(s => s.Id == request.SprintId.Value && s.ProjectId == issue.ProjectId, ct);
                 if (sprint == null)
                     return ServiceResult<IssueSummaryDto>.NotFound("SPRINT_NOT_FOUND", "Sprint not found.");
-                _db.IssueActivities.Add(new IssueActivity
+                _db.Add(new IssueActivity
                 {
                     IssueId = issue.Id,
                     Action = IssueActivityActions.SprintChanged,
@@ -1044,7 +1044,7 @@ public class KanbanService : IKanbanService
             }
             else
             {
-                _db.IssueActivities.Add(new IssueActivity
+                _db.Add(new IssueActivity
                 {
                     IssueId = issue.Id,
                     Action = IssueActivityActions.SprintChanged,
@@ -1162,10 +1162,10 @@ public class KanbanService : IKanbanService
                     CreatedAt = now,
                     UpdatedAt = now
                 };
-                _db.Issues.Add(issue);
+                _db.Add(issue);
                 await _db.SaveChangesAsync(innerCt);
 
-                _db.IssueRequirementLinks.Add(new IssueRequirementLink
+                _db.Add(new IssueRequirementLink
                 {
                     IssueId = issue.Id,
                     DocumentId = doc.Id,
@@ -1175,7 +1175,7 @@ public class KanbanService : IKanbanService
                     LinkedById = userId
                 });
 
-                _db.IssueActivities.Add(new IssueActivity
+                _db.Add(new IssueActivity
                 {
                     IssueId = issue.Id,
                     Action = IssueActivityActions.Created,
@@ -1213,7 +1213,7 @@ public class KanbanService : IKanbanService
                             CreatedAt = now,
                             UpdatedAt = now
                         };
-                        _db.Issues.Add(subtask);
+                        _db.Add(subtask);
                         await _db.SaveChangesAsync(innerCt);
                     }
                 }
@@ -1249,7 +1249,7 @@ public class KanbanService : IKanbanService
         var userId = _currentUser.UserId;
         var now = _clock.GetUtcNow().UtcDateTime;
 
-        _db.IssueRequirementLinks.RemoveRange(issue.RequirementLinks);
+        _db.RemoveRange(issue.RequirementLinks);
         issue.RequirementLinks.Clear();
 
         if (request.Refs != null && request.Refs.Count > 0)
@@ -1261,7 +1261,7 @@ public class KanbanService : IKanbanService
         issue.ReqChanged = false;
         issue.UpdatedAt = now;
 
-        _db.IssueActivities.Add(new IssueActivity
+        _db.Add(new IssueActivity
         {
             IssueId = issue.Id,
             Action = IssueActivityActions.ReqLinked,
@@ -1314,7 +1314,7 @@ public class KanbanService : IKanbanService
         issue.ReqChanged = false;
         issue.UpdatedAt = now;
 
-        _db.IssueActivities.Add(new IssueActivity
+        _db.Add(new IssueActivity
         {
             IssueId = issue.Id,
             Action = IssueActivityActions.ReqAcked,
@@ -1408,7 +1408,7 @@ public class KanbanService : IKanbanService
             AuthorId = userId,
             CreatedAt = now
         };
-        _db.IssueComments.Add(comment);
+        _db.Add(comment);
         await _db.SaveChangesAsync(ct);
 
         var mentionedIds = new HashSet<long>();
@@ -1423,7 +1423,7 @@ public class KanbanService : IKanbanService
             foreach (var uid in validUserIds)
             {
                 mentionedIds.Add(uid);
-                _db.IssueCommentMentions.Add(new IssueCommentMention
+                _db.Add(new IssueCommentMention
                 {
                     CommentId = comment.Id,
                     UserId = uid
@@ -1431,7 +1431,7 @@ public class KanbanService : IKanbanService
             }
         }
 
-        _db.IssueActivities.Add(new IssueActivity
+        _db.Add(new IssueActivity
         {
             IssueId = issueId,
             Action = IssueActivityActions.Commented,
@@ -1587,7 +1587,7 @@ public class KanbanService : IKanbanService
             UpdatedAt = now
         };
 
-        _db.Sprints.Add(sprint);
+        _db.Add(sprint);
         await _db.SaveChangesAsync(ct);
 
         return ServiceResult<SprintDto>.Created(MapSprintDto(sprint, new SprintStatsDto()));
@@ -1792,7 +1792,7 @@ public class KanbanService : IKanbanService
         {
             issue.SprintId = targetSprintId;
             issue.UpdatedAt = now;
-            _db.IssueActivities.Add(new IssueActivity
+            _db.Add(new IssueActivity
             {
                 IssueId = issue.Id,
                 Action = IssueActivityActions.SprintChanged,
@@ -1840,7 +1840,7 @@ public class KanbanService : IKanbanService
             if (req == null)
                 return ServiceResult.NotFound("REQUIREMENT_NOT_FOUND", $"Requirement {reqUidUpper} not found in document {r.DocumentId}.");
 
-            _db.IssueRequirementLinks.Add(new IssueRequirementLink
+            _db.Add(new IssueRequirementLink
             {
                 IssueId = issue.Id,
                 DocumentId = doc.Id,
@@ -2259,7 +2259,7 @@ public class KanbanService : IKanbanService
             UploadedById = userId,
             CreatedAt = now
         };
-        _db.IssueAttachments.Add(entity);
+        _db.Add(entity);
         await _db.SaveChangesAsync(ct);
 
         var uploader = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
@@ -2307,7 +2307,7 @@ public class KanbanService : IKanbanService
         if (!auth.IsSuccess) return auth;
 
         var fullPath = Path.Combine(_uploadRoot, "issues", issueId.ToString(CultureInfo.InvariantCulture), att.StoredFileName);
-        _db.IssueAttachments.Remove(att);
+        _db.Remove(att);
         await _db.SaveChangesAsync(ct);
 
         if (File.Exists(fullPath))

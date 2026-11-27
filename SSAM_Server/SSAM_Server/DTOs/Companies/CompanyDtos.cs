@@ -20,6 +20,9 @@ public class CompanyDto
     [JsonPropertyName("domainAutoJoinEnabled")]
     public bool DomainAutoJoinEnabled { get; set; }
 
+    [JsonPropertyName("blockForeignEmailDomains")]
+    public bool BlockForeignEmailDomains { get; set; }
+
     [JsonPropertyName("taxCode")]
     public string TaxCode { get; set; } = string.Empty;
 
@@ -83,6 +86,9 @@ public class CreateCompanyRequestDto
 
     [JsonPropertyName("domainAutoJoinEnabled")]
     public bool DomainAutoJoinEnabled { get; set; }
+
+    [JsonPropertyName("blockForeignEmailDomains")]
+    public bool? BlockForeignEmailDomains { get; set; }
 }
 
 public class CompanyJoinResponseDto
@@ -182,5 +188,8 @@ public class UpdateCompanyRequestDto
 
     [JsonPropertyName("emailDomain")]
     public string? EmailDomain { get; set; }
+
+    [JsonPropertyName("blockForeignEmailDomains")]
+    public bool? BlockForeignEmailDomains { get; set; }
 }
 

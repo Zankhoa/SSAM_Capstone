@@ -1,6 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using SSAM_Server.Common;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Common;
 using SSAM_Server.DTOs.Work;
 using SSAM_Server.Models;
@@ -10,13 +10,13 @@ namespace SSAM_Server.Services;
 
 public class WorkService : IWorkService
 {
-    private readonly AppDbContext _db;
+    private readonly IWorkRepository _db;
     private readonly ICurrentUser _currentUser;
     private readonly IPermissionService _permissions;
     private readonly TimeProvider _clock;
 
     public WorkService(
-        AppDbContext db,
+        IWorkRepository db,
         ICurrentUser currentUser,
         IPermissionService permissions,
         TimeProvider clock)

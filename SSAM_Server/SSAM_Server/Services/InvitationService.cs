@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using SSAM_Server.Common;
 using SSAM_Server.Common.Options;
-using SSAM_Server.Data;
+using SSAM_Server.Interfaces.Repositories;
 using SSAM_Server.DTOs.Invitations;
 using SSAM_Server.Models;
 using SSAM_Server.Repositories;
@@ -16,7 +16,7 @@ public class InvitationService : IInvitationService
     private readonly ICompanyRepository _companyRepository;
     private readonly IAuthRepository _authRepository;
     private readonly IWorkspaceRepository _workspaceRepository;
-    private readonly AppDbContext _db;
+    private readonly IDepartmentRepository _db;
     private readonly IPermissionService _permissionService;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenGenerator _jwtTokenGenerator;
@@ -30,7 +30,7 @@ public class InvitationService : IInvitationService
         ICompanyRepository companyRepository,
         IAuthRepository authRepository,
         IWorkspaceRepository workspaceRepository,
-        AppDbContext db,
+        IDepartmentRepository db,
         IPermissionService permissionService,
         IPasswordHasher passwordHasher,
         IJwtTokenGenerator jwtTokenGenerator,
@@ -93,17 +93,12 @@ public class InvitationService : IInvitationService
         }
 
         var email = request.Email.Trim();
-        if (!string.IsNullOrWhiteSpace(company.EmailDomain))
+        if (!company.IsEmailAllowed(email))
         {
-            var atIdx = email.IndexOf('@');
-            var domain = atIdx >= 0 ? email[(atIdx + 1)..].Trim().ToLowerInvariant() : string.Empty;
-            if (!string.Equals(domain, company.EmailDomain.Trim(), StringComparison.OrdinalIgnoreCase))
+            return ServiceResult<CreateInvitationResponseDto>.Validation(new Dictionary<string, string[]>
             {
-                return ServiceResult<CreateInvitationResponseDto>.Validation(new Dictionary<string, string[]>
-                {
-                    ["email"] = new[] { $"Email được mời phải thuộc tên miền công ty (@{company.EmailDomain})." }
-                });
-            }
+                ["email"] = new[] { $"Chỉ cho phép mời email thuộc tên miền công ty (@{company.EmailDomain})." }
+            });
         }
         if (await _companyRepository.IsEmailMemberAsync(companyId, email, cancellationToken))
         {
@@ -236,6 +231,17 @@ public class InvitationService : IInvitationService
 
         if (invite.ExpiresAt != null && invite.ExpiresAt <= now)
             return ServiceResult<AcceptInvitationResponseDto>.BadRequest("TOKEN_EXPIRED", "Lời mời đã hết hạn.");
+
+        var company = await _companyRepository.GetByIdAsync(invite.CompanyId, cancellationToken);
+        if (company == null || !company.IsActive)
+            return ServiceResult<AcceptInvitationResponseDto>.NotFound("Không tìm thấy công ty.");
+
+        if (!company.IsEmailAllowed(invite.Email))
+        {
+            return ServiceResult<AcceptInvitationResponseDto>.Forbidden(
+                "COMPANY_DOMAIN_REQUIRED",
+                $"Công ty chỉ cho phép email thuộc tên miền @{company.EmailDomain}.");
+        }
 
         return await _invitationRepository.ExecuteInTransactionAsync(async ct =>
         {
