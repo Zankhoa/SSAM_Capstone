@@ -687,6 +687,59 @@ public static partial class DocumentContentHelper
         };
     }
 
+    public static JsonObject MakeTable(IReadOnlyList<string> headers, IEnumerable<string[]> rows)
+    {
+        var tableRows = new JsonArray
+        {
+            MakeTableRow(headers, "tableHeader")
+        };
+
+        foreach (var row in rows)
+        {
+            var cells = new JsonArray();
+            for (var i = 0; i < headers.Count; i++)
+            {
+                cells.Add(MakeTableCell(i < row.Length ? row[i] : string.Empty, "tableCell"));
+            }
+
+            tableRows.Add(new JsonObject
+            {
+                ["type"] = "tableRow",
+                ["content"] = cells
+            });
+        }
+
+        return new JsonObject
+        {
+            ["type"] = "table",
+            ["content"] = tableRows
+        };
+    }
+
+    private static JsonObject MakeTableRow(IReadOnlyList<string> values, string cellType)
+    {
+        var cells = new JsonArray();
+        foreach (var value in values)
+        {
+            cells.Add(MakeTableCell(value, cellType));
+        }
+
+        return new JsonObject
+        {
+            ["type"] = "tableRow",
+            ["content"] = cells
+        };
+    }
+
+    private static JsonObject MakeTableCell(string value, string type)
+    {
+        return new JsonObject
+        {
+            ["type"] = type,
+            ["content"] = new JsonArray { MakeParagraph(value) }
+        };
+    }
+
     public static JsonObject MakeCodeBlock(string language, string code)
     {
         return new JsonObject
